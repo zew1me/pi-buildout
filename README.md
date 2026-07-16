@@ -31,7 +31,7 @@ For a custom pi installation whose package path cannot be derived from `pi`, poi
 PI_PACKAGE_DIR=/opt/pi/lib/node_modules/@earendil-works/pi-coding-agent ./scripts/install-extensions.sh
 ```
 
-The installer validates and stages the complete versioned `/skills` patch before replacing its runtime files. It does not modify pi settings. Use `--skip-skill-loading-patch` to install only the extensions.
+The installer verifies the installed pi package against the versioned `/skills` patch baseline, stages and verifies the patch, then replaces its runtime files. It does not modify pi settings. Use `--skip-skill-loading-patch` to install only the extensions.
 
 ## Verification
 
