@@ -1,4 +1,6 @@
-# Contributor Instructions
+# Pi Buildout 
+
+Monorepo of pi tooling to modify vanilla pi.
 
 ## Before making changes
 
