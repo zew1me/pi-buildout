@@ -9,7 +9,7 @@ This directory contains a version-specific unified patch that changes pi skills 
 - `baseline.absent` — paths that must not exist in the clean package.
 - `patched.sha256` — SHA-256 checksums expected after applying `skills.patch`.
 
-The installer verifies the package version and baseline before modifying anything. It applies the patch to staged copies, verifies their patched checksums, then atomically replaces the installed files with rollback on a replacement failure. A package already matching `patched.sha256` is left unchanged. Any unknown or mixed state is rejected rather than overwritten.
+The installer verifies the package version and baseline before modifying anything. It applies the patch to staged copies, verifies their patched checksums, then atomically replaces the installed files with rollback on a replacement failure or interruption. A package already matching `patched.sha256` is left unchanged. Any unknown or mixed state is rejected rather than overwritten.
 
 ## Behavior
 

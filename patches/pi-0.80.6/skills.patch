@@ -1,5 +1,5 @@
 diff --git a/dist/core/resource-loader.js b/dist/core/resource-loader.js
-index 0a52612..c0ffd36 100644
+index 0a52612..8cd3ce0 100644
 --- a/dist/core/resource-loader.js
 +++ b/dist/core/resource-loader.js
 @@ -1,4 +1,5 @@
@@ -40,7 +40,7 @@ index 0a52612..c0ffd36 100644
 -        const skillPaths = this.noSkills
 -            ? this.mergePaths(cliEnabledSkills, this.additionalSkillPaths)
 -            : this.mergePaths([...cliEnabledSkills, ...enabledSkills], this.additionalSkillPaths);
-+        // Skills are now opt-in. Package/settings/discovered skills form a catalog, but are not
++        // Skills are now opt-in. Directory-discovered skills form a catalog, but are not
 +        // active unless explicitly enabled globally, for this repo, or for this session/CLI.
 +        const activeSkillPaths = this.noSkills ? [] : this.getActiveSkillPaths();
 +        const skillPaths = this.mergePaths([...cliEnabledSkills, ...activeSkillPaths], this.additionalSkillPaths);
@@ -89,10 +89,10 @@ index 0a52612..c0ffd36 100644
          if (this.noSkills && skillPaths.length === 0) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..a6412bd
+index 0000000..88b18a8
 --- /dev/null
 +++ b/dist/core/skill-management.js
-@@ -0,0 +1,193 @@
+@@ -0,0 +1,216 @@
 +import { execFileSync } from "node:child_process";
 +import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 +import { homedir } from "node:os";
@@ -130,14 +130,15 @@ index 0000000..a6412bd
 +    let url = rawUrl.trim().replace(/^git\+/, "");
 +    if (!url)
 +        return undefined;
++    const normalizeRepoPath = (value) => value.replace(/^\/+|\/+$/g, "").replace(/\.git$/i, "");
 +    const scpLike = url.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
 +    if (scpLike && !url.includes("://")) {
-+        const repoPath = scpLike[2].replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
++        const repoPath = normalizeRepoPath(scpLike[2]);
 +        return repoPath ? `${scpLike[1].toLowerCase()}:${repoPath}` : undefined;
 +    }
 +    try {
 +        const parsed = new URL(url);
-+        const repoPath = parsed.pathname.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
++        const repoPath = normalizeRepoPath(parsed.pathname);
 +        return parsed.hostname && repoPath ? `${parsed.hostname.toLowerCase()}:${repoPath}` : undefined;
 +    }
 +    catch {
@@ -168,6 +169,27 @@ index 0000000..a6412bd
 +function enabledEntries(value) {
 +    return Array.isArray(value?.enabled) ? value.enabled : [];
 +}
++function looksLikePath(source) {
++    return source.includes("/") || source.includes("\\") || source.startsWith(".") || source.startsWith("~");
++}
++function normalizeSkillPath(source, cwd) {
++    if (source === "~")
++        return homedir();
++    if (source.startsWith("~/"))
++        return join(homedir(), source.slice(2));
++    return resolve(cwd, source);
++}
++function sourceForPersistence(action, source, options) {
++    if (looksLikePath(source)) {
++        const resolved = normalizeSkillPath(source, options.cwd);
++        if (action === "add" && !existsSync(resolved))
++            throw new Error(`Skill path does not exist: ${resolved}`);
++        return resolved;
++    }
++    if (action === "add" && !getSkillCatalog(options).some((skill) => skill.name === source))
++        throw new Error(`Skill not found in the catalog: ${source}`);
++    return source;
++}
 +function scopeFromArgs(args) {
 +    const scopes = args.filter((arg) => arg === "--global" || arg === "--repo" || arg === "--session");
 +    if (scopes.length !== 1 || new Set(scopes).size !== 1)
@@ -186,13 +208,14 @@ index 0000000..a6412bd
 +    return {};
 +}
 +function updatePersistedSkill(action, source, scope, options) {
++    const persistedSource = sourceForPersistence(action, source, options);
 +    const location = configLocation(scope, options.cwd, options.agentDir);
 +    const config = readJson(location.path);
 +    const target = location.key ? (config[location.key] && typeof config[location.key] === "object" ? config[location.key] : {}) : config;
 +    const enabled = enabledEntries(target);
 +    const next = action === "add"
-+        ? (enabled.some((entry) => sourceOf(entry) === source) ? enabled : [...enabled, source])
-+        : enabled.filter((entry) => sourceOf(entry) !== source);
++        ? (enabled.some((entry) => sourceOf(entry) === persistedSource) ? enabled : [...enabled, persistedSource])
++        : enabled.filter((entry) => sourceOf(entry) !== persistedSource);
 +    target.enabled = next;
 +    if (location.key)
 +        config[location.key] = target;
@@ -331,7 +354,7 @@ index e6a2577..add30ee 100644
      if (parsed.diagnostics.length > 0) {
          for (const d of parsed.diagnostics) {
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 02455d6..3dcc944 100644
+index 02455d6..e749590 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
 @@ -23,6 +23,7 @@ import { DefaultPackageManager } from "../../core/package-manager.js";
@@ -342,7 +365,62 @@ index 02455d6..3dcc944 100644
  import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
  import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
  import { hasTrustRequiringProjectResources, ProjectTrustStore } from "../../core/trust-manager.js";
-@@ -2181,6 +2182,11 @@ export class InteractiveMode {
+@@ -107,6 +108,54 @@ function quoteIfNeeded(value) {
+     }
+     return `'${value.replace(/'/g, `'\\''`)}'`;
+ }
++function tokenizeSkillsArgs(input) {
++    const args = [];
++    let current = "";
++    let quote;
++    let escaped = false;
++    let tokenStarted = false;
++    for (const char of input) {
++        if (escaped) {
++            current += char;
++            escaped = false;
++            continue;
++        }
++        if (quote === '"' && char === "\\") {
++            escaped = true;
++            tokenStarted = true;
++            continue;
++        }
++        if (quote) {
++            if (char === quote)
++                quote = undefined;
++            else
++                current += char;
++            continue;
++        }
++        if (char === '"' || char === "'") {
++            quote = char;
++            tokenStarted = true;
++            continue;
++        }
++        if (/\s/.test(char)) {
++            if (tokenStarted) {
++                args.push(current);
++                current = "";
++                tokenStarted = false;
++            }
++            continue;
++        }
++        current += char;
++        tokenStarted = true;
++    }
++    if (escaped)
++        current += "\\";
++    if (quote)
++        throw new Error("Unterminated quote in /skills command.");
++    if (tokenStarted)
++        args.push(current);
++    return args;
++}
+ export function formatResumeCommand(sessionManager) {
+     if (!process.stdout.isTTY)
+         return undefined;
+@@ -2181,6 +2230,11 @@ export class InteractiveMode {
                  await this.handleReloadCommand();
                  return;
              }
@@ -354,12 +432,19 @@ index 02455d6..3dcc944 100644
              if (text === "/debug") {
                  this.handleDebugCommand();
                  this.editor.setText("");
-@@ -4359,6 +4365,56 @@ export class InteractiveMode {
+@@ -4359,6 +4413,63 @@ export class InteractiveMode {
      // =========================================================================
      // Command handlers
      // =========================================================================
 +    async handleSkillsCommand(text) {
-+        const args = text.slice("/skills".length).trim().split(/\s+/).filter(Boolean);
++        let args;
++        try {
++            args = tokenizeSkillsArgs(text.slice("/skills".length).trim());
++        }
++        catch (error) {
++            this.showWarning(error instanceof Error ? error.message : String(error));
++            return;
++        }
 +        if (args[0] === "reload") {
 +            await this.handleReloadCommand();
 +            return;
@@ -412,7 +497,7 @@ index 02455d6..3dcc944 100644
          if (this.session.isStreaming) {
              this.showWarning("Wait for the current response to finish before reloading.");
 diff --git a/docs/skills.md b/docs/skills.md
-index d3ffeea..0c4c051 100644
+index d3ffeea..2dd7593 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -21,7 +21,15 @@ Pi implements the [Agent Skills standard](https://agentskills.io/specification),
@@ -420,7 +505,7 @@ index d3ffeea..0c4c051 100644
  > **Security:** Skills can instruct the model to perform any action and may include executable code the model invokes. Review skill content before use.
  
 -Pi loads skills from:
-+Pi starts with no active skills. Skill directories, packages, and settings form a catalog, but catalog entries are not injected into the system prompt unless explicitly enabled.
++Pi starts with no active skills. Skills discovered from configured directories form a catalog, but catalog entries are not injected into the system prompt unless explicitly enabled.
 +
 +Active skills are loaded from:
 +

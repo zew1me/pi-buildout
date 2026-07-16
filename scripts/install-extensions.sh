@@ -16,13 +16,35 @@ PATCH_FILES=(
 )
 PATCH_STAGE_DIR=
 PATCH_BACKUP_DIR=
+PATCH_COMMIT_IN_PROGRESS=0
+PATCH_APPLIED=()
+
+restore_applied_files() {
+  local restored
+  for restored in "${PATCH_APPLIED[@]}"; do
+    if [[ -f "$PATCH_BACKUP_DIR/$restored" ]]; then
+      cp -p "$PATCH_BACKUP_DIR/$restored" "$PI_PACKAGE_DIR/$restored" ||
+        printf 'Could not restore %s\n' "$PI_PACKAGE_DIR/$restored" >&2
+    else
+      rm -f "$PI_PACKAGE_DIR/$restored" ||
+        printf 'Could not remove %s during rollback\n' "$PI_PACKAGE_DIR/$restored" >&2
+    fi
+  done
+}
 
 cleanup() {
   local status=$?
+  trap - EXIT INT TERM HUP
+  if (( PATCH_COMMIT_IN_PROGRESS )); then
+    printf 'Interrupted while applying /skills patch; restoring replaced files.\n' >&2
+    restore_applied_files
+  fi
   [[ -z "$PATCH_STAGE_DIR" ]] || rm -rf "$PATCH_STAGE_DIR" || true
   [[ -z "$PATCH_BACKUP_DIR" ]] || rm -rf "$PATCH_BACKUP_DIR" || true
   exit "$status"
 }
+trap 'exit 130' INT
+trap 'exit 143' TERM HUP
 trap cleanup EXIT
 
 sha256() {
@@ -149,23 +171,18 @@ for extension in "${EXTENSIONS[@]}"; do
 done
 
 if [[ -n "$PATCH_STAGE_DIR" ]]; then
-  applied=()
+  PATCH_COMMIT_IN_PROGRESS=1
   for file in "${PATCH_FILES[@]}"; do
+    # Record before rename so cleanup can recover even if interrupted immediately after it.
+    PATCH_APPLIED+=("$file")
     if ! mv "$PATCH_STAGE_DIR/$file" "$PI_PACKAGE_DIR/$file"; then
-      printf 'Could not apply /skills patch; restoring previously replaced files.\n' >&2
-      for restored in "${applied[@]}"; do
-        if [[ -f "$PATCH_BACKUP_DIR/$restored" ]]; then
-          cp -p "$PATCH_BACKUP_DIR/$restored" "$PI_PACKAGE_DIR/$restored" ||
-            printf 'Could not restore %s\n' "$PI_PACKAGE_DIR/$restored" >&2
-        else
-          rm -f "$PI_PACKAGE_DIR/$restored" ||
-            printf 'Could not remove %s during rollback\n' "$PI_PACKAGE_DIR/$restored" >&2
-        fi
-      done
+      printf 'Could not apply /skills patch; restoring replaced files.\n' >&2
+      restore_applied_files
+      PATCH_COMMIT_IN_PROGRESS=0
       exit 1
     fi
-    applied+=("$file")
   done
+  PATCH_COMMIT_IN_PROGRESS=0
   printf 'Applied /skills patch for pi %s\n' "$PI_VERSION"
 fi
 
