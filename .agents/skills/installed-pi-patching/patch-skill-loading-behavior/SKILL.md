@@ -11,11 +11,13 @@ Use this when the task is to change skill discovery, activation, or prompt-loadi
 
 ## Orientation
 
-This folder is a buildout/notes repo, not necessarily the package source. The installed package is usually under:
+This folder is a buildout/notes repo, not necessarily the package source. The installed package on this Homebrew machine is usually under:
 
 ```text
 /opt/homebrew/Cellar/pi-coding-agent/<version>/libexec/lib/node_modules/@earendil-works/pi-coding-agent
 ```
+
+For installation methods and platform-specific package-manager instructions, see the upstream [Pi Quick Start](https://github.com/earendil-works/pi#quick-start).
 
 Start from the live package that `pi` resolves to. Useful pointers:
 
