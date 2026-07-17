@@ -90,6 +90,10 @@ function classifierSystemPrompt(stage: "primary" | "secondary"): string {
 	].join("\n");
 }
 
+function escapeXml(value: string): string {
+	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
 export function buildClassifierRequest(
 	stage: "primary" | "secondary",
 	prompt: string,
@@ -101,10 +105,10 @@ export function buildClassifierRequest(
 		systemPrompt: classifierSystemPrompt(stage),
 		userPrompt: [
 			"<untrusted_session_synopsis>",
-			JSON.stringify(synopsis),
+			escapeXml(JSON.stringify(synopsis)),
 			"</untrusted_session_synopsis>",
 			"<immediate_user_request>",
-			prompt,
+			escapeXml(prompt),
 			"</immediate_user_request>",
 		].join("\n"),
 		toolName: CLASSIFIER_TOOL_NAME,

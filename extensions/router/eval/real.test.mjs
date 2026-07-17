@@ -5,6 +5,7 @@ import { complete, Type, validateToolArguments } from "@earendil-works/pi-ai/com
 import { CLASSIFIER_TOOL_NAME, classifyTask } from "../classifier.ts";
 import { compilePrompt } from "../core/compiler.ts";
 import { TaskFeaturesSchema } from "../core/features.ts";
+import { ProgramPlanSchema, validateProgramPlan } from "../core/planning.ts";
 import { findPromptProfile } from "../core/profiles.ts";
 import { calibrationError, scoreFeatureAxes } from "./score.ts";
 
@@ -12,7 +13,11 @@ const bifrostKey = process.env.BIFROST_VIRTUAL_KEY;
 const bifrostBase = process.env.BIFROST_BASE_URL;
 const enabled = Boolean(bifrostKey && bifrostBase);
 const fixtures = JSON.parse(await readFile(new URL("./corpus/routes.json", import.meta.url), "utf8"));
-const limit = Math.max(1, Number.parseInt(process.env.ROUTER_EVAL_LIMIT ?? String(fixtures.length), 10));
+function positiveInteger(value, fallback) {
+	const parsed = Number.parseInt(value ?? "", 10);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+const limit = positiveInteger(process.env.ROUTER_EVAL_LIMIT, fixtures.length);
 
 function model(id, provider) {
 	return {
@@ -29,13 +34,6 @@ function model(id, provider) {
 		contextWindow: 1_000_000,
 		maxTokens: 128_000,
 	};
-}
-
-function text(response) {
-	return response.content
-		.filter((part) => part.type === "text")
-		.map((part) => part.text)
-		.join("\n");
 }
 
 const classifierTool = {
@@ -177,29 +175,92 @@ describe("real Bifrost routing evaluation", { skip: !enabled }, () => {
 		assert.equal(hardPolicyViolations, 0, "real classifier produced a hard-policy violation");
 	});
 
-	it("evaluates a model and its own prompt profile as one paired treatment", async () => {
-		const workerId = process.env.ROUTER_EVAL_WORKER_MODEL ?? "gpt-5.6-luna";
-		const judgeId = process.env.ROUTER_EVAL_JUDGE_MODEL ?? "claude-sonnet-5";
-		const profile = findPromptProfile("openai", "gpt-5.6-luna", "fast_classification", "low");
-		assert.ok(profile);
-		const request = "Summarize the purpose of a repository that packages pi extensions in one sentence.";
-		const compiled = compilePrompt({
-			baseSystemPrompt: "Be safe and accurate.",
-			profile,
-			synopsis,
-			userRequest: request,
-		});
-		const workerResponse = await complete(
-			model(workerId, "bifrost-openai"),
+	it("evaluates every archetype as a model/profile paired treatment", async () => {
+		const treatments = [
 			{
-				systemPrompt: compiled.systemPrompt,
-				messages: [
-					{ role: "user", content: compiled.contextMessage, timestamp: Date.now() },
-					{ role: "user", content: compiled.userRequest, timestamp: Date.now() },
-				],
+				archetype: "fast_classification",
+				vendor: "openai",
+				modelId: "gpt-5.6-luna",
+				effort: "low",
+				request: "Summarize in one sentence: this repository packages tested pi extensions.",
 			},
-			{ apiKey: bifrostKey, maxTokens: 1_024, maxRetries: 1 },
-		);
+			{
+				archetype: "exact_extraction",
+				vendor: "openai",
+				modelId: "gpt-5.6-terra",
+				effort: "medium",
+				request: 'Return exactly JSON matching {"name": string, "age": number} for: name=Ada, age=36.',
+			},
+			{
+				archetype: "deliberate_tool_workflow",
+				vendor: "openai",
+				modelId: "gpt-5.5",
+				effort: "medium",
+				request: "Write a dry-run release checklist with an explicit human checkpoint before publish.",
+			},
+			{
+				archetype: "median_repository_implementation",
+				vendor: "openai",
+				modelId: "gpt-5.6-terra",
+				effort: "medium",
+				request:
+					"Return a TypeScript patch adding a non-empty check to function save(name: string), plus one unit test.",
+			},
+			{
+				archetype: "terminal_heavy_implementation",
+				vendor: "openai",
+				modelId: "gpt-5.6-terra",
+				effort: "high",
+				request: "Diagnose EADDRINUSE on port 3000 and give the minimal safe inspect, fix, and verify commands.",
+			},
+			{
+				archetype: "algorithmic_iterative_coding",
+				vendor: "google",
+				modelId: "gemini-3.5-flash",
+				effort: "medium",
+				request:
+					"Implement a self-contained TypeScript function that parses comma-separated integers, with edge-case tests.",
+			},
+			{
+				archetype: "code_review",
+				vendor: "google",
+				modelId: "gemini-3.5-flash",
+				effort: "high",
+				request:
+					"Review `function divide(a,b){ return a/b }` for actionable correctness issues; include evidence anchors.",
+			},
+			{
+				archetype: "implementation_planning",
+				vendor: "anthropic",
+				modelId: "claude-opus-4-8",
+				effort: "high",
+				request: "Plan a three-PR additive database migration with dependencies, acceptance, rollout, and rollback.",
+			},
+			{
+				archetype: "large_program_planning",
+				vendor: "anthropic",
+				modelId: "claude-fable-5",
+				effort: "high",
+				request: "Plan a twelve-PR service extraction program with a dependency DAG and reversible rollout gates.",
+			},
+			{
+				archetype: "long_context_synthesis",
+				vendor: "anthropic",
+				modelId: "claude-sonnet-5",
+				effort: "medium",
+				request:
+					"Synthesize: document A requires weekly deploys; document B freezes deploys in December. State the conflict.",
+			},
+			{
+				archetype: "highest_risk_advisory",
+				vendor: "openai",
+				modelId: "gpt-5.6-sol",
+				effort: "max",
+				request:
+					"Advise on an irreversible production data deletion with ambiguous retention requirements; do not authorize it.",
+			},
+		];
+		const profileLimit = positiveInteger(process.env.ROUTER_EVAL_PROFILE_LIMIT, treatments.length);
 		const JudgeSchema = Type.Object(
 			{
 				pass: Type.Boolean(),
@@ -212,30 +273,94 @@ describe("real Bifrost routing evaluation", { skip: !enabled }, () => {
 		);
 		const judgeTool = {
 			name: "report_profile_judgment",
-			description: "Score the paired treatment.",
+			description: "Score the paired model/profile treatment against the request and profile contract.",
 			parameters: JudgeSchema,
 		};
-		const judgeResponse = await complete(
-			model(judgeId, "bifrost-anthropic"),
-			{
-				systemPrompt: "Judge instruction adherence. Call report_profile_judgment exactly once.",
-				messages: [
-					{
-						role: "user",
-						content: JSON.stringify({ request, profileId: profile.id, response: text(workerResponse) }),
-						timestamp: Date.now(),
-					},
-				],
-				tools: [judgeTool],
-			},
-			{ apiKey: bifrostKey, maxTokens: 1_024, maxRetries: 1 },
-		);
-		const judgmentCall = judgeResponse.content.find(
-			(part) => part.type === "toolCall" && part.name === "report_profile_judgment",
-		);
-		assert.ok(judgmentCall, "judge omitted structured judgment");
-		const judgment = validateToolArguments(judgeTool, judgmentCall);
-		console.log(JSON.stringify({ workerId, judgeId, profileId: profile.id, judgment }, null, 2));
-		assert.equal(judgment.pass, true, judgment.rationale);
+		const planTool = {
+			name: "submit_implementation_plan",
+			description: "Submit the complete implementation-plan DAG.",
+			parameters: ProgramPlanSchema,
+		};
+		const results = [];
+		for (const treatment of treatments.slice(0, profileLimit)) {
+			const profile = findPromptProfile(treatment.vendor, treatment.modelId, treatment.archetype, treatment.effort);
+			assert.ok(profile, `missing profile for ${treatment.archetype}`);
+			const compiled = compilePrompt({
+				baseSystemPrompt: "Be safe and accurate.",
+				profile,
+				synopsis,
+				userRequest: treatment.request,
+				archetype: treatment.archetype,
+			});
+			const planning =
+				treatment.archetype === "implementation_planning" || treatment.archetype === "large_program_planning";
+			const workerResponse = await complete(
+				model(treatment.modelId, `bifrost-${treatment.vendor}`),
+				{
+					systemPrompt: compiled.systemPrompt,
+					messages: [
+						{ role: "user", content: compiled.contextMessage, timestamp: Date.now() },
+						{ role: "user", content: compiled.userRequest, timestamp: Date.now() },
+					],
+					...(planning ? { tools: [planTool] } : {}),
+				},
+				{ apiKey: bifrostKey, maxTokens: 4_096, maxRetries: 1 },
+			);
+			let planValid;
+			if (planning) {
+				const planCall = workerResponse.content.find(
+					(part) => part.type === "toolCall" && part.name === "submit_implementation_plan",
+				);
+				planValid = planCall ? validateProgramPlan(validateToolArguments(planTool, planCall)).success : false;
+			}
+			const judgeId =
+				treatment.vendor === "anthropic"
+					? (process.env.ROUTER_EVAL_OPENAI_JUDGE_MODEL ?? "gpt-5.6-terra")
+					: (process.env.ROUTER_EVAL_ANTHROPIC_JUDGE_MODEL ?? "claude-sonnet-5");
+			const judgeVendor = treatment.vendor === "anthropic" ? "openai" : "anthropic";
+			const judgeResponse = await complete(
+				model(judgeId, `bifrost-${judgeVendor}`),
+				{
+					systemPrompt: "Judge instruction adherence conservatively. Call report_profile_judgment exactly once.",
+					messages: [
+						{
+							role: "user",
+							content: JSON.stringify({
+								request: treatment.request,
+								archetype: treatment.archetype,
+								profileId: profile.id,
+								outputContract: profile.outputContract,
+								response: workerResponse.content,
+								planValid,
+							}),
+							timestamp: Date.now(),
+						},
+					],
+					tools: [judgeTool],
+				},
+				{ apiKey: bifrostKey, maxTokens: 1_024, maxRetries: 1 },
+			);
+			const judgmentCall = judgeResponse.content.find(
+				(part) => part.type === "toolCall" && part.name === "report_profile_judgment",
+			);
+			assert.ok(judgmentCall, `judge omitted structured judgment for ${treatment.archetype}`);
+			const judgment = validateToolArguments(judgeTool, judgmentCall);
+			results.push({
+				...treatment,
+				profileId: profile.id,
+				judgeId,
+				planValid,
+				judgment,
+				workerUsage: workerResponse.usage,
+				judgeUsage: judgeResponse.usage,
+			});
+		}
+		const passRate =
+			results.filter((result) => result.judgment.pass && result.planValid !== false).length / results.length;
+		const unnecessaryClarificationRate =
+			results.filter((result) => result.judgment.unnecessaryClarification).length / results.length;
+		const prematureStopRate = results.filter((result) => result.judgment.prematureStop).length / results.length;
+		console.log(JSON.stringify({ passRate, unnecessaryClarificationRate, prematureStopRate, results }, null, 2));
+		assert.ok(passRate >= 0.8, `paired-treatment pass rate ${passRate} is below 0.8`);
 	});
 });

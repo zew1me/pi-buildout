@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
 	cacheEstimate,
 	estimateFinishedTokens,
+	latestReportedContextTokens,
 	normalizeSessionEntries,
 	promptFingerprint,
 	readRepositoryMetadata,
@@ -61,10 +62,14 @@ describe("lease restoration and context estimates", () => {
 	});
 
 	it("derives cache value from the latest assistant usage", () => {
-		assert.deepEqual(
-			cacheEstimate([{ type: "message", message: { role: "assistant", usage: { input: 40_000, cacheRead: 25_000 } } }]),
-			{ cachedTokens: 25_000, expectedReuseRatio: 0.625 },
-		);
+		const entries = [
+			{
+				type: "message",
+				message: { role: "assistant", usage: { input: 40_000, cacheRead: 25_000, output: 2_000 } },
+			},
+		];
+		assert.deepEqual(cacheEstimate(entries), { cachedTokens: 25_000, expectedReuseRatio: 0.625 });
+		assert.equal(latestReportedContextTokens(entries), 67_000);
 	});
 });
 

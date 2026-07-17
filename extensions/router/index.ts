@@ -35,6 +35,7 @@ import { classifyTaskWithPi } from "./pi-classifier.ts";
 import {
 	buildRegistrySnapshot,
 	cacheEstimate,
+	latestReportedContextTokens,
 	modelAbility,
 	normalizeSessionEntries,
 	promptFingerprint,
@@ -87,7 +88,7 @@ function assistantMessage(message: AgentMessage): message is AssistantMessage {
 }
 
 function currentTokens(ctx: ExtensionContext): number {
-	return ctx.getContextUsage()?.tokens ?? 0;
+	return Math.max(ctx.getContextUsage()?.tokens ?? 0, latestReportedContextTokens(ctx.sessionManager.getBranch()));
 }
 
 function statusLabel(state: LeaseState): string {
@@ -276,25 +277,20 @@ export default function routerExtension(pi: ExtensionAPI): void {
 	}
 
 	async function applyChoice(ctx: ExtensionContext, choice: RouteChoice): Promise<boolean> {
-		if (ctx.model?.provider === choice.provider && ctx.model.id === choice.modelId) {
-			if (pi.getThinkingLevel() !== choice.effort) {
-				applyingSelection = true;
-				try {
-					pi.setThinkingLevel(choice.effort);
-				} finally {
-					applyingSelection = false;
-				}
-			}
-			return true;
-		}
-		const model = ctx.modelRegistry.find(choice.provider, choice.modelId);
-		if (!model) return false;
 		applyingSelection = true;
 		try {
+			if (ctx.model?.provider === choice.provider && ctx.model.id === choice.modelId) {
+				if (pi.getThinkingLevel() !== choice.effort) pi.setThinkingLevel(choice.effort);
+				return true;
+			}
+			const model = ctx.modelRegistry.find(choice.provider, choice.modelId);
+			if (!model) return false;
 			const selected = await pi.setModel(model);
 			if (!selected) return false;
 			pi.setThinkingLevel(choice.effort);
 			return true;
+		} catch {
+			return false;
 		} finally {
 			applyingSelection = false;
 		}
@@ -686,9 +682,19 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				const currentSnapshot = snapshotForModel(ctx.model, routed.registry);
 				const currentEffort = pi.getThinkingLevel() as EffortLevel;
 				const priorSelection = previousChoice(currentSnapshot, currentEffort, routed.decision.archetype);
+				const reviewParent =
+					routed.decision.kind === "review" &&
+					state.active &&
+					!(pending?.gate.action === "new_task" && "hardBoundary" in pending.gate)
+						? state.active
+						: undefined;
 				const lease = createTaskLease({
 					taskId: randomUUID(),
-					...(nextParentTaskId ? { parentTaskId: nextParentTaskId } : {}),
+					...(reviewParent
+						? { parentTaskId: reviewParent.taskId, parentLease: reviewParent }
+						: nextParentTaskId
+							? { parentTaskId: nextParentTaskId }
+							: {}),
 					startedAt: now,
 					updatedAt: now,
 					archetype: routed.decision.archetype,

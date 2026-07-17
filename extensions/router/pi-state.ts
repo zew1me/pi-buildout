@@ -237,6 +237,20 @@ export async function readRepositoryMetadata(pi: ExtensionAPI, cwd: string): Pro
 	};
 }
 
+export function latestReportedContextTokens(entries: readonly unknown[]): number {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = object(entries[index]);
+		const message = object(entry?.message);
+		if (entry?.type !== "message" || message?.role !== "assistant") continue;
+		const usage = object(message.usage);
+		const input = typeof usage?.input === "number" ? Math.max(0, usage.input) : 0;
+		const cacheRead = typeof usage?.cacheRead === "number" ? Math.max(0, usage.cacheRead) : 0;
+		const output = typeof usage?.output === "number" ? Math.max(0, usage.output) : 0;
+		return Math.ceil(input + cacheRead + output);
+	}
+	return 0;
+}
+
 export function cacheEstimate(entries: readonly unknown[]): { cachedTokens: number; expectedReuseRatio: number } {
 	for (let index = entries.length - 1; index >= 0; index--) {
 		const entry = object(entries[index]);
