@@ -3,6 +3,7 @@ import readline from "node:readline";
 
 let streaming = false;
 let prompts = 0;
+let activeOperation = 0;
 let abortFails = false;
 
 /** @param {unknown} value */
@@ -44,6 +45,7 @@ input.on("line", (line) => {
       return;
     }
     streaming = false;
+    activeOperation++;
     send({ id: command.id, type: "response", command: "abort", success: true });
     send({ type: "agent_settled" });
     return;
@@ -54,6 +56,8 @@ input.on("line", (line) => {
   }
   if (command.type === "prompt") {
     prompts++;
+    const promptNumber = prompts;
+    const operation = ++activeOperation;
     streaming = true;
     abortFails = String(command.message).includes("ABORT_FAIL");
     send({ id: command.id, type: "response", command: "prompt", success: true });
@@ -63,6 +67,7 @@ input.on("line", (line) => {
     }
     setTimeout(
       () => {
+        if (operation !== activeOperation || !streaming) return;
         if (String(command.message).includes("ABORTED_COMPACT")) {
           // An aborted compaction must not count toward the compaction total.
           send({ type: "compaction_end", aborted: true, result: undefined });
@@ -88,10 +93,17 @@ input.on("line", (line) => {
             message: { role: "assistant", content: [], stopReason: "error", errorMessage: "mock model failure" },
           });
         } else {
-          send({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: `answer-${prompts}` } });
+          send({
+            type: "message_update",
+            assistantMessageEvent: { type: "text_delta", delta: `answer-${promptNumber}` },
+          });
           send({
             type: "message_end",
-            message: { role: "assistant", content: [{ type: "text", text: `answer-${prompts}` }], stopReason: "stop" },
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: `answer-${promptNumber}` }],
+              stopReason: "stop",
+            },
           });
           send({ type: "turn_end" });
         }

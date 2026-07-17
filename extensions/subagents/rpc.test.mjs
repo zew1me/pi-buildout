@@ -64,14 +64,38 @@ test("managed child starts, streams a bounded transcript, accepts more work, and
   assert.equal(snapshot.lastAssistantText, "answer-2");
   assert.equal(snapshot.turns, 2);
 
-  await child.interrupt();
-  assert.equal(child.snapshot().state, "idle");
   const stop = child.stop();
   const lateFollowUp = child.followUp("must not restart");
   await stop;
   await assert.rejects(lateFollowUp, /stopped.*cannot accept messages/);
   await child.stop();
   assert.equal(child.snapshot().state, "stopped");
+});
+
+test("interrupt aborts an active child without accepting its delayed answer", async (t) => {
+  const child = new ManagedSubagent({
+    id: "interrupt1",
+    name: "interrupt-child",
+    task: "SLOW_WAIT",
+    model: "test/model",
+    effort: "off",
+    contextSummary: "",
+    cwd: process.cwd(),
+    command: process.execPath,
+    args: [mockPath],
+    env: { ...process.env },
+    classification: "explicit",
+  });
+  t.after(async () => child.stop());
+
+  await child.start();
+  assert.equal(child.snapshot().state, "running");
+  await child.interrupt();
+  assert.equal(await child.waitForIdle(500), true);
+  assert.equal(child.snapshot().state, "idle");
+  await sleep(200);
+  assert.equal(child.snapshot().lastAssistantText, undefined);
+  assert.doesNotMatch(child.snapshot().transcriptTail, /answer-/);
 });
 
 test("wait times out without stopping the child", async (t) => {
