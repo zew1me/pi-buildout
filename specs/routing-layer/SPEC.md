@@ -38,9 +38,12 @@ The router may only reevaluate at a **user-input turn**. Hard boundaries (always
 - a user-authorized subagent execution (which gets its own child lease).
 
 At any other user turn, combine deterministic intent/state signals with expected cache value; escalate to a secondary
-"continuity" classification only when those signals are inconclusive. Significant reusable cache (a default of ≥20,000
-cached tokens with ≥50% expected reuse) should resist a marginal switch; very strong semantic discontinuity can still
-override it. Do not reevaluate the lease at any non-user turn.
+"continuity" classification only when those signals are inconclusive. Significant reusable cache should resist a
+marginal switch; very strong semantic discontinuity can still override it. The significance test is
+`hasSignificantReusableCache` in [`core/lease.ts`](../../extensions/router/core/lease.ts): retained K/V cache only earns
+a continuation bias once it is both large enough and likely enough to be reused that discarding it would cost meaningful
+latency and tokens — below that a switch is nearly free, so cache must not veto a genuine new task. Do not reevaluate
+the lease at any non-user turn.
 
 ## Classification pipeline
 
@@ -79,55 +82,26 @@ fallback is OpenAI or Anthropic; selects a validated prompt profile; compiles th
 
 The bounded context input is the checked-in [`SessionSynopsis`](../../extensions/router/core/synopsis.ts) contract:
 builder and tool metadata, token shape, repository state, observed artifacts, recent goals/outcomes, prior decisions,
-and an optional compaction summary. It is built deterministically, sanitizes copied text, and is trimmed to an
-8,000-byte UTF-8 budget; raw session entries are never part of the classifier contract.
+and an optional compaction summary. It is built deterministically, sanitizes copied text, and is trimmed toward the
+`MAX_SYNOPSIS_BYTES` budget in [`core/synopsis.ts`](../../extensions/router/core/synopsis.ts); raw session entries are
+never part of the classifier contract. That budget is sized to stay a small fraction of any candidate's context window —
+bounding both classifier cost and prompt-injection surface — while still holding the bounded metadata plus a few newest
+goals, outcomes, and prior decisions.
 
 ### Feature schema (required axes)
 
-The executable contract is [`TaskFeaturesSchema`](../../extensions/router/core/features.ts). It is a closed object:
-unknown keys, missing keys, out-of-range estimates, and invalid enum values fail validation. A representative valid
-value, using every required field, is:
+The executable contract is [`TaskFeaturesSchema`](../../extensions/router/core/features.ts) — the single source of truth
+for the required axes, their enum members, and every numeric bound. It is a closed object: unknown keys, missing keys,
+out-of-range estimates, and invalid enum values fail validation.
 
-```json
-{
-  "intent": "plan",
-  "workflowType": "implementation_planning",
-  "actionMode": "information_only",
-  "instructionStyle": "outcome_first",
-  "literalAdherenceRequired": true,
-  "horizon": "two_to_ten_prs",
-  "toolDependence": "repository_agent",
-  "contextShape": "multi_file_repository",
-  "outputRigidity": "structured",
-  "independenceRequirement": "none",
-  "taskContinuity": "new_task",
-  "cacheValue": {
-    "cachedTokens": 42000,
-    "expectedReuseRatio": 0.62
-  },
-  "risk": "high",
-  "ambiguity": "medium",
-  "confidence": 0.91,
-  "reviewIntent": false,
-  "interactivity": "developer_loop",
-  "expectedAgentTurns": 12,
-  "expectedFilesRead": 40,
-  "expectedFilesChanged": 0,
-  "expectedToolOutputTokens": 32000,
-  "verificationStrength": "integration_tests",
-  "decompositionRecommended": true,
-  "evidence": [
-    "The user requested a multi-PR implementation plan",
-    "Repository evidence is required before defining dependencies"
-  ]
-}
-```
-
-The fields cover intent, workflow/action mode, instruction style, horizon, tool dependence, context shape, output
-rigidity, independence/review requirements, continuity/cache value, risk, ambiguity, confidence, interactivity, expected
-work size, verification strength, decomposition, and grounded evidence. Exact enums and numeric bounds live in the
-linked TypeBox schema so documentation and classifier tool validation share one executable definition. The
-[design-source reconciliation](source-basis.md) explains how this contract differs from the historical feature example.
+The required fields cover intent, workflow and action mode, instruction style, planning horizon, tool dependence,
+context shape, output rigidity, independence/review requirements, task continuity and a cache-value estimate (a
+cached-token count and an expected reuse ratio), risk, ambiguity, confidence, interactivity, expected work size (agent
+turns and files read/changed and tool-output tokens), verification strength, a decomposition recommendation, and a short
+grounded evidence list. Concrete enum members and numeric ranges are intentionally not restated here so that this
+document and the classifier tool schema cannot drift apart; read them from the linked schema, which is the same
+definition validated at runtime. The [design-source reconciliation](source-basis.md) explains how this contract differs
+from the historical feature example.
 
 The classifier does not have a `response_format`-style structured-output knob available to it (see `decisions.md`).
 Enforce the schema by forcing a **tool call** whose parameters are the TypeBox schema, and validate the returned
@@ -135,7 +109,11 @@ arguments — never accept free-form JSON parsed out of prose.
 
 ### Confidence and escalation
 
-- High confidence (≥0.80 as a starting threshold) and non-high risk → use the primary classifier's output directly.
+- High confidence (at or above `CLASSIFIER_CONFIDENCE_THRESHOLD` in
+  [`classifier.ts`](../../extensions/router/classifier.ts)) and non-high risk → use the primary classifier's output
+  directly. That threshold is a starting calibration point: high enough to escalate genuinely ambiguous prompts, low
+  enough to avoid paying for a second-vendor call on the common, clearly-stated case; tune it from
+  confidence-calibration telemetry.
 - Low confidence or high/critical risk → call a secondary classifier from a **different provider**; reconcile
   conservatively (max of risk/horizon, union of review intent, prefer the second archetype when the first is
   low-confidence or the second finds higher risk).
@@ -149,8 +127,10 @@ Deterministic, not LLM-assisted:
   is pi's own estimate (`ctx.getContextUsage()` / `estimateContextTokens`) reconciled against provider-reported `Usage`
   from the most recent turn — treat it as a close estimate, not an exact count, and size headroom decisions accordingly.
 - Endpoint availability and capability checks.
-- 70% context-headroom filtering (reject candidates that would exceed 70% of their context window for the estimated
-  finished size).
+- Context-headroom filtering: reject candidates whose estimated finished size would exceed the usable context-window
+  fraction enforced in [`core/routing.ts`](../../extensions/router/core/routing.ts). The remaining headroom is
+  deliberately reserved for tool outputs, reasoning tokens, retries, and compaction, because finished-context size is an
+  estimate rather than an exact count.
 - Prompt-profile compatibility (a model without a validated profile for the archetype/effort is not eligible).
 - Review-provider exclusion uses the model's canonical vendor, not merely the endpoint/gateway name: select one
   candidate from each of the two vendors other than the builder's vendor and prefer the closest reviewer at or above the
@@ -160,8 +140,10 @@ Deterministic, not LLM-assisted:
 - Candidate IDs are exact and version-aware. Unknown IDs and silently moving aliases are ineligible unless a policy
   entry explicitly permits that alias; preview/restricted/safeguarded models require explicit registry flags and
   configured fallbacks.
-- Until local telemetry is mature (≥30 comparable samples per candidate, passing the route's quality floor), preserve
-  the bootstrap ordering below. After maturity, rank by a robust cost-to-done score:
+- Until local telemetry is mature — at least the minimum comparable-sample count enforced per candidate in
+  [`core/routing.ts`](../../extensions/router/core/routing.ts), each sample passing the route's quality floor — preserve
+  the bootstrap ordering below. That sample floor exists so a former second choice is promoted only on evidence, not on
+  a handful of noisy runs. After maturity, rank by a robust cost-to-done score:
 
   ```text
   p75 model/tool cost
@@ -196,6 +178,9 @@ per route:
 | Long-context synthesis                      | long-context model, medium, or top reasoning model, high | different-provider fallback                                                         |
 | Highest-risk ambiguous advisory work        | top reasoning model, high/max                            | different-provider top reasoning model                                              |
 
+The PR-count bands in the table above (`1 PR`, `2–10 PRs`, `11–100 PRs`) are the `HORIZONS` enum in
+[`core/features.ts`](../../extensions/router/core/features.ts) — a coarse classification taxonomy, not tunable
+thresholds — and archetype selection reads them in [`core/archetype.ts`](../../extensions/router/core/archetype.ts).
 Concrete model IDs, effort labels, and quality floors are a **configuration/registry concern**, resolved against pi's
 actual `ModelRegistry` at build time — not hardcoded into this spec. Planning and implementation are separate attempts
 with separate leases, success criteria, and telemetry: a multi-PR planning route emits a validated program (PR
