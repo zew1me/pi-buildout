@@ -107,11 +107,15 @@ export function clampThinkingLevel(requested: ThinkingLevel, model: ModelLike): 
 	const supported = supportedThinkingLevels(model);
 	if (supported.includes(requested)) return requested;
 	const requestedIndex = THINKING_LEVELS.indexOf(requested);
-	for (let distance = 1; distance < THINKING_LEVELS.length; distance++) {
-		const lower = THINKING_LEVELS[requestedIndex - distance];
-		if (lower && supported.includes(lower)) return lower;
-		const higher = THINKING_LEVELS[requestedIndex + distance];
+	// Match Pi's clamp policy: preserve at least the requested capability by
+	// searching upward first, then fall back downward only when necessary.
+	for (let index = requestedIndex + 1; index < THINKING_LEVELS.length; index++) {
+		const higher = THINKING_LEVELS[index];
 		if (higher && supported.includes(higher)) return higher;
+	}
+	for (let index = requestedIndex - 1; index >= 0; index--) {
+		const lower = THINKING_LEVELS[index];
+		if (lower && supported.includes(lower)) return lower;
 	}
 	return "off";
 }
@@ -130,6 +134,22 @@ export function formatModelCatalog(models: ModelLike[]): string {
 			return `- ${model.provider}/${model.id}${model.name && model.name !== model.id ? ` (${model.name})` : ""}; effort=${levels}; context=${model.contextWindow ?? "?"}; ${prices}`;
 		})
 		.join("\n");
+}
+
+export function boundContextForModel(
+	summary: string,
+	task: string,
+	model: ModelLike,
+	absoluteMaxChars = 24_000,
+): string {
+	if (!summary.trim()) return "";
+	const contextWindow = model.contextWindow ?? 128_000;
+	// Use at most ~40% of the child window for inherited context, leaving room
+	// for its system prompt, task, tools, and actual work. Three characters per
+	// token is intentionally conservative for code-heavy context.
+	const modelBound = Math.floor(contextWindow * 3 * 0.4) - task.length;
+	const maxChars = Math.min(absoluteMaxChars, Math.max(0, modelBound));
+	return maxChars < 256 ? "" : truncateMiddle(summary, maxChars);
 }
 
 export function appendBoundedTail(current: string, addition: string, maxChars: number): string {

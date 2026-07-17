@@ -1,3 +1,4 @@
+import { spawn } from "node:child_process";
 import readline from "node:readline";
 
 let streaming = false;
@@ -37,7 +38,13 @@ input.on("line", (line) => {
 		send({ id: command.id, type: "response", command: "prompt", success: true });
 		send({ type: "agent_start" });
 		setTimeout(() => {
-			if (String(command.message).includes("FAIL_MODEL")) {
+			if (String(command.message).includes("SPAWN_DESCENDANT")) {
+				const descendant = spawn(process.execPath, ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"], { stdio: "ignore" });
+				const text = `descendant:${descendant.pid}`;
+				send({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: text } });
+				send({ type: "message_end", message: { role: "assistant", content: [{ type: "text", text }], stopReason: "stop" } });
+				send({ type: "turn_end" });
+			} else if (String(command.message).includes("FAIL_MODEL")) {
 				send({ type: "message_end", message: { role: "assistant", content: [], stopReason: "error", errorMessage: "mock model failure" } });
 			} else {
 				send({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: `answer-${prompts}` } });

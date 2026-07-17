@@ -39,4 +39,17 @@ We extended that minimal shape with persistent RPC children, task-targeted conte
 
 ## Pi documentation and examples
 
-The implementation also follows the public extension, SDK, RPC, compaction, session, package, model, and TUI documentation shipped with `@earendil-works/pi-coding-agent` 0.80.6, including Pi's bundled subagent and custom-compaction examples. Those references informed API usage, JSONL framing, tool rendering, model authentication, resource inheritance, and shutdown handling.
+- Source: `@earendil-works/pi-coding-agent`
+- Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
+- Release reviewed: `0.80.6` (the locally installed Homebrew package)
+- License declared by the package: MIT
+
+Ideas and API patterns used:
+
+- Extension tool registration, lifecycle shutdown hooks, resource discovery, and TUI tool rendering.
+- SDK `AgentSession.compact()` with custom instructions and in-memory sessions.
+- RPC JSONL framing and the `prompt`, `steer`, `follow_up`, `abort`, state, and event protocols.
+- Model-registry authentication, fuzzy CLI-equivalent model resolution, thinking-level capability maps, and normal child resource inheritance.
+- Pi's bundled subagent and custom-compaction examples as reference implementations for process invocation, output bounds, and compaction setup.
+
+Major pieces intentionally not adopted include Pi's full interactive mode, session-replacement runtime, prompt-template workflows, custom provider implementations, and bundled role-based subagent profiles. No Pi source file or example was copied verbatim; the extension is original code using Pi's published APIs and adapting the documented architectural patterns.

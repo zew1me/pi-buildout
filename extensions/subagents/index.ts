@@ -1,16 +1,14 @@
 import { existsSync } from "node:fs";
 import { mkdir } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { randomUUID } from "node:crypto";
 import { completeSimple, StringEnum, type Model } from "@earendil-works/pi-ai/compat";
 import {
-	convertToLlm,
 	createAgentSession,
 	DefaultResourceLoader,
 	getAgentDir,
 	resolveCliModel,
-	serializeConversation,
 	SessionManager,
 	SettingsManager,
 	type ExtensionAPI,
@@ -20,6 +18,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
 	THINKING_LEVELS,
+	boundContextForModel,
 	clampThinkingLevel,
 	extractTextContent,
 	formatModelCatalog,
@@ -30,13 +29,17 @@ import {
 } from "./helpers.ts";
 import { ManagedSubagent, type ChildSnapshot } from "./rpc.ts";
 
-const MAX_CONTEXT_CHARS = 320_000;
 const MAX_CLASSIFIER_CONTEXT_CHARS = 24_000;
 const MAX_STATUS_TEXT_CHARS = 45_000;
-const MAX_ACTIVE_CHILDREN = 12;
-const MAX_DEPTH = 8;
+const MAX_ROOT_CHILDREN = 8;
+const MAX_NESTED_CHILDREN = 2;
+const MAX_RETAINED_CHILDREN = 32;
+const MAX_DEPTH = 3;
 const DEPTH_ENV = "PI_SIMPLE_SUBAGENT_DEPTH";
+const AUTH_PROVIDER_ENV = "PI_SIMPLE_SUBAGENT_AUTH_PROVIDER";
+const AUTH_KEY_ENV = "PI_SIMPLE_SUBAGENT_API_KEY";
 const SELF_EXTENSION_PATH = fileURLToPath(import.meta.url);
+const AUTH_BRIDGE_PATH = join(dirname(SELF_EXTENSION_PATH), "auth-bridge.ts");
 
 const SubagentParameters = Type.Object({
 	action: StringEnum(["create", "list", "status", "steer", "follow_up", "interrupt", "stop"] as const, {
@@ -110,21 +113,9 @@ async function utilityCompletion(
 	return text;
 }
 
-function serializeParentContext(ctx: ExtensionContext): string {
-	const built = ctx.sessionManager.buildSessionContext();
-	try {
-		return serializeConversation(convertToLlm(built.messages));
-	} catch {
-		return JSON.stringify(built.messages, null, 2);
-	}
-}
-
 async function compactContextForTask(pi: ExtensionAPI, ctx: ExtensionContext, task: string): Promise<{ summary: string; fallback: boolean }> {
 	const built = ctx.sessionManager.buildSessionContext();
-	const conversation = truncateMiddle(serializeParentContext(ctx), MAX_CONTEXT_CHARS);
-	if (built.messages.length === 0 || !conversation.trim()) {
-		return { summary: "No prior conversation context was available.", fallback: false };
-	}
+	if (built.messages.length === 0) return { summary: "", fallback: false };
 
 	const sessionManager = SessionManager.inMemory(ctx.cwd);
 	for (const message of built.messages) sessionManager.appendMessage(message);
@@ -170,11 +161,9 @@ async function compactContextForTask(pi: ExtensionAPI, ctx: ExtensionContext, ta
 		return { summary: result.summary, fallback: false };
 	} catch (error) {
 		if (ctx.signal?.aborted) throw error;
-		const reason = error instanceof Error ? error.message : String(error);
-		return {
-			summary: `## Compaction fallback\nPi's targeted compact call failed (${reason}). The bounded parent transcript follows.\n\n${truncateMiddle(conversation, 60_000)}`,
-			fallback: true,
-		};
+		// Context seeding is an optimization, not a launch dependency. Fail open
+		// with a truly fresh child rather than forwarding an unreviewed raw transcript.
+		return { summary: "", fallback: true };
 	} finally {
 		if (abortCompaction) ctx.signal?.removeEventListener("abort", abortCompaction);
 		compactSession?.dispose();
@@ -184,11 +173,15 @@ async function compactContextForTask(pi: ExtensionAPI, ctx: ExtensionContext, ta
 function resolveRequestedModel(ctx: ExtensionContext, request: string): { model?: Model<any>; effort?: ThinkingLevel; error?: string } {
 	const result = resolveCliModel({ cliModel: request, modelRegistry: ctx.modelRegistry });
 	if (result.error || !result.model) return { error: result.error ?? `Model '${request}' was not found.` };
-	if (!ctx.modelRegistry.hasConfiguredAuth(result.model)) {
-		return { error: `Model '${result.model.provider}/${result.model.id}' is not authenticated.` };
+	const resolvedModel = result.model;
+	const isAvailable = ctx.modelRegistry.getAvailable().some((model) =>
+		model.provider === resolvedModel.provider && model.id === resolvedModel.id);
+	if (!isAvailable) return { error: `Model '${request}' did not resolve to an available registry entry.` };
+	if (!ctx.modelRegistry.hasConfiguredAuth(resolvedModel)) {
+		return { error: `Model '${resolvedModel.provider}/${resolvedModel.id}' is not authenticated.` };
 	}
 	return {
-		model: result.model,
+		model: resolvedModel,
 		...(result.thinkingLevel && THINKING_LEVELS.includes(result.thinkingLevel as ThinkingLevel)
 			? { effort: result.thinkingLevel as ThinkingLevel }
 			: {}),
@@ -250,14 +243,17 @@ ${catalog}`;
 		const raw = await utilityCompletion(pi, ctx, classifierPrompt, 1_024);
 		const decision = parseClassifierDecision(raw);
 		if (!decision) throw new Error("Classifier did not return valid JSON.");
-		const classified = resolveRequestedModel(ctx, decision.model);
-		if (!classified.model) throw new Error(classified.error);
-		const model = requestedModel ?? classified.model;
+		let model = requestedModel;
+		if (!model) {
+			const classified = resolveRequestedModel(ctx, decision.model);
+			if (!classified.model) throw new Error(classified.error);
+			model = classified.model;
+		}
 		const effort = requestedEffort ?? decision.effort;
 		return {
 			model,
 			effort: clampThinkingLevel(effort, model as ModelLike),
-			source: requestedModel || requestedEffort ? "explicit" : "classified",
+			source: "classified",
 			...(decision.rationale ? { rationale: decision.rationale } : {}),
 		};
 	} catch (error) {
@@ -268,7 +264,7 @@ ${catalog}`;
 		return {
 			model,
 			effort: clampThinkingLevel(effort, model as ModelLike),
-			source: requestedModel || requestedEffort ? "explicit" : "fallback",
+			source: "fallback",
 			rationale: `Classifier unavailable; inherited parent settings (${error instanceof Error ? error.message : String(error)}).`,
 		};
 	}
@@ -284,12 +280,18 @@ function resolvePiInvocation(args: string[]): { command: string; args: string[] 
 	return { command: "pi", args };
 }
 
-function childEnvironment(depth: number): NodeJS.ProcessEnv {
+function childEnvironment(depth: number, provider: string, apiKey?: string): NodeJS.ProcessEnv {
 	const env: NodeJS.ProcessEnv = { ...process.env };
 	for (const key of Object.keys(env)) {
 		if (key.startsWith("PI_SUBAGENT_") || key.startsWith("PI_INTERCOM_")) delete env[key];
 	}
+	delete env[AUTH_PROVIDER_ENV];
+	delete env[AUTH_KEY_ENV];
 	env[DEPTH_ENV] = String(depth);
+	if (apiKey) {
+		env[AUTH_PROVIDER_ENV] = provider;
+		env[AUTH_KEY_ENV] = apiKey;
+	}
 	return env;
 }
 
@@ -324,7 +326,19 @@ function formatSnapshot(snapshot: ChildSnapshot): string {
 
 export default function subagentsExtension(pi: ExtensionAPI) {
 	const children = new Map<string, ManagedSubagent>();
+	let pendingCreates = 0;
 	let shuttingDown = false;
+
+	const pruneChildren = () => {
+		if (children.size <= MAX_RETAINED_CHILDREN) return;
+		const removable = [...children.entries()]
+			.filter(([, child]) => !child.isAlive())
+			.sort((left, right) => left[1].snapshot().updatedAt - right[1].snapshot().updatedAt);
+		for (const [id] of removable) {
+			if (children.size <= MAX_RETAINED_CHILDREN) break;
+			children.delete(id);
+		}
+	};
 
 	pi.registerTool({
 		name: "subagent",
@@ -339,61 +353,82 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 
 		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
 			if (params.action === "create") {
+				pruneChildren();
 				if (!params.task?.trim()) throw new Error("Creating a subagent requires a non-empty task.");
+				if (shuttingDown) throw new Error("This session is shutting down and cannot create a subagent.");
 				const depth = currentDepth();
 				if (depth >= MAX_DEPTH) throw new Error(`Subagent depth limit (${MAX_DEPTH}) reached.`);
-				const active = [...children.values()].filter((child) => !["stopped", "failed"].includes(child.snapshot().state));
-				if (active.length >= MAX_ACTIVE_CHILDREN) {
-					throw new Error(`This session already has ${MAX_ACTIVE_CHILDREN} active direct children; stop one before creating another.`);
+				const childLimit = depth === 0 ? MAX_ROOT_CHILDREN : MAX_NESTED_CHILDREN;
+				// Count live OS processes, including one still exiting after failure.
+				// Reserve a slot before the first await so parallel create tool calls
+				// cannot bypass the cap.
+				const active = [...children.values()].filter((child) => child.isAlive());
+				if (active.length + pendingCreates >= childLimit) {
+					throw new Error(`This session already has ${childLimit} active or starting direct children; stop one before creating another.`);
 				}
 
-				const task = params.task.trim();
-				const compacted = await compactContextForTask(pi, ctx, task);
-				const selection = await selectModel(pi, ctx, task, compacted.summary, params.model, params.effort);
-				const id = shortId();
-				const name = params.name?.trim() || `subagent-${id}`;
-				const parentSessionId = ctx.sessionManager.getSessionId() || "ephemeral";
-				const sessionDir = join(getAgentDir(), "subagents", parentSessionId, id);
-				await mkdir(sessionDir, { recursive: true, mode: 0o700 });
-				const args = [
-					"--mode", "rpc",
-					"--session-dir", sessionDir,
-					"--name", name,
-					"--model", `${selection.model.provider}/${selection.model.id}`,
-					"--thinking", selection.effort,
-					"--extension", SELF_EXTENSION_PATH,
-					ctx.isProjectTrusted() ? "--approve" : "--no-approve",
-				];
-				const invocation = resolvePiInvocation(args);
-				const child = new ManagedSubagent({
-					id,
-					name,
-					task,
-					model: `${selection.model.provider}/${selection.model.id}`,
-					effort: selection.effort,
-					contextSummary: compacted.summary,
-					cwd: ctx.cwd,
-					command: invocation.command,
-					args: invocation.args,
-					env: childEnvironment(depth + 1),
-					classification: selection.source,
-					...(selection.rationale ? { classificationRationale: selection.rationale } : {}),
-				});
-				children.set(id, child);
+				pendingCreates++;
 				try {
-					await child.start();
-				} catch (error) {
-					await child.stop();
-					throw error;
+					const task = params.task.trim();
+					const compacted = await compactContextForTask(pi, ctx, task);
+					if (shuttingDown) throw new Error("Session shutdown interrupted subagent creation.");
+					const routingContext = truncateMiddle(compacted.summary, MAX_CLASSIFIER_CONTEXT_CHARS);
+					const selection = await selectModel(pi, ctx, task, routingContext, params.model, params.effort);
+					if (shuttingDown) throw new Error("Session shutdown interrupted subagent creation.");
+					const childAuth = await ctx.modelRegistry.getApiKeyAndHeaders(selection.model);
+					if (!childAuth.ok) throw new Error(`Could not resolve child model auth: ${childAuth.error}`);
+					const id = shortId();
+					const name = params.name?.trim() || `subagent-${id}`;
+					const parentSessionId = ctx.sessionManager.getSessionId() || "ephemeral";
+					const sessionDir = join(getAgentDir(), "subagents", parentSessionId, id);
+					await mkdir(sessionDir, { recursive: true, mode: 0o700 });
+					if (shuttingDown) throw new Error("Session shutdown interrupted subagent creation.");
+					const args = [
+						"--mode", "rpc",
+						"--session-dir", sessionDir,
+						"--name", name,
+						"--model", `${selection.model.provider}/${selection.model.id}`,
+						"--thinking", selection.effort,
+						"--extension", SELF_EXTENSION_PATH,
+						"--extension", AUTH_BRIDGE_PATH,
+						ctx.isProjectTrusted() ? "--approve" : "--no-approve",
+					];
+					const invocation = resolvePiInvocation(args);
+					const child = new ManagedSubagent({
+						id,
+						name,
+						task,
+						model: `${selection.model.provider}/${selection.model.id}`,
+						effort: selection.effort,
+						contextSummary: boundContextForModel(routingContext, task, selection.model as ModelLike, MAX_CLASSIFIER_CONTEXT_CHARS),
+						cwd: ctx.cwd,
+						command: invocation.command,
+						args: invocation.args,
+						env: childEnvironment(depth + 1, selection.model.provider, childAuth.apiKey),
+						ownsProcessGroup: depth === 0,
+						classification: selection.source,
+						...(selection.rationale ? { classificationRationale: selection.rationale } : {}),
+					});
+					children.set(id, child);
+					try {
+						await child.start();
+						if (shuttingDown) throw new Error("Session shutdown interrupted subagent creation.");
+					} catch (error) {
+						await child.stop();
+						throw error;
+					}
+					const warning = compacted.fallback ? " Targeted compaction failed open, so the child started with fresh context." : "";
+					return {
+						content: [{ type: "text", text: `Created ${id} (${name}) with ${selection.model.provider}/${selection.model.id} at ${selection.effort} effort.${warning} It is running asynchronously; use subagent status with id=${id} to spy on it.` }],
+						details: { action: "create", child: snapshotSummary(child.snapshot()), compactionFallback: compacted.fallback },
+					};
+				} finally {
+					pendingCreates--;
 				}
-				const warning = compacted.fallback ? " Targeted compaction fell back to a bounded transcript." : "";
-				return {
-					content: [{ type: "text", text: `Created ${id} (${name}) with ${selection.model.provider}/${selection.model.id} at ${selection.effort} effort.${warning} It is running asynchronously; use subagent status with id=${id} to spy on it.` }],
-					details: { action: "create", child: snapshotSummary(child.snapshot()), compactionFallback: compacted.fallback },
-				};
 			}
 
 			if (params.action === "list") {
+				pruneChildren();
 				const snapshots = [...children.values()].map((child) => snapshotSummary(child.snapshot()));
 				const text = snapshots.length
 					? snapshots.map((child) => `${child.id} ${child.state} ${child.model} ${child.effort} — ${child.task}`).join("\n")
@@ -424,7 +459,9 @@ export default function subagentsExtension(pi: ExtensionAPI) {
 				return { content: [{ type: "text", text: `Interrupted ${params.id}; its isolated session remains available for steering or follow-up.` }], details: { action: "interrupt", child: snapshotSummary(child.snapshot()) } };
 			}
 			await child.stop();
-			return { content: [{ type: "text", text: `Stopped ${params.id}.` }], details: { action: "stop", child: snapshotSummary(child.snapshot()) } };
+			const stoppedSnapshot = snapshotSummary(child.snapshot());
+			pruneChildren();
+			return { content: [{ type: "text", text: `Stopped ${params.id}.` }], details: { action: "stop", child: stoppedSnapshot } };
 		},
 
 		renderCall(args, theme) {

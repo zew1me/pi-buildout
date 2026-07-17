@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
 	appendBoundedTail,
+	boundContextForModel,
 	clampThinkingLevel,
 	formatModelCatalog,
 	parseClassifierDecision,
@@ -26,7 +27,7 @@ test("thinking support follows model maps and clamps safely", () => {
 		thinkingLevelMap: { minimal: null, xhigh: "xhigh", max: null },
 	};
 	assert.deepEqual(supportedThinkingLevels(model), ["off", "low", "medium", "high", "xhigh"]);
-	assert.equal(clampThinkingLevel("minimal", model), "off");
+	assert.equal(clampThinkingLevel("minimal", model), "low");
 	assert.equal(clampThinkingLevel("max", model), "xhigh");
 	assert.equal(clampThinkingLevel("high", { provider: "x", id: "plain", reasoning: false }), "off");
 	assert.deepEqual(
@@ -56,4 +57,19 @@ test("bounded text helpers retain useful tails without exceeding limits", () => 
 	assert.match(compact, /^begin-/);
 	assert.match(compact, /-end$/);
 	assert.equal(appendBoundedTail("abcdef", "ghij", 5), "fghij");
+});
+
+test("child context is bounded to a conservative fraction of its model window", () => {
+	const summary = "x".repeat(50_000);
+	const bounded = boundContextForModel(summary, "short task", {
+		provider: "local",
+		id: "small",
+		contextWindow: 8_000,
+	});
+	assert.ok(bounded.length <= 9_590);
+	assert.equal(boundContextForModel(summary, "x".repeat(10_000), {
+		provider: "local",
+		id: "tiny",
+		contextWindow: 1_000,
+	}), "");
 });

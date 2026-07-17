@@ -19,7 +19,7 @@ The extension's `subagent` tool supports `create`, `list`, `status`, `steer`, `f
 
 ## Context and model selection
 
-Before launch, the extension creates an in-memory copy of the current context and runs Pi's real `AgentSession.compact()` path (the SDK equivalent of `/compact`) with task-specific instructions. A synthetic retained boundary allows even small parent sessions to be compacted. Only that compacted context and the delegated task are sent into a new child session; the parent session file is never resumed, forked, or replaced by the child.
+Before launch, the extension creates an in-memory copy of the current context and runs Pi's real `AgentSession.compact()` path (the SDK equivalent of `/compact`) with task-specific instructions. A synthetic retained boundary allows even small parent sessions to be compacted. Only that compacted context and the delegated task are sent into a new child session; the parent session file is never resumed, forked, or replaced by the child. Context seeding fails open: if compaction fails, the child launches with only its task and a fresh context—never an unreviewed raw parent transcript.
 
 If either model or effort is omitted, a classifier call sees the task, the compacted context, and all authenticated models (including capabilities, context size, and pricing). Its choice is validated against Pi's model registry. If classification fails, missing values inherit the parent model and effort. Explicit user choices are never silently replaced; invalid or unauthenticated explicit models fail creation.
 
@@ -33,7 +33,7 @@ If either model or effort is omitted, a classifier call sees the task, the compa
 - Parent control uses the child's one-way RPC stdin: `steer`, `follow_up`, `interrupt`, and `stop`.
 - Parent/session shutdown terminates its direct children; their own shutdown handlers terminate the next generation.
 
-The default safety bounds are 12 active direct children and 8 generations.
+The default safety bounds are 8 active root children, 2 direct children for every nested session, and 3 generations. Even full fan-out is therefore bounded to 56 child processes per root tree.
 
 ## Direct tool shape
 
