@@ -65,6 +65,26 @@ describe("compilePrompt", () => {
 		assert.ok(result.systemPrompt.indexOf("<model_profile>") < result.systemPrompt.indexOf("<trusted_task_context>"));
 	});
 
+	it("uses archetype-specific contracts without violating exact or concise output", () => {
+		const exact = compilePrompt({
+			baseSystemPrompt: "BASE",
+			profile: profile("openai"),
+			synopsis,
+			userRequest: "Return exactly one JSON object",
+			archetype: "exact_extraction",
+		});
+		assert.match(exact.outputContract, /only the exact requested schema/i);
+		assert.doesNotMatch(exact.outputContract, /followed by concise verification/i);
+		const fast = compilePrompt({
+			baseSystemPrompt: "BASE",
+			profile: profile("openai"),
+			synopsis,
+			userRequest: "One sentence",
+			archetype: "fast_classification",
+		});
+		assert.match(fast.outputContract, /do not append a receipt/i);
+	});
+
 	it("requires deterministic DAG submission on planning routes", () => {
 		const planningProfile = profile("anthropic");
 		const compiled = compilePrompt({

@@ -14,7 +14,8 @@
 		"hooks:install": "lefthook install",
 		"lint": "biome lint --error-on-warnings .",
 		"prepare": "lefthook install",
-		"test": "node --test 'extensions/**/*.test.mjs'",
+		"test": "node --test --test-skip-pattern='real Bifrost routing evaluation' 'extensions/**/*.test.mjs'",
+		"test:eval:real": "node --test extensions/router/eval/real.test.mjs",
 		"typecheck": "tsc --noEmit"
 	},
 	"devDependencies": {

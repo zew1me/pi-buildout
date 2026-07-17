@@ -4,7 +4,18 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { conservativeFeatures } from "./core/features.ts";
-import routerExtension from "./index.ts";
+import routerExtension, { deterministicCheckCommand } from "./index.ts";
+
+describe("deterministicCheckCommand", () => {
+	it("accepts exit-preserving checks and rejects shell constructs that can mask failure", () => {
+		assert.equal(deterministicCheckCommand("npm test && npm run lint"), "npm test && npm run lint");
+		assert.equal(deterministicCheckCommand("npm test; true"), undefined);
+		assert.equal(deterministicCheckCommand("npm test || true"), undefined);
+		assert.equal(deterministicCheckCommand("npm test | tee test.log"), undefined);
+		assert.equal(deterministicCheckCommand("npm test & wait"), undefined);
+		assert.equal(deterministicCheckCommand("echo hello"), undefined);
+	});
+});
 
 describe("routerExtension", () => {
 	it("registers the routing lifecycle and status command without starting background work", () => {
@@ -235,6 +246,25 @@ describe("routerExtension", () => {
 				block: true,
 				reason: "Independent review lease is read-only",
 			});
+			await hooks.get("agent_settled")({}, ctx);
+			assert.equal(appended.at(-1).data.active.taskId, child.taskId, "pending review must not restore its parent");
+			ctx.model = selectedModels[0];
+			hooks.get("agent_start")();
+			hooks.get("turn_start")();
+			await hooks.get("agent_end")(
+				{
+					messages: [
+						{
+							role: "assistant",
+							provider: child.selected.provider,
+							model: child.selected.modelId,
+							stopReason: "stop",
+							usage: { input: 100, output: 20, cacheRead: 0, cost: { total: 0.01 } },
+						},
+					],
+				},
+				ctx,
+			);
 			await hooks.get("agent_settled")({}, ctx);
 			const restored = appended.at(-1).data.active;
 			assert.equal(restored.taskId, parent.taskId);

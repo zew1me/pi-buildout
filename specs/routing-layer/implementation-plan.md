@@ -104,7 +104,7 @@ single credential prerequisite explicitly, and installation/live-load smoke test
 
 ## Verification record
 
-- 75 deterministic/unit/adapter/installer tests pass; the Bifrost-only suite skips without its two
+- 76 deterministic/unit/adapter/installer tests pass; the Bifrost-only suite skips without its two
   explicit credentials.
 - `npm audit --audit-level=high --registry=https://registry.npmjs.org/` reports zero vulnerabilities.
 - Shadow and active live pi canaries passed, including actual-vs-proposed telemetry attribution and

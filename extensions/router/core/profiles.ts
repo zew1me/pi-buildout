@@ -49,10 +49,11 @@ export const PROMPT_PROFILES: readonly PromptProfile[] = [
 		executionSurface: "pi-coding-agent",
 		guidelines: [
 			"Act on a well-scoped request without repeating it or asking unnecessary questions.",
-			"Use tools to gather evidence, make the smallest complete change, and run focused verification.",
-			"Keep progress claims factual and finish with a concise receipt of changes and checks.",
+			"Use tools when the task requires evidence or changes; do not add tool work to a bounded answer-only request.",
+			"Keep progress claims factual and include a concise receipt only when the requested output format permits it.",
 		],
-		outputContract: "Return the requested artifact or completed change, followed by concise verification evidence.",
+		outputContract:
+			"Return the requested result exactly; add verification evidence only when the requested format permits it.",
 		criticalConstraints: SHARED_CONSTRAINTS,
 		includeExamples: false,
 	},
@@ -65,10 +66,10 @@ export const PROMPT_PROFILES: readonly PromptProfile[] = [
 		efforts: ["low", "medium", "high", "xhigh"],
 		executionSurface: "pi-coding-agent",
 		guidelines: [
-			"Follow ordered procedures literally and checkpoint before irreversible external effects.",
-			"Verify each required state transition rather than inferring success from a tool invocation.",
+			"When asked to design a procedure, return it directly; when asked to execute one, follow it literally.",
+			"Checkpoint before irreversible external effects and verify each executed state transition.",
 		],
-		outputContract: "Return an ordered completion receipt with any unresolved checkpoint made explicit.",
+		outputContract: "Return the requested procedure or an execution receipt, with unresolved checkpoints explicit.",
 		criticalConstraints: SHARED_CONSTRAINTS,
 		includeExamples: false,
 	},
@@ -85,7 +86,8 @@ export const PROMPT_PROFILES: readonly PromptProfile[] = [
 			"Continue through implementation and verification unless a genuine permission or requirement gap blocks progress.",
 			"For review, report only actionable findings with file/evidence anchors.",
 		],
-		outputContract: "Provide the requested result and a compact evidence-based completion summary.",
+		outputContract:
+			"Provide the requested result exactly; add a compact evidence summary only when its format permits one.",
 		criticalConstraints: SHARED_CONSTRAINTS,
 		includeExamples: false,
 	},

@@ -10,6 +10,7 @@ import { TaskFeaturesSchema } from "./core/features.ts";
 import type { ModelVendor } from "./core/profiles.ts";
 import { canonicalVendor } from "./core/routing.ts";
 import type { SessionSynopsis } from "./core/synopsis.ts";
+import { requireToolCall } from "./core/tool-choice.ts";
 
 const CLASSIFIER_TOOL: Tool = {
 	name: CLASSIFIER_TOOL_NAME,
@@ -100,6 +101,7 @@ function transportFor(ctx: ExtensionContext, selected: ClassifierModel | undefin
 				maxTokens: 4_096,
 				maxRetries: 1,
 				reasoning: "low",
+				onPayload: (payload) => requireToolCall(payload, selected.model.api, CLASSIFIER_TOOL_NAME),
 			},
 		);
 		if (response.stopReason === "error" || response.stopReason === "aborted") {

@@ -2,8 +2,8 @@
 
 Companion to [`SPEC.md`](SPEC.md) (the functional spec — see its own "Evaluation" section for the
 metrics this harness reports) and [`decisions.md`](decisions.md) (architecture). The deterministic
-corpus and explicit-Bifrost real-call harness are implemented under `extensions/router/eval/`; real
-calls skip only while `BIFROST_BASE_URL` or `BIFROST_VIRTUAL_KEY` is absent.
+corpus and explicit-Bifrost real-call harness are implemented under `extensions/router/eval/`.
+Invoke real calls explicitly with `npm run test:eval:real`; ordinary tests skip them.
 
 ## Decision: TS-native harness, real provider calls via Bifrost — no mocks
 
@@ -103,11 +103,11 @@ extensions/router/eval/
   score.ts               # per-axis accuracy and confidence-calibration scoring
 ```
 
-- Runs via `node --test extensions/router/eval/*.test.mjs`, alongside the router's own unit tests,
-  but is **gated on both `BIFROST_BASE_URL` and `BIFROST_VIRTUAL_KEY` being present in the
-  environment** — skip cleanly (not fail) when either is absent, so ordinary `npm test`/CI runs that
-  don't have a provisioned endpoint and key still pass.
-  Provision a key via the `/bifrost-virtual-key` skill for local/CI runs that do want real coverage.
+- Runs explicitly via `npm run test:eval:real`. Exported `BIFROST_BASE_URL` plus
+  `BIFROST_VIRTUAL_KEY` take precedence; missing values are filled from the gitignored
+  `.env.bifrost.local`, if present. The explicit command skips cleanly when
+  credentials remain absent, while ordinary `npm test` always excludes provider calls. Start from
+  `.env.example`; never commit the populated local file.
 - Never mocks the provider. If Bifrost is unreachable or the key is invalid, the run fails loudly
   rather than silently falling back to a stub.
 - Reports axis/archetype accuracy, confidence calibration, false/missed review rates, hard-policy

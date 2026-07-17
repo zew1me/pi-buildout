@@ -36,6 +36,14 @@ Set `PI_ROUTER_TELEMETRY_PATH` to override the JSONL location (useful for isolat
 `pi-telemetry-otel` is installed separately, router spans attach through its global Symbol registries.
 The router has no additional runtime dependencies and works without OTel.
 
+## Real Bifrost evaluation
+
+Run `npm run test:eval:real`. The harness prefers already-exported `BIFROST_BASE_URL` plus
+`BIFROST_VIRTUAL_KEY`, then fills missing values from the repository-local, gitignored
+`.env.bifrost.local`. Start from `.env.example`; ordinary `npm test`
+explicitly skips real-provider calls so local credentials do not make quality checks costly or
+non-deterministic.
+
 ## Safety behavior
 
 - Only user input can trigger classification or a new lease.

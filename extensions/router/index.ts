@@ -78,6 +78,16 @@ interface AttemptMetrics {
 	retried: boolean;
 }
 
+type AttemptDisposition = "unknown" | "pending" | "success" | "aborted" | "incomplete" | "failed";
+
+export function deterministicCheckCommand(command: string): string | undefined {
+	const normalized = command.trim();
+	if (!/\b(?:test|check|lint|typecheck|audit|scan)\b/i.test(normalized)) return undefined;
+	// Do not treat shell constructs that can mask an earlier non-zero exit as verification evidence.
+	if (/\|\||[;|\n\r]|(^|[^&])&([^&]|$)|(^|\s)!(?=\s)/.test(normalized)) return undefined;
+	return normalized.slice(0, 500);
+}
+
 function defaultMode(): RouterMode {
 	const configured = process.env.PI_ROUTER_MODE;
 	return configured === "off" || configured === "active" || configured === "shadow" ? configured : "shadow";
@@ -169,6 +179,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
 	const accumulatedTaskCosts = new Map<string, number>();
 	const taskStartedAt = new Map<string, number>();
 	let telemetryHealthy = true;
+	let attemptDisposition: AttemptDisposition = "unknown";
 
 	function persistState(): void {
 		pi.appendEntry(STATE_ENTRY, {
@@ -180,6 +191,20 @@ export default function routerExtension(pi: ExtensionAPI): void {
 
 	function updateStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus("model-router", ctx.ui.theme.fg(state.mode === "active" ? "accent" : "muted", statusLabel(state)));
+	}
+
+	function disableForTelemetryFailure(ctx: ExtensionContext, error: unknown): void {
+		if (!telemetryHealthy) return;
+		telemetryHealthy = false;
+		if (state.mode === "active") {
+			state = { ...state, mode: "shadow" };
+			persistState();
+			updateStatus(ctx);
+		}
+		ctx.ui.notify(
+			`Router telemetry failed; automatic routing is disabled for this session: ${error instanceof Error ? error.message : String(error)}`,
+			"error",
+		);
 	}
 
 	async function record(
@@ -202,16 +227,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				data,
 			});
 		} catch (error) {
-			telemetryHealthy = false;
-			if (state.mode === "active") {
-				state = { ...state, mode: "shadow" };
-				persistState();
-				updateStatus(ctx);
-			}
-			ctx.ui.notify(
-				`Router telemetry failed; automatic routing is disabled for this session: ${error instanceof Error ? error.message : String(error)}`,
-				"error",
-			);
+			disableForTelemetryFailure(ctx, error);
 		}
 	}
 
@@ -249,7 +265,13 @@ export default function routerExtension(pi: ExtensionAPI): void {
 	): Promise<{ decision: RouteDecision; registry: RegistryModelSnapshot[] }> {
 		const registry = buildRegistrySnapshot(ctx);
 		const requirements = routeRequirements(currentTokens(ctx), classification.features, hasImages);
-		const routeSamples: RouteSample[] = aggregateRouteSamples(telemetryOutcomes(await telemetry.read())).filter(
+		let events: RouterTelemetryEvent[] = [];
+		try {
+			events = await telemetry.read();
+		} catch (error) {
+			disableForTelemetryFailure(ctx, error);
+		}
+		const routeSamples: RouteSample[] = aggregateRouteSamples(telemetryOutcomes(events)).filter(
 			(sample) =>
 				sample.contextBucket === contextBucket &&
 				sample.risk === classification.features.risk &&
@@ -440,8 +462,12 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			},
 		);
 		if (fallback.action === "use_choice") {
-			if (!(await applyChoice(ctx, fallback.choice))) return;
+			if (!(await applyChoice(ctx, fallback.choice))) {
+				attemptDisposition = "failed";
+				return;
+			}
 			state = installLease(state, fallback.lease);
+			attemptDisposition = "pending";
 			attemptStartedAt = Date.now();
 			attemptTurns = 0;
 			attemptToolCalls = 0;
@@ -464,12 +490,14 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			return;
 		}
 		if (fallback.action === "restore_previous") {
+			attemptDisposition = "failed";
 			if (fallback.choice) await applyChoice(ctx, fallback.choice);
 			state = installLease(state, { ...fallback.lease, executionFailed: true });
 			persistState();
 			updateStatus(ctx);
 		}
 		if (fallback.action === "skip_review" && active.parentLease) {
+			attemptDisposition = "failed";
 			await restoreParentAfterReview(ctx, active, "skipped");
 		}
 		ctx.ui.notify(fallback.reason, fallback.action === "skip_review" ? "warning" : "error");
@@ -585,6 +613,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				modelSnapshotId: applied.modelSnapshotId,
 			},
 		);
+		attemptDisposition = "pending";
 		pi.sendMessage(
 			{
 				customType: CONTEXT_MESSAGE,
@@ -640,6 +669,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_start", async (event, ctx) => {
+		attemptDisposition = "unknown";
 		state = restoreLeaseState(ctx.sessionManager.getBranch(), defaultMode());
 		nextParentTaskId = event.reason === "fork" ? state.active?.taskId : undefined;
 		if (event.reason !== "reload") state = setHardBoundary(state, event.reason === "fork" ? "subagent" : "new_session");
@@ -1012,6 +1042,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
 
 	pi.on("agent_start", () => {
 		lastProviderFailure = undefined;
+		attemptDisposition = "pending";
 		agentRunSequence++;
 		attemptStartedAt = Date.now();
 		attemptTurns = 0;
@@ -1035,10 +1066,8 @@ export default function routerExtension(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", (event) => {
 		if (event.toolName === "bash") {
-			const command = typeof event.input.command === "string" ? event.input.command : "";
-			if (/\b(?:test|check|lint|typecheck|audit|scan)\b/i.test(command)) {
-				deterministicCheckCalls.set(event.toolCallId, command.trim().slice(0, 500));
-			}
+			const command = deterministicCheckCommand(typeof event.input.command === "string" ? event.input.command : "");
+			if (command) deterministicCheckCalls.set(event.toolCallId, command);
 		}
 		if (!state.active?.parentLease) return;
 		if (
@@ -1068,7 +1097,12 @@ export default function routerExtension(pi: ExtensionAPI): void {
 		const active = state.active;
 		if (!active) return;
 		const assistants = event.messages.filter(assistantMessage);
-		const isActiveAttempt = state.mode === "active";
+		const isActiveAttempt =
+			state.mode === "active" &&
+			!state.manualOverride &&
+			!active.manualOverride &&
+			ctx.model?.provider === active.selected.provider &&
+			ctx.model.id === active.selected.modelId;
 		const relevant = isActiveAttempt
 			? assistants.filter(
 					(message) => message.provider === active.selected.provider && message.model === active.selected.modelId,
@@ -1133,11 +1167,22 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			(active.archetype === "implementation_planning" || active.archetype === "large_program_planning") &&
 			!validatedPlanAttempts.has(`${active.taskId}:${active.attemptIndex}:${agentRunSequence}`);
 		if (deterministicVerificationFailed || planValidationMissing) {
+			attemptDisposition = "failed";
 			await transitionFallback(ctx, "deterministic_verification", true);
-		} else if (isActiveAttempt && last?.stopReason === "error") {
+		} else if (isActiveAttempt && (last?.stopReason === "error" || (!last && lastProviderFailure))) {
+			attemptDisposition = "failed";
 			const failure = lastProviderFailure ?? "model_error";
 			lastProviderFailure = undefined;
 			await transitionFallback(ctx, failure, true);
+		} else if (isActiveAttempt && last?.stopReason === "length") {
+			attemptDisposition = "failed";
+			await transitionFallback(ctx, "quality", true);
+		} else if (isActiveAttempt && last?.stopReason === "stop") {
+			attemptDisposition = "success";
+		} else if (isActiveAttempt && last?.stopReason === "aborted") {
+			attemptDisposition = "aborted";
+		} else {
+			attemptDisposition = "incomplete";
 		}
 	});
 
@@ -1145,10 +1190,13 @@ export default function routerExtension(pi: ExtensionAPI): void {
 		const active = state.active;
 		if (!active || state.mode !== "active" || active.executionFailed) return;
 		if (active.parentLease) {
-			await restoreParentAfterReview(ctx, active, "completed");
+			if (attemptDisposition === "success") await restoreParentAfterReview(ctx, active, "completed");
+			else if (attemptDisposition === "aborted") await restoreParentAfterReview(ctx, active, "skipped");
 			return;
 		}
-		await startIndependentReview(ctx, active);
+		if (attemptDisposition === "success" || attemptDisposition === "unknown") {
+			await startIndependentReview(ctx, active);
+		}
 	});
 
 	pi.registerCommand("route", {
