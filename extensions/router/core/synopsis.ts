@@ -74,6 +74,7 @@ function cleanText(value: string | undefined, maximum: number): string | undefin
 
 function boundedUnique(values: Iterable<string>, maximumItems: number, maximumLength: number): string[] {
   const result: string[] = [];
+  // Callers provide newest-first values, so retaining the first unique values preserves recency deterministically.
   const seen = new Set<string>();
   for (const value of values) {
     const cleaned = cleanText(value, maximumLength);
@@ -93,11 +94,22 @@ function decisionLines(text: string): string[] {
 }
 
 function trimToBudget(synopsis: SessionSynopsis): SessionSynopsis {
+  const recentLists = [synopsis.recentOutcomes, synopsis.recentGoals, synopsis.priorDecisions];
+  let nextRecentList = 0;
   while (Buffer.byteLength(JSON.stringify(synopsis), "utf8") > MAX_SYNOPSIS_BYTES) {
-    if (synopsis.recentOutcomes.length > 1) synopsis.recentOutcomes.pop();
-    else if (synopsis.recentGoals.length > 1) synopsis.recentGoals.pop();
-    else if (synopsis.priorDecisions.length > 1) synopsis.priorDecisions.pop();
-    else if (synopsis.artifactState.readFiles.length > 5) synopsis.artifactState.readFiles.pop();
+    // Give outcomes, goals, and decisions equal turns before removing additional history from one category.
+    let trimmedRecent = false;
+    for (let offset = 0; offset < recentLists.length; offset++) {
+      const index = (nextRecentList + offset) % recentLists.length;
+      const list = recentLists[index];
+      if (!list || list.length <= 1) continue;
+      list.pop();
+      nextRecentList = (index + 1) % recentLists.length;
+      trimmedRecent = true;
+      break;
+    }
+    if (trimmedRecent) continue;
+    if (synopsis.artifactState.readFiles.length > 5) synopsis.artifactState.readFiles.pop();
     else if (synopsis.repository.changedFiles.length > 5) synopsis.repository.changedFiles.pop();
     else if (synopsis.lastCompactionSummary && synopsis.lastCompactionSummary.length > 500) {
       synopsis.lastCompactionSummary = `${synopsis.lastCompactionSummary.slice(0, 499)}…`;

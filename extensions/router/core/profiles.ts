@@ -77,7 +77,7 @@ export const PROMPT_PROFILES: readonly PromptProfile[] = [
     id: "anthropic-claude-fast-agent-v1",
     version: 1,
     vendor: "anthropic",
-    modelIds: ["claude-haiku-4-5", "claude-sonnet-5"],
+    modelIds: ["claude-haiku-4-5", "claude-sonnet-5", "bedrock/anthropic.claude-sonnet-5"],
     archetypes: ALL_ARCHETYPES.filter((archetype) => archetype !== "large_program_planning"),
     efforts: ["low", "medium", "high", "xhigh"],
     executionSurface: "pi-coding-agent",

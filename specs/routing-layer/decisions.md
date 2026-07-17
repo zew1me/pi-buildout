@@ -166,6 +166,18 @@ extensions/router/
    via the Symbol-registry (falling back to no-op if that package isn't present/configured).
 5. Ship in **shadow mode** first (log decisions without acting on them), per `SPEC.md`'s implementation sequence.
 
+## Deferred follow-up: evidence-aware synopsis compaction
+
+The synopsis keeps bounded, newest-first items and now removes excess recent outcomes, goals, and prior decisions in
+round-robin order while retaining one item from each category. This is the appropriate deterministic policy today: it
+prevents one category from being exhausted first without pretending that recency alone measures semantic value.
+
+A priority queue or A* search is deliberately deferred. Neither has a trustworthy per-entry utility function yet, and
+searching candidate summaries would add cost and nondeterminism without evidence of better routing or agent outcomes. A
+future implementation must retain entry provenance and task linkage, evaluate progressive compaction candidates against
+a fixed corpus (classifier/continuity agreement, downstream task success, and token cost), and promote a utility-scored
+semantic summary only if it outperforms the deterministic round-robin baseline.
+
 ## Implementation-time findings (resolved)
 
 1. **Classifier entrypoint:** use `complete()` from `@earendil-works/pi-ai/compat` with `ModelRegistry`-resolved auth.

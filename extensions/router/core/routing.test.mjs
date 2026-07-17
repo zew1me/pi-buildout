@@ -86,6 +86,18 @@ describe("ordinary route selection", () => {
     assert.equal(decision.fallback.modelId, "gpt-5.6-terra");
   });
 
+  it("uses Upstart's Bifrost Bedrock Sonnet endpoint when direct Anthropic is unavailable", () => {
+    const models = [
+      ...registry().filter((candidate) => candidate.modelId !== "claude-sonnet-5"),
+      model("bifrost", "bedrock/anthropic.claude-sonnet-5", "anthropic"),
+    ];
+    const decision = selectOrdinaryRoute("median_repository_implementation", models, REQUIREMENTS);
+    assert.equal(decision.kind, "ordinary");
+    assert.equal(decision.fallback.provider, "bifrost");
+    assert.equal(decision.fallback.modelId, "bedrock/anthropic.claude-sonnet-5");
+    assert.equal(decision.fallback.profileId, "anthropic-claude-fast-agent-v1");
+  });
+
   it("rejects candidates that exceed 70% context headroom", () => {
     const smallRegistry = registry().map((candidate) => ({ ...candidate, contextWindow: 100_000 }));
     const decision = selectOrdinaryRoute("median_repository_implementation", smallRegistry, {

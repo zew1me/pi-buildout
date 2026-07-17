@@ -19,6 +19,7 @@ import {
 } from "./core/lease.ts";
 import type { BoundaryGateResult, LeaseState, RouterMode, TaskLease } from "./core/lease.ts";
 import { ProgramPlanSchema, validateProgramPlan } from "./core/planning.ts";
+import { POLICY_VERSION } from "./core/policy.ts";
 import { findPromptProfile, PROMPT_PROFILES } from "./core/profiles.ts";
 import type { EffortLevel } from "./core/profiles.ts";
 import { registrySnapshotId, selectOrdinaryRoute, selectReviewRoute } from "./core/routing.ts";
@@ -79,6 +80,7 @@ export function deterministicCheckCommand(command: string): string | undefined {
 
 function defaultMode(): RouterMode {
   const configured = process.env.PI_ROUTER_MODE;
+  // Routing remains observational unless explicitly enabled; malformed configuration must not activate it.
   return configured === "off" || configured === "active" || configured === "shadow" ? configured : "shadow";
 }
 
@@ -222,6 +224,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
 
   function synopsis(ctx: ExtensionContext, repository: RepositoryMetadata): SessionSynopsis {
     const usage = ctx.getContextUsage();
+    // The registry, not the endpoint name, identifies gateway-backed models' canonical vendor.
     const vendor = ctx.model ? snapshotForModel(ctx.model, buildRegistrySnapshot(ctx))?.vendor : undefined;
     return buildSessionSynopsis({
       sessionId: ctx.sessionManager.getSessionId(),
@@ -258,6 +261,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
     try {
       events = await telemetry.read();
     } catch (error) {
+      // Bootstrap ordering is safe without history; disable active routing rather than use stale telemetry.
       disableForTelemetryFailure(ctx, error);
     }
     const routeSamples: RouteSample[] = aggregateRouteSamples(telemetryOutcomes(events)).filter(
@@ -276,7 +280,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
         registry,
         decision: {
           kind: "unroutable",
-          policyVersion: "router-policy-v1",
+          policyVersion: POLICY_VERSION,
           archetype,
           reason: "planning route requires the active submit_implementation_plan validator tool",
           exclusions: [],
@@ -290,7 +294,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
           registry,
           decision: {
             kind: "unroutable",
-            policyVersion: "router-policy-v1",
+            policyVersion: POLICY_VERSION,
             archetype,
             reason: "review routing requires a recognized current builder model",
             exclusions: [],
@@ -325,6 +329,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
     if (requirements.requiresImages && !model.inputTypes.includes("image")) return false;
     if (requirements.requiresTools && !model.toolCapable) return false;
     if (!model.supportedEfforts.includes(lease.selected.effort)) return false;
+    // A persisted lease is valid only while its exact profile pairing remains available in the live registry.
     return (
       findPromptProfile(model.vendor, model.modelId, lease.archetype, lease.selected.effort)?.id ===
       lease.promptProfileId
@@ -433,6 +438,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
         action: fallback.action,
         reason: fallback.reason,
         failure,
+        // Preserve the failed selection separately from the next choice for an auditable fallback chain.
         failedSelection: active.selected,
         ...(fallback.action === "use_choice"
           ? { nextSelection: fallback.choice, reviewFellBackToBuilder: fallback.reviewFellBackToBuilder }
@@ -608,7 +614,8 @@ export default function routerExtension(pi: ExtensionAPI): void {
         customType: CONTEXT_MESSAGE,
         content: [
           `Perform the required independent review for parent task ${parent.taskId}.`,
-          "Inspect the current diff and deterministic test evidence. Do not edit files.",
+          // A parent may commit its work, so an unstaged `git diff` is not a complete review target.
+          "Inspect the parent task's relevant working-tree, staged, and committed changes, plus deterministic test evidence. Do not edit files.",
           "Report only actionable findings with severity and file/evidence anchors; say explicitly when there are none.",
         ].join("\n"),
         display: true,

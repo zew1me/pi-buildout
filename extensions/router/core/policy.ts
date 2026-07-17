@@ -1,7 +1,7 @@
 import type { Archetype } from "./archetype.ts";
 import type { EffortLevel, ModelVendor } from "./profiles.ts";
 
-export const POLICY_VERSION = "router-policy-v1";
+export const POLICY_VERSION = "router-policy-v2";
 
 export type CandidateRef = {
   provider: string;
@@ -33,6 +33,7 @@ function refs(
 
 const OPENAI_PROVIDERS = ["openai-codex", "openai", "github-copilot"] as const;
 const ANTHROPIC_PROVIDERS = ["anthropic", "github-copilot"] as const;
+const BIFROST_BEDROCK_SONNET = "bedrock/anthropic.claude-sonnet-5";
 const GOOGLE_PROVIDERS = ["google", "github-copilot"] as const;
 
 const LUNA_LOW = refs("openai", "gpt-5.6-luna", "low", 1, OPENAI_PROVIDERS);
@@ -43,8 +44,15 @@ const SOL_MAX = refs("openai", "gpt-5.6-sol", "max", 4, OPENAI_PROVIDERS);
 const GPT_55_MEDIUM = refs("openai", "gpt-5.5", "medium", 2, ["openai-codex", "openai", "github-copilot"]);
 const GPT_54_MEDIUM = refs("openai", "gpt-5.4", "medium", 2, ["openai-codex", "openai", "github-copilot"]);
 const HAIKU_LOW = refs("anthropic", "claude-haiku-4-5", "low", 1, ANTHROPIC_PROVIDERS);
-const SONNET_MEDIUM = refs("anthropic", "claude-sonnet-5", "medium", 2, ANTHROPIC_PROVIDERS);
-const SONNET_HIGH = refs("anthropic", "claude-sonnet-5", "high", 3, ANTHROPIC_PROVIDERS);
+const SONNET_MEDIUM = [
+  ...refs("anthropic", "claude-sonnet-5", "medium", 2, ANTHROPIC_PROVIDERS),
+  // Upstart exposes this exact AWS Bedrock model ID through its Bifrost gateway.
+  ...refs("anthropic", BIFROST_BEDROCK_SONNET, "medium", 2, ["bifrost"]),
+];
+const SONNET_HIGH = [
+  ...refs("anthropic", "claude-sonnet-5", "high", 3, ANTHROPIC_PROVIDERS),
+  ...refs("anthropic", BIFROST_BEDROCK_SONNET, "high", 3, ["bifrost"]),
+];
 const OPUS_HIGH = refs("anthropic", "claude-opus-4-8", "high", 3, ANTHROPIC_PROVIDERS);
 const FABLE_HIGH = refs("anthropic", "claude-fable-5", "high", 4, ANTHROPIC_PROVIDERS);
 const GEMINI_MEDIUM = [

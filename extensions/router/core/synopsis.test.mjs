@@ -56,4 +56,21 @@ describe("buildSessionSynopsis", () => {
     );
     assert.deepEqual(synopsis.priorDecisions, ["Decision: preserve user scope"]);
   });
+
+  it("round-robins recent history categories before trimming metadata", () => {
+    const entries = [
+      ...Array.from({ length: 3 }, (_, index) => ({ kind: "user", text: `goal ${index} ${"g".repeat(350)}` })),
+      ...Array.from({ length: 2 }, (_, index) => ({ kind: "assistant", text: `outcome ${index} ${"o".repeat(350)}` })),
+      {
+        kind: "compaction",
+        text: Array.from({ length: 8 }, (_, index) => `Decision ${index}: ${"d".repeat(220)}`).join("\n"),
+        readFiles: Array.from({ length: 13 }, (_, index) => `read/${index}-${"r".repeat(220)}.ts`),
+      },
+    ];
+    const synopsis = buildSessionSynopsis(input(entries));
+    assert.ok(synopsisByteLength(synopsis) <= 8_000);
+    assert.equal(synopsis.recentOutcomes.length, 1);
+    assert.equal(synopsis.recentGoals.length, 2);
+    assert.equal(synopsis.priorDecisions.length, 7);
+  });
 });
