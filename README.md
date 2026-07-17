@@ -32,14 +32,19 @@ PI_PACKAGE_DIR=/opt/pi/lib/node_modules/@earendil-works/pi-coding-agent ./script
 
 The installer verifies the installed pi package against the versioned `/skills` patch baseline, stages and verifies the patch, then replaces its runtime files. It does not modify pi settings. Use `--skip-skill-loading-patch` to install only the extensions.
 
-## Verification
+## Development and verification
 
-Run all extension helper tests:
+Install the pinned development dependencies and Git hooks before making changes:
 
 ```bash
-status=0
-for test in extensions/*/*.test.mjs; do node --test "$test" || status=$?; done
-exit "$status"
+npm install
+npm run hooks:install
+```
+
+[Lefthook](https://github.com/evilmartians/lefthook) runs staged-file safety checks, Biome, and TypeScript at commit time. The pre-push hook runs the complete check suite. Run that suite directly with:
+
+```bash
+npm run check
 ```
 
 Extensions are TypeScript modules loaded directly by pi's extension loader. Use `/reload` after reinstalling them in a running pi session.

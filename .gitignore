@@ -13,6 +13,26 @@ target
 # Contains mutation testing data
 **/mutants.out*/
 
+# Node.js and project tooling
+node_modules/
+*.tsbuildinfo
+npm-debug.log*
+
+# Local credentials and generated router data
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+router-telemetry/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Local editor/agent state
+.DS_Store
+.serena/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

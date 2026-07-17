@@ -4,10 +4,10 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { DynamicBorder, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Container, Key, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
+	type ApplyMode,
 	cycleApplyMode,
 	DESCRIPTIONS,
 	THINKING_LEVELS,
-	type ApplyMode,
 	type ThinkingLevel,
 	updateDefaultThinkingLevelJson,
 } from "./helpers.ts";
@@ -63,8 +63,7 @@ export default function effortExtension(pi: ExtensionAPI) {
 							);
 							container.addChild(new Text("", 0, 0));
 
-							for (let index = 0; index < THINKING_LEVELS.length; index++) {
-								const level = THINKING_LEVELS[index];
+							for (const [index, level] of THINKING_LEVELS.entries()) {
 								const isSelected = index === selectedIndex;
 								const isCurrent = level === currentLevel;
 								const prefix = isSelected ? "> " : "  ";
@@ -102,7 +101,8 @@ export default function effortExtension(pi: ExtensionAPI) {
 								return;
 							}
 							if (matchesKey(data, Key.enter)) {
-								done({ level: THINKING_LEVELS[selectedIndex], applyMode });
+								const selectedLevel = THINKING_LEVELS[selectedIndex];
+								if (selectedLevel) done({ level: selectedLevel, applyMode });
 								return;
 							}
 							if (matchesKey(data, Key.escape)) {

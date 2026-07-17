@@ -1,0 +1,34 @@
+{
+	"name": "pi-buildout",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"engines": {
+		"node": ">=24.0.0"
+	},
+	"scripts": {
+		"check": "npm run format:check && npm run lint && npm run typecheck && npm test",
+		"check:staged": "biome check --write --no-errors-on-unmatched --error-on-warnings",
+		"format": "biome format --write .",
+		"format:check": "biome format .",
+		"hooks:install": "lefthook install",
+		"lint": "biome lint --error-on-warnings .",
+		"prepare": "lefthook install",
+		"test": "node --test 'extensions/**/*.test.mjs'",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"zod": "4.3.6"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.8",
+		"@earendil-works/pi-agent-core": "0.80.7",
+		"@earendil-works/pi-ai": "0.80.7",
+		"@earendil-works/pi-coding-agent": "0.80.7",
+		"@earendil-works/pi-tui": "0.80.7",
+		"@types/node": "25.5.0",
+		"lefthook": "2.1.10",
+		"typescript": "6.0.2",
+		"yaml": "2.9.0"
+	}
+}

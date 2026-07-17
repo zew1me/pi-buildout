@@ -1,0 +1,16 @@
+pre-commit:
+  parallel: true
+  commands:
+    staged-file-safety:
+      run: node scripts/check-staged-files.mjs
+    biome:
+      glob: "*.{js,mjs,cjs,ts,mts,cts,json,jsonc}"
+      run: npm run check:staged -- {staged_files}
+      stage_fixed: true
+    typecheck:
+      run: npm run typecheck
+
+pre-push:
+  commands:
+    full-check:
+      run: npm run check

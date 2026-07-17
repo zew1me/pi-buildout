@@ -31,38 +31,38 @@ export default function clearExtension(pi: ExtensionAPI) {
 	pi.registerCommand("clear", {
 		description: "Discard conversation context and start fresh with project instructions, skills, and tools",
 		handler: async (_args, ctx) => {
-		// Session replacement is only safe after a running agent has fully settled.
-		await ctx.waitForIdle();
+			// Session replacement is only safe after a running agent has fully settled.
+			await ctx.waitForIdle();
 
-		const result = await ctx.newSession({
-			withSession: async (freshCtx) => {
-				const options = freshCtx.getSystemPromptOptions();
-				const contextFiles = await loadCurrentDirectoryContextFiles(freshCtx.cwd);
-				const disclosure = buildFreshContextDisclosure({
-					contextFiles,
-					skills: options.skills ?? [],
-					selectedTools: options.selectedTools ?? [],
-				});
+			const result = await ctx.newSession({
+				withSession: async (freshCtx) => {
+					const options = freshCtx.getSystemPromptOptions();
+					const contextFiles = await loadCurrentDirectoryContextFiles(freshCtx.cwd);
+					const disclosure = buildFreshContextDisclosure({
+						contextFiles,
+						skills: options.skills ?? [],
+						selectedTools: options.selectedTools ?? [],
+					});
 
-				// This context message ensures both AGENTS.md and CLAUDE.md are available even
-				// when Pi's normal context discovery prefers one filename over the other.
-				await freshCtx.sendMessage({
-					customType: "fresh-context-disclosure",
-					content: disclosure,
-					display: true,
-					details: {
-						contextFiles: contextFiles.map((file) => file.path),
-						skills: options.skills?.map((skill) => skill.name) ?? [],
-						tools: options.selectedTools ?? [],
-					},
-				});
-				freshCtx.ui.notify("Fresh context started; project instructions, skills, and tools were reloaded", "info");
-			},
-		});
+					// This context message ensures both AGENTS.md and CLAUDE.md are available even
+					// when Pi's normal context discovery prefers one filename over the other.
+					await freshCtx.sendMessage({
+						customType: "fresh-context-disclosure",
+						content: disclosure,
+						display: true,
+						details: {
+							contextFiles: contextFiles.map((file) => file.path),
+							skills: options.skills?.map((skill) => skill.name) ?? [],
+							tools: options.selectedTools ?? [],
+						},
+					});
+					freshCtx.ui.notify("Fresh context started; project instructions, skills, and tools were reloaded", "info");
+				},
+			});
 
-		if (result.cancelled) {
-			ctx.ui.notify("Fresh context cancelled", "info");
-		}
-	},
+			if (result.cancelled) {
+				ctx.ui.notify("Fresh context cancelled", "info");
+			}
+		},
 	});
 }
