@@ -55,7 +55,10 @@ input.on("line", (line) => {
 			send({ type: "tool_execution_start", toolCallId: "slow-tool", toolName: "bash", args: { command: "sleep" } });
 		}
 		setTimeout(() => {
-			if (String(command.message).includes("COMPACT")) {
+			if (String(command.message).includes("ABORTED_COMPACT")) {
+				// An aborted compaction must not count toward the compaction total.
+				send({ type: "compaction_end", aborted: true, result: undefined });
+			} else if (String(command.message).includes("COMPACT")) {
 				send({ type: "compaction_end", aborted: false, result: { tokensBefore: 10_000 } });
 			}
 			if (String(command.message).includes("SPAWN_DESCENDANT")) {

@@ -94,6 +94,30 @@ test("wait times out without stopping the child", async (t) => {
 	assert.equal(child.snapshot().currentTool, undefined);
 });
 
+test("aborted compaction is not counted, and wait on a settled child returns at once", async (t) => {
+	const child = new ManagedSubagent({
+		id: "abort123",
+		name: "abort-child",
+		task: "ABORTED_COMPACT do the task",
+		model: "test/model",
+		effort: "off",
+		contextSummary: "",
+		cwd: process.cwd(),
+		command: process.execPath,
+		args: [mockPath],
+		env: { ...process.env },
+		classification: "explicit",
+	});
+	t.after(async () => child.stop());
+	await child.start();
+	assert.equal(await child.waitForIdle(500), true);
+	assert.equal(child.snapshot().compactions, 0);
+	// A child that has already settled resolves the next wait synchronously.
+	const before = Date.now();
+	assert.equal(await child.waitForIdle(5_000), true);
+	assert.ok(Date.now() - before < 200);
+});
+
 test("stop terminates descendant processes, not only the Pi child", async (t) => {
 	const child = new ManagedSubagent({
 		id: "tree123",
