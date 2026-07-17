@@ -1,6 +1,7 @@
 # `/effort`
 
-Provides a TUI picker for pi's thinking level. The selection can apply only to the current session or also update the global `defaultThinkingLevel` setting.
+Provides a TUI picker for pi's thinking level. The selection can apply only to the current session or also update the
+global `defaultThinkingLevel` setting.
 
 ## Install
 

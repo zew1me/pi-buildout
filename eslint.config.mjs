@@ -31,7 +31,7 @@ export default tseslint.config(
     rules: {
       "import-x/consistent-type-specifier-style": ["error", "prefer-top-level"],
       "import-x/no-duplicates": "error",
-      "max-len": ["error", { code: 120, ignoreStrings: true, ignoreTemplateLiterals: true, ignoreUrls: true }],
+      "max-len": ["error", { code: 120, ignoreUrls: true }],
       "security/detect-buffer-noassert": "error",
       "security/detect-child-process": "error",
       "security/detect-disable-mustache-escape": "error",

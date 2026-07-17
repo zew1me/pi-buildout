@@ -1,12 +1,15 @@
 # /effort Command Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or
+> superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a global pi `/effort` extension command with a single-screen thinking-level picker and apply-mode toggle.
 
-**Architecture:** Implement as a global extension at `~/.pi/agent/extensions/effort.ts`. Keep settings JSON manipulation in pure exported helper functions so it can be tested independently with Node's built-in test runner.
+**Architecture:** Implement as a global extension at `~/.pi/agent/extensions/effort.ts`. Keep settings JSON manipulation
+in pure exported helper functions so it can be tested independently with Node's built-in test runner.
 
-**Tech Stack:** TypeScript pi extension API, `@earendil-works/pi-tui` components/key helpers, Node `fs`/`path`, Node `node:test` for helper tests.
+**Tech Stack:** TypeScript pi extension API, `@earendil-works/pi-tui` components/key helpers, Node `fs`/`path`, Node
+`node:test` for helper tests.
 
 ---
 
@@ -27,6 +30,7 @@
 ### Task 1: Add helper tests first
 
 **Files:**
+
 - Create: `/Users/nigelstuke/.pi/agent/extensions/effort.test.mjs`
 
 - [ ] **Step 1: Write failing tests**
@@ -87,6 +91,7 @@ Expected: FAIL because `./effort.ts` does not exist or does not export the helpe
 ### Task 2: Implement the extension and helpers
 
 **Files:**
+
 - Create: `/Users/nigelstuke/.pi/agent/extensions/effort.ts`
 
 - [ ] **Step 1: Write implementation**
@@ -183,7 +188,9 @@ export default function effortExtension(pi: ExtensionAPI) {
             render(width: number): string[] {
               container.clear();
               container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
-              container.addChild(new Text(theme.fg("accent", theme.bold(`Thinking effort for ${getModelLabel(ctx)}`)), 1, 0));
+              container.addChild(
+                new Text(theme.fg("accent", theme.bold(`Thinking effort for ${getModelLabel(ctx)}`)), 1, 0),
+              );
               container.addChild(new Text("", 0, 0));
 
               for (let index = 0; index < THINKING_LEVELS.length; index++) {
@@ -198,7 +205,9 @@ export default function effortExtension(pi: ExtensionAPI) {
               }
 
               container.addChild(new Text("", 0, 0));
-              container.addChild(new Text(theme.fg("muted", `Apply: ${applyModeLabel(applyMode)}   (Space/←/→ toggle)`), 1, 0));
+              container.addChild(
+                new Text(theme.fg("muted", `Apply: ${applyModeLabel(applyMode)}   (Space/←/→ toggle)`), 1, 0),
+              );
               container.addChild(new Text(theme.fg("dim", "↑↓ navigate • Enter apply • Esc cancel"), 1, 0));
               container.addChild(new DynamicBorder((s: string) => theme.fg("accent", s)));
               return container.render(width);
@@ -274,6 +283,7 @@ Expected: PASS.
 ### Task 3: Verify TypeScript/runtime compatibility
 
 **Files:**
+
 - Modify only if verification finds a compile/runtime import issue: `/Users/nigelstuke/.pi/agent/extensions/effort.ts`
 
 - [ ] **Step 1: Run TypeScript syntax/type check**
@@ -281,10 +291,12 @@ Expected: PASS.
 Run:
 
 ```bash
-cd /opt/homebrew/Cellar/pi-coding-agent/0.80.6/libexec/lib/node_modules/@earendil-works/pi-coding-agent && npx tsc --noEmit --allowImportingTsExtensions /Users/nigelstuke/.pi/agent/extensions/effort.ts
+cd /opt/homebrew/Cellar/pi-coding-agent/0.80.6/libexec/lib/node_modules/@earendil-works/pi-coding-agent \
+  && npx tsc --noEmit --allowImportingTsExtensions /Users/nigelstuke/.pi/agent/extensions/effort.ts
 ```
 
-Expected: TypeScript completes without errors, or reports only project-wide unrelated errors. If extension-specific errors appear, fix them.
+Expected: TypeScript completes without errors, or reports only project-wide unrelated errors. If extension-specific
+errors appear, fix them.
 
 - [ ] **Step 2: Run pi reload/manual smoke test**
 

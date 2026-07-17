@@ -23,11 +23,11 @@ restore_applied_files() {
   local restored
   for restored in "${PATCH_APPLIED[@]}"; do
     if [[ -f "$PATCH_BACKUP_DIR/$restored" ]]; then
-      cp -p "$PATCH_BACKUP_DIR/$restored" "$PI_PACKAGE_DIR/$restored" ||
-        printf 'Could not restore %s\n' "$PI_PACKAGE_DIR/$restored" >&2
+      cp -p "$PATCH_BACKUP_DIR/$restored" "$PI_PACKAGE_DIR/$restored" \
+        || printf 'Could not restore %s\n' "$PI_PACKAGE_DIR/$restored" >&2
     else
-      rm -f "$PI_PACKAGE_DIR/$restored" ||
-        printf 'Could not remove %s during rollback\n' "$PI_PACKAGE_DIR/$restored" >&2
+      rm -f "$PI_PACKAGE_DIR/$restored" \
+        || printf 'Could not remove %s during rollback\n' "$PI_PACKAGE_DIR/$restored" >&2
     fi
   done
 }
@@ -35,7 +35,7 @@ restore_applied_files() {
 cleanup() {
   local status=$?
   trap - EXIT INT TERM HUP
-  if (( PATCH_COMMIT_IN_PROGRESS )); then
+  if ((PATCH_COMMIT_IN_PROGRESS)); then
     printf 'Interrupted while applying /skills patch; restoring replaced files.\n' >&2
     restore_applied_files
   fi
@@ -48,9 +48,9 @@ trap 'exit 143' TERM HUP
 trap cleanup EXIT
 
 sha256() {
-  if command -v shasum >/dev/null; then
+  if command -v shasum > /dev/null; then
     shasum -a 256 "$1" | awk '{print $1}'
-  elif command -v sha256sum >/dev/null; then
+  elif command -v sha256sum > /dev/null; then
     sha256sum "$1" | awk '{print $1}'
   else
     printf 'A SHA-256 utility (shasum or sha256sum) is required.\n' >&2
@@ -68,7 +68,7 @@ matches_checksum() {
 
 find_pi_package() {
   local path
-  path=$(realpath "$1" 2>/dev/null) || return 1
+  path=$(realpath "$1" 2> /dev/null) || return 1
   path=$(dirname "$path")
   while [[ "$path" != / ]]; do
     if [[ -f "$path/package.json" ]]; then
@@ -83,11 +83,14 @@ find_pi_package() {
 for arg in "$@"; do
   case "$arg" in
     --skip-skill-loading-patch) APPLY_SKILLS_PATCH=0 ;;
-    -h|--help)
+    -h | --help)
       printf 'Usage: %s [--skip-skill-loading-patch]\n' "$(basename "$0")"
       exit 0
       ;;
-    *) printf 'Unknown option: %s\n' "$arg" >&2; exit 2 ;;
+    *)
+      printf 'Unknown option: %s\n' "$arg" >&2
+      exit 2
+      ;;
   esac
 done
 
@@ -100,7 +103,7 @@ for extension in "${EXTENSIONS[@]}"; do
   done
 done
 
-if (( APPLY_SKILLS_PATCH )); then
+if ((APPLY_SKILLS_PATCH)); then
   PI_PACKAGE_DIR=${PI_PACKAGE_DIR:-}
   if [[ -z "$PI_PACKAGE_DIR" ]]; then
     PI_BIN=$(command -v pi || true)
@@ -150,14 +153,17 @@ if (( APPLY_SKILLS_PATCH )); then
     matches_checksum "$patched_checksum" "$PI_PACKAGE_DIR/$file" || package_is_patched=0
   done
 
-  if (( package_is_patched )); then
+  if ((package_is_patched)); then
     APPLY_SKILLS_PATCH=0
     printf '/skills patch for pi %s is already applied.\n' "$PI_VERSION"
-  elif (( ! package_is_baseline )); then
+  elif ((!package_is_baseline)); then
     printf 'Installed pi %s does not match this patch baseline; refusing to modify it.\n' "$PI_VERSION" >&2
     exit 1
   else
-    command -v patch >/dev/null || { printf 'The patch utility is required.\n' >&2; exit 1; }
+    command -v patch > /dev/null || {
+      printf 'The patch utility is required.\n' >&2
+      exit 1
+    }
     PATCH_STAGE_DIR=$(mktemp -d "$PI_PACKAGE_DIR/.pi-skills-patch.XXXXXX")
     PATCH_BACKUP_DIR=$(mktemp -d "$PI_PACKAGE_DIR/.pi-skills-backup.XXXXXX")
     for file in "${PATCH_FILES[@]}"; do
@@ -167,7 +173,7 @@ if (( APPLY_SKILLS_PATCH )); then
         cp -p "$PI_PACKAGE_DIR/$file" "$PATCH_BACKUP_DIR/$file"
       fi
     done
-    patch --batch --forward --strip=1 --directory="$PATCH_STAGE_DIR" < "$PATCH_FILE" >/dev/null
+    patch --batch --forward --strip=1 --directory="$PATCH_STAGE_DIR" < "$PATCH_FILE" > /dev/null
     for file in "${PATCH_FILES[@]}"; do
       patched_checksum=$(manifest_checksum "$PATCHED_SUMS" "$file")
       if ! matches_checksum "$patched_checksum" "$PATCH_STAGE_DIR/$file"; then

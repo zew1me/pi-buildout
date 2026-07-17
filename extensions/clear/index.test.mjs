@@ -6,9 +6,13 @@ import clearExtension from "./index.ts";
 describe("clearExtension", () => {
   it("loads and registers the clear command", () => {
     const commands = new Map();
+    // @ts-expect-error Only command registration is exercised by this test.
     clearExtension({ registerCommand: (name, command) => commands.set(name, command) });
 
-    assert.equal(commands.get("clear")?.description, "Discard conversation context and start fresh with project instructions, skills, and tools");
+    assert.equal(
+      commands.get("clear")?.description,
+      "Discard conversation context and start fresh with project instructions, skills, and tools",
+    );
   });
 });
 
