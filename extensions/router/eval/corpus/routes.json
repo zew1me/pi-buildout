@@ -1,0 +1,201 @@
+[
+	{
+		"id": "fast-classification-001",
+		"prompt": "Summarize the repository purpose in one sentence.",
+		"featureOverrides": {
+			"intent": "summarize",
+			"workflowType": "research_or_analysis",
+			"actionMode": "information_only",
+			"horizon": "one_response",
+			"toolDependence": "light",
+			"contextShape": "short",
+			"expectedAgentTurns": 1
+		},
+		"expected": {
+			"archetype": "fast_classification",
+			"primaryModel": "gpt-5.6-luna",
+			"fallbackModel": "claude-haiku-4-5"
+		}
+	},
+	{
+		"id": "exact-extraction-001",
+		"prompt": "Extract these records into the exact supplied JSON schema.",
+		"featureOverrides": {
+			"intent": "transform",
+			"workflowType": "research_or_analysis",
+			"actionMode": "information_only",
+			"horizon": "one_response",
+			"outputRigidity": "exact_schema",
+			"verificationStrength": "self_check"
+		},
+		"expected": {
+			"archetype": "exact_extraction",
+			"primaryModel": "gpt-5.6-terra",
+			"fallbackModel": "claude-haiku-4-5"
+		}
+	},
+	{
+		"id": "deliberate-workflow-001",
+		"prompt": "Follow the release checklist and stop at the publish checkpoint.",
+		"featureOverrides": {
+			"intent": "operate",
+			"workflowType": "noncoding_tool_workflow",
+			"actionMode": "external_side_effect",
+			"instructionStyle": "procedural",
+			"toolDependence": "external_services",
+			"interactivity": "human_checkpointed"
+		},
+		"expected": {
+			"archetype": "deliberate_tool_workflow",
+			"primaryModel": "gpt-5.5",
+			"fallbackModel": "gpt-5.4"
+		}
+	},
+	{
+		"id": "median-repository-001",
+		"prompt": "Add validation to the users endpoint and test it.",
+		"featureOverrides": {
+			"intent": "implement",
+			"workflowType": "coding_implementation",
+			"actionMode": "reversible_mutation",
+			"horizon": "single_pr",
+			"toolDependence": "repository_agent",
+			"contextShape": "multi_file_repository",
+			"expectedFilesRead": 12,
+			"expectedFilesChanged": 4,
+			"expectedAgentTurns": 7,
+			"verificationStrength": "integration_tests"
+		},
+		"expected": {
+			"archetype": "median_repository_implementation",
+			"primaryModel": "gpt-5.6-terra",
+			"fallbackModel": "claude-sonnet-5"
+		}
+	},
+	{
+		"id": "terminal-heavy-001",
+		"prompt": "Diagnose the failing container build from logs and fix it.",
+		"featureOverrides": {
+			"intent": "diagnose",
+			"workflowType": "incident_or_operations",
+			"actionMode": "reversible_mutation",
+			"horizon": "single_pr",
+			"toolDependence": "terminal_heavy",
+			"contextShape": "multi_file_repository",
+			"expectedAgentTurns": 10
+		},
+		"expected": {
+			"archetype": "terminal_heavy_implementation",
+			"primaryModel": "gpt-5.6-terra",
+			"fallbackModel": "claude-sonnet-5"
+		}
+	},
+	{
+		"id": "algorithmic-iterative-001",
+		"prompt": "Implement this bounded parser function and its unit tests.",
+		"featureOverrides": {
+			"intent": "implement",
+			"workflowType": "coding_implementation",
+			"actionMode": "reversible_mutation",
+			"horizon": "single_pr",
+			"toolDependence": "repository_agent",
+			"contextShape": "single_file",
+			"expectedFilesRead": 2,
+			"expectedFilesChanged": 2,
+			"expectedAgentTurns": 4
+		},
+		"expected": {
+			"archetype": "algorithmic_iterative_coding",
+			"primaryModel": "gemini-3.5-flash",
+			"fallbackModel": "gpt-5.6-terra"
+		}
+	},
+	{
+		"id": "code-review-001",
+		"prompt": "Review this patch for correctness and missing tests.",
+		"featureOverrides": {
+			"intent": "review",
+			"workflowType": "code_review",
+			"actionMode": "local_read",
+			"reviewIntent": true,
+			"independenceRequirement": "different_vendor_review",
+			"verificationStrength": "integration_tests"
+		},
+		"expected": {
+			"archetype": "code_review",
+			"primaryVendor": "google",
+			"fallbackVendor": "anthropic",
+			"builderFallbackVendor": "openai"
+		}
+	},
+	{
+		"id": "implementation-plan-001",
+		"prompt": "Create a six-PR migration plan with dependencies and rollback points.",
+		"featureOverrides": {
+			"intent": "plan",
+			"workflowType": "implementation_planning",
+			"actionMode": "information_only",
+			"horizon": "two_to_ten_prs",
+			"decompositionRecommended": true,
+			"verificationStrength": "integration_tests"
+		},
+		"expected": {
+			"archetype": "implementation_planning",
+			"primaryModel": "claude-opus-4-8",
+			"fallbackModel": "gpt-5.6-sol"
+		}
+	},
+	{
+		"id": "large-program-plan-001",
+		"prompt": "Plan this roughly fifty-PR platform migration program.",
+		"featureOverrides": {
+			"intent": "plan",
+			"workflowType": "implementation_planning",
+			"actionMode": "information_only",
+			"horizon": "eleven_to_hundred_prs",
+			"decompositionRecommended": true,
+			"expectedAgentTurns": 20
+		},
+		"expected": {
+			"archetype": "large_program_planning",
+			"primaryModel": "claude-fable-5",
+			"fallbackModel": "gpt-5.6-sol"
+		}
+	},
+	{
+		"id": "long-context-001",
+		"prompt": "Synthesize the architecture and contradictions across these long documents.",
+		"featureOverrides": {
+			"intent": "research",
+			"workflowType": "research_or_analysis",
+			"actionMode": "information_only",
+			"horizon": "one_response",
+			"contextShape": "large_documents",
+			"expectedToolOutputTokens": 75000
+		},
+		"expected": {
+			"archetype": "long_context_synthesis",
+			"primaryModel": "claude-sonnet-5",
+			"fallbackModel": "gpt-5.6-sol"
+		}
+	},
+	{
+		"id": "highest-risk-advisory-001",
+		"prompt": "Advise on an ambiguous irreversible production data migration.",
+		"featureOverrides": {
+			"intent": "research",
+			"workflowType": "research_or_analysis",
+			"actionMode": "information_only",
+			"horizon": "program_unknown_size",
+			"risk": "critical",
+			"ambiguity": "high",
+			"independenceRequirement": "different_vendor_review",
+			"verificationStrength": "security_and_policy"
+		},
+		"expected": {
+			"archetype": "highest_risk_advisory",
+			"primaryModel": "gpt-5.6-sol",
+			"fallbackModel": "claude-opus-4-8"
+		}
+	}
+]
