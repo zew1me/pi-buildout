@@ -136,7 +136,9 @@ function telemetryOutcomes(events: readonly RouterTelemetryEvent[]): AttemptOutc
 }
 
 export default function routerExtension(pi: ExtensionAPI): void {
-	const telemetry = new JsonlTelemetryStore(join(getAgentDir(), "router-telemetry", "events.jsonl"));
+	const telemetry = new JsonlTelemetryStore(
+		process.env.PI_ROUTER_TELEMETRY_PATH ?? join(getAgentDir(), "router-telemetry", "events.jsonl"),
+	);
 	let state: LeaseState = { mode: defaultMode(), manualOverride: false };
 	let pendingInput: PendingInput | undefined;
 	let lastRoute: LastRoute = {};
@@ -144,6 +146,8 @@ export default function routerExtension(pi: ExtensionAPI): void {
 	let applyingSelection = false;
 	let lastProviderFailure: FailureKind | undefined;
 	let attemptStartedAt = 0;
+	let attemptTurns = 0;
+	let attemptToolCalls = 0;
 	let lastAttemptMetrics: AttemptMetrics | undefined;
 
 	function persistState(): void {
@@ -288,6 +292,29 @@ export default function routerExtension(pi: ExtensionAPI): void {
 		return candidate;
 	}
 
+	async function restoreParentAfterReview(
+		ctx: ExtensionContext,
+		child: TaskLease,
+		outcome: "completed" | "skipped",
+	): Promise<void> {
+		if (!child.parentLease) return;
+		const parent = {
+			...child.parentLease,
+			updatedAt: new Date().toISOString(),
+			reviewCompleted: true,
+		};
+		await applyChoice(ctx, parent.selected);
+		state = installLease(state, parent);
+		persistState();
+		updateStatus(ctx);
+		await record(
+			ctx,
+			"outcome",
+			{ reviewOutcome: outcome, reviewTaskId: child.taskId, parentTaskId: parent.taskId },
+			{ taskId: parent.taskId, archetype: parent.archetype },
+		);
+	}
+
 	async function transitionFallback(ctx: ExtensionContext, failure: FailureKind, triggerTurn: boolean): Promise<void> {
 		const active = state.active;
 		if (!active || state.mode !== "active") return;
@@ -307,6 +334,8 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			if (!(await applyChoice(ctx, fallback.choice))) return;
 			state = installLease(state, fallback.lease);
 			attemptStartedAt = Date.now();
+			attemptTurns = 0;
+			attemptToolCalls = 0;
 			persistState();
 			updateStatus(ctx);
 			if (triggerTurn) {
@@ -324,7 +353,111 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			return;
 		}
 		if (fallback.action === "restore_previous" && fallback.choice) await applyChoice(ctx, fallback.choice);
+		if (fallback.action === "skip_review" && active.parentLease) {
+			await restoreParentAfterReview(ctx, active, "skipped");
+		}
 		ctx.ui.notify(fallback.reason, fallback.action === "skip_review" ? "warning" : "error");
+	}
+
+	async function startIndependentReview(ctx: ExtensionContext, parent: TaskLease): Promise<void> {
+		if (
+			state.mode !== "active" ||
+			!parent.reviewRequired ||
+			parent.reviewCompleted ||
+			parent.parentLease ||
+			parent.archetype === "code_review"
+		) {
+			return;
+		}
+		const registry = buildRegistrySnapshot(ctx);
+		const builder = registry.find(
+			(candidate) => candidate.provider === parent.selected.provider && candidate.modelId === parent.selected.modelId,
+		);
+		if (!builder) return;
+		const decision = selectReviewRoute(
+			registry,
+			routeRequirements(currentTokens(ctx), parent.features, false),
+			builder,
+			parent.selected.effort,
+			parent.selected.ability,
+		);
+		if (decision.kind !== "review") {
+			await record(
+				ctx,
+				"route_decision",
+				{
+					kind: "unroutable_review",
+					reason: decision.kind === "unroutable" ? decision.reason : "review selector returned an ordinary route",
+					exclusions: decision.exclusions,
+				},
+				{ taskId: parent.taskId, archetype: parent.archetype },
+			);
+			return;
+		}
+		const now = new Date().toISOString();
+		const reviewFeatures = {
+			...parent.features,
+			intent: "review" as const,
+			workflowType: "code_review" as const,
+			actionMode: "local_read" as const,
+			reviewIntent: true,
+			independenceRequirement: "different_vendor_review" as const,
+			taskContinuity: "new_task" as const,
+		};
+		const child = createTaskLease({
+			taskId: randomUUID(),
+			parentTaskId: parent.taskId,
+			parentLease: parent,
+			startedAt: now,
+			updatedAt: now,
+			archetype: "code_review",
+			features: reviewFeatures,
+			selected: decision.primary,
+			fallbacks: [decision.fallback, decision.builderFallback],
+			modelSnapshotId: registrySnapshotId(registry),
+			policyVersion: decision.policyVersion,
+			lastPromptFingerprint: promptFingerprint(`review:${parent.taskId}`),
+		});
+		const applied = await applyWithAvailabilityFallback(ctx, child);
+		if (!applied) {
+			await restoreParentAfterReview(ctx, child, "skipped");
+			return;
+		}
+		state = installLease(state, applied);
+		persistState();
+		updateStatus(ctx);
+		attemptStartedAt = Date.now();
+		attemptTurns = 0;
+		attemptToolCalls = 0;
+		await record(
+			ctx,
+			"route_decision",
+			{
+				kind: "required_independent_review",
+				parentTaskId: parent.taskId,
+				fallbacks: applied.fallbacks.map((choice) => `${choice.provider}/${choice.modelId}`),
+			},
+			{
+				taskId: applied.taskId,
+				archetype: "code_review",
+				provider: applied.selected.provider,
+				modelId: applied.selected.modelId,
+				promptProfileId: applied.promptProfileId,
+			},
+		);
+		pi.sendMessage(
+			{
+				customType: CONTEXT_MESSAGE,
+				content: [
+					`Perform the required independent review for parent task ${parent.taskId}.`,
+					"Inspect the current diff and deterministic test evidence. Do not edit files.",
+					"Report only actionable findings with severity and file/evidence anchors; say explicitly when there are none.",
+				].join("\n"),
+				display: true,
+				details: { parentTaskId: parent.taskId, reviewTaskId: applied.taskId },
+			},
+			{ triggerTurn: true, deliverAs: "followUp" },
+		);
 	}
 
 	pi.on("session_start", async (event, ctx) => {
@@ -436,11 +569,15 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				modelSnapshotId: registrySnapshotId(routed.registry),
 				policyVersion: routed.decision.policyVersion,
 				lastPromptFingerprint: promptFingerprint(event.prompt),
+				reviewRequired: classification.archetype.requiresIndependentReview,
+				reviewCompleted: false,
 			});
 			state = installLease(state, lease);
 			persistState();
 			active = lease;
 			attemptStartedAt = Date.now();
+			attemptTurns = 0;
+			attemptToolCalls = 0;
 			await record(
 				ctx,
 				"route_decision",
@@ -449,6 +586,7 @@ export default function routerExtension(pi: ExtensionAPI): void {
 					confidence: classification.features.confidence,
 					risk: classification.features.risk,
 					failedClosed: classification.failedClosed,
+					reviewRequired: lease.reviewRequired === true,
 					exclusions: routed.decision.exclusions,
 					fallbacks: lease.fallbacks.map((choice) => `${choice.provider}/${choice.modelId}`),
 					classifierAttempts: classification.attempts,
@@ -521,6 +659,21 @@ export default function routerExtension(pi: ExtensionAPI): void {
 		if (attemptStartedAt === 0) attemptStartedAt = Date.now();
 	});
 
+	pi.on("turn_start", () => {
+		attemptTurns++;
+	});
+
+	pi.on("tool_execution_end", () => {
+		attemptToolCalls++;
+	});
+
+	pi.on("tool_call", (event) => {
+		if (!state.active?.parentLease) return;
+		if (event.toolName === "edit" || event.toolName === "write") {
+			return { block: true, reason: "Independent review lease is read-only" };
+		}
+	});
+
 	pi.on("after_provider_response", (event) => {
 		if (event.status === 429 || event.status >= 500) lastProviderFailure = "availability";
 	});
@@ -551,6 +704,8 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				inputTokens: relevant.reduce((total, message) => total + message.usage.input, 0),
 				cachedInputTokens: relevant.reduce((total, message) => total + message.usage.cacheRead, 0),
 				outputTokens: relevant.reduce((total, message) => total + message.usage.output, 0),
+				turns: attemptTurns,
+				toolCalls: attemptToolCalls,
 				stopReason: last?.stopReason,
 			},
 			{
@@ -567,6 +722,16 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			lastProviderFailure = undefined;
 			await transitionFallback(ctx, failure, true);
 		}
+	});
+
+	pi.on("agent_settled", async (_event, ctx) => {
+		const active = state.active;
+		if (!active || state.mode !== "active") return;
+		if (active.parentLease) {
+			await restoreParentAfterReview(ctx, active, "completed");
+			return;
+		}
+		await startIndependentReview(ctx, active);
 	});
 
 	pi.registerCommand("route", {

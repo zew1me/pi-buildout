@@ -10,6 +10,7 @@ export interface TaskLease {
 	version: 1;
 	taskId: string;
 	parentTaskId?: string;
+	parentLease?: TaskLease;
 	startedAt: string;
 	updatedAt: string;
 	archetype: Archetype;
@@ -23,6 +24,8 @@ export interface TaskLease {
 	policyVersion: string;
 	lastPromptFingerprint: string;
 	manualOverride: boolean;
+	reviewRequired?: boolean;
+	reviewCompleted?: boolean;
 }
 
 export interface LeaseState {

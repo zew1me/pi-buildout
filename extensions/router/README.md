@@ -27,8 +27,9 @@ The lease is persisted as pi custom session entries. Local audit events are appe
 ~/.pi/agent/router-telemetry/events.jsonl
 ```
 
-When `pi-telemetry-otel` is installed separately, router spans attach through its global Symbol
-registries. The router has no additional runtime dependencies and works without OTel.
+Set `PI_ROUTER_TELEMETRY_PATH` to override the JSONL location (useful for isolated tests). When
+`pi-telemetry-otel` is installed separately, router spans attach through its global Symbol registries.
+The router has no additional runtime dependencies and works without OTel.
 
 ## Safety behavior
 
