@@ -1,0 +1,5 @@
+917502a12c64c7e06a23bdc4207da73295eb48ee0e6a6ccb19c39d8765c99afb  dist/core/resource-loader.js
+9c0ec9e616b5577d80ef98632c40ca0332ac6125868e1a981307efc12d29d3a6  dist/core/slash-commands.js
+29ac87b5944bb986cc356937aa9111178bb8732883e9f049676d01e90b107309  dist/main.js
+1367a8cbb0619039adbc1cae15844fd7a7029c5ddc2c26a40c812c50be1475e4  dist/modes/interactive/interactive-mode.js
+de38956dcdb3f060b62a891c23b5c0facc568d26039cd0addd6d5adfbed2762f  docs/skills.md
