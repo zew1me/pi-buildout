@@ -289,8 +289,8 @@ export class ManagedSubagent {
     if (childPid) {
       this.stopTreeMonitor = watchProcessTree(childPid, (current) => {
         // Keep only the latest verified tree during normal operation. Once
-        // termination begins, freeze it so force-kill cannot target PIDs retained
-        // from arbitrarily old tool processes.
+        // termination begins, freeze it for completion tracking; force-kill uses
+        // the Unix process group or a freshly verified descendant tree instead.
         if (!this.terminationStarted) this.terminationPids = current;
       });
     }
@@ -740,7 +740,9 @@ export class ManagedSubagent {
     if (process.platform === "win32") {
       const currentTree = processTreePids(pid);
       this.terminationPids = [...new Set([...this.terminationPids, ...currentTree])];
-      for (const target of this.terminationPids) {
+      // A cached PID may have been reused after SIGTERM. taskkill only targets
+      // the root and descendants whose ancestry was verified in this sample.
+      for (const target of currentTree) {
         this.windowsKillersInFlight++;
         let settled = false;
         const settle = () => {
@@ -764,8 +766,10 @@ export class ManagedSubagent {
     }
     const currentTree = processTreePids(pid);
     if (!force) this.terminationPids = [...new Set([...this.terminationPids, ...currentTree])];
-    const targets = force ? [...new Set([...this.terminationPids, ...currentTree])] : currentTree;
-    for (const target of targets) {
+    // The owned process group catches descendants that were reparented when the
+    // root exited. Individually signal only freshly verified descendants so a
+    // stale cached numeric PID can never receive SIGKILL.
+    for (const target of currentTree) {
       try {
         process.kill(target, signal);
       } catch {
