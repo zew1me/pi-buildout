@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { conservativeFeatures } from "./core/features.ts";
 import { createTaskLease } from "./core/lease.ts";
+import { selectReviewRoute } from "./core/routing.ts";
 import {
   cacheEstimate,
   estimateFinishedTokens,
@@ -31,6 +32,49 @@ describe("modelAbility", () => {
     assert.equal(modelAbility("some-unknown-mini", "low"), 1);
     assert.equal(modelAbility("some-unknown-pro", "medium"), 4);
     assert.equal(modelAbility("some-unknown-model", "max"), 3);
+  });
+
+  it("selects ability-3 reviewers end to end for a sonnet-5 high builder", () => {
+    // Regression for the original skew: the heuristic rated claude-sonnet-5@high
+    // as ability 2, which routed review to gpt-5.6-terra@high and
+    // gemini-3.5-flash@medium instead of the ability-3 tiers.
+    const registryModel = (provider, modelId, vendor) => ({
+      provider,
+      modelId,
+      name: modelId,
+      vendor,
+      contextWindow: 1_000_000,
+      maxOutputTokens: 128_000,
+      available: true,
+      reasoning: true,
+      supportedEfforts: ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
+      inputTypes: ["text", "image"],
+      toolCapable: true,
+      costPerMillion: { input: 1, output: 4, cacheRead: 0.1, cacheWrite: 1 },
+    });
+    const registry = [
+      registryModel("openai-codex", "gpt-5.6-terra", "openai"),
+      registryModel("openai-codex", "gpt-5.6-sol", "openai"),
+      registryModel("anthropic", "claude-sonnet-5", "anthropic"),
+      registryModel("github-copilot", "gemini-3.5-flash", "google"),
+    ];
+    const builder = registry.find((candidate) => candidate.modelId === "claude-sonnet-5");
+    const decision = selectReviewRoute(
+      registry,
+      { estimatedFinishedTokens: 50_000, requiresImages: false, requiresTools: true },
+      builder,
+      "high",
+      modelAbility("claude-sonnet-5", "high"),
+    );
+    assert.equal(decision.kind, "review");
+    const reviewers = new Map([decision.primary, decision.fallback].map((choice) => [choice.vendor, choice]));
+    assert.equal(reviewers.get("openai").modelId, "gpt-5.6-sol");
+    assert.equal(reviewers.get("google").modelId, "gemini-3.5-flash");
+    for (const choice of reviewers.values()) {
+      assert.equal(choice.effort, "high");
+      assert.equal(choice.ability, 3);
+    }
+    assert.deepEqual(decision.ceilingMismatchVendors, []);
   });
 });
 
