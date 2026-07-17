@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["extensions/*/index.ts", "extensions/*/*.test.mjs"],
+  "entry": ["extensions/*/index.ts", "extensions/**/*.test.mjs"],
   "project": ["extensions/**/*.{ts,mjs}"],
   "ignoreBinaries": ["shellcheck"],
   "ignoreDependencies": ["@secretlint/secretlint-rule-preset-recommend"]

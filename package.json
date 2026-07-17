@@ -17,15 +17,18 @@
     "lint:markdown": "markdownlint-cli2 \"**/*.md\"",
     "lint:shell": "shellcheck scripts/*.sh",
     "typecheck": "tsc --noEmit",
-    "test": "node --test extensions/*/*.test.mjs",
+    "test": "node --test --test-skip-pattern='real Bifrost routing evaluation' 'extensions/**/*.test.mjs'",
+    "test:eval:real": "node --test extensions/router/eval/real.test.mjs",
     "knip": "knip",
     "secrets": "secretlint \"**/*\"",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run knip && npm run secrets",
     "audit": "npm audit --audit-level=high"
   },
   "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.80.6",
-    "@earendil-works/pi-tui": "0.80.6",
+    "@earendil-works/pi-agent-core": "0.80.7",
+    "@earendil-works/pi-ai": "0.80.7",
+    "@earendil-works/pi-coding-agent": "0.80.7",
+    "@earendil-works/pi-tui": "0.80.7",
     "@eslint/js": "^9.39.5",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
     "@types/node": "^24.0.0",
@@ -40,6 +43,7 @@
     "prettier": "^3.6.0",
     "prettier-plugin-sh": "^0.19.0",
     "secretlint": "^13.0.2",
+    "typebox": "1.1.38",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.64.0"
   }

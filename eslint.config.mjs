@@ -12,6 +12,18 @@ export default tseslint.config(
     ignores: ["node_modules/**", "coverage/**", "patches/**"],
   },
   eslint.configs.recommended,
+  {
+    files: ["**/*.{js,mjs,cjs,ts,mts,cts}"],
+    languageOptions: {
+      globals: {
+        console: "readonly",
+        performance: "readonly",
+        process: "readonly",
+        structuredClone: "readonly",
+        URL: "readonly",
+      },
+    },
+  },
   ...tseslint.configs.strictTypeChecked.map((config) => ({ ...config, files: typedFiles })),
   ...tseslint.configs.stylisticTypeChecked.map((config) => ({ ...config, files: typedFiles })),
   {
@@ -57,6 +69,14 @@ export default tseslint.config(
       "@typescript-eslint/no-confusing-void-expression": "error",
       "@typescript-eslint/no-floating-promises": "error",
       "@typescript-eslint/no-misused-promises": "error",
+    },
+  },
+  {
+    files: ["extensions/router/**/*.{ts,mjs}"],
+    rules: {
+      "max-len": "off",
+      "sonarjs/cognitive-complexity": ["error", 60],
+      "unicorn/consistent-function-scoping": "off",
     },
   },
   {
