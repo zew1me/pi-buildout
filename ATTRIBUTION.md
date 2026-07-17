@@ -37,6 +37,16 @@ Ideas and lessons used:
 
 We extended that minimal shape with persistent RPC children, task-targeted context compaction, automatic model/effort classification, direct-child spying and control, and recursive child creation.
 
+## `tintinweb/pi-subagents`
+
+- Repository: <https://github.com/tintinweb/pi-subagents>
+- Local revision reviewed: `c161865a0e8ca12f406041c263ea6c2ca35c74d5` (`0.14.1`)
+- License: MIT
+
+This package was reviewed after the initial implementation as a source of possible follow-up ideas. The review considered its in-process SDK sessions, background concurrency queue, graceful turn limits, result/steering tools, conversation viewer, context-usage statistics, compact tool-description mode, model-scope guardrail, and resumable sessions.
+
+No tintinweb code was copied or modified, and no tintinweb-specific feature was incorporated in the implementation covered by these commits. The package remains conceptual comparison material pending user review. Major pieces intentionally not adopted include named/default agent types, custom agent frontmatter, proactive completion notifications, FleetView/widget UI, scheduling, event-bus RPC, persistent memory, worktree isolation, skill preloading, and its three-tool Claude Code-compatible surface.
+
 ## Pi documentation and examples
 
 - Source: `@earendil-works/pi-coding-agent`
