@@ -15,6 +15,7 @@ export interface TaskLease {
 	archetype: Archetype;
 	features: TaskFeatures;
 	selected: RouteChoice;
+	previousSelection?: RouteChoice;
 	fallbacks: RouteChoice[];
 	attemptIndex: number;
 	promptProfileId: string;
