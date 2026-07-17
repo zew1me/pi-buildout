@@ -2,14 +2,13 @@
 
 Local pi customizations and supporting notes used to make pi the desired coding-agent harness.
 
-| Component                              | Purpose                                                                                    | Documentation                                                                        |
-| -------------------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------ |
-| `extensions/clear`                     | `/clear`: replace the current session and disclose project instructions, skills, and tools | [`extensions/clear/README.md`](extensions/clear/README.md)                           |
-| `extensions/markdown-backlinks`        | Track `@file.ext` pointers found in Markdown and suggest reading them                      | [`extensions/markdown-backlinks/README.md`](extensions/markdown-backlinks/README.md) |
-| `extensions/effort`                    | `/effort`: select and persist thinking effort                                              | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
-| `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                 | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
-| `docs/superpowers`                     | Design specifications and implementation plans                                             | [`docs/superpowers/README.md`](docs/superpowers/README.md)                           |
-| `patches/pi-0.80.6`                    | Versioned runtime snapshot for the opt-in `/skills` behavior                               | [`patches/pi-0.80.6/README.md`](patches/pi-0.80.6/README.md)                         |
+| Component                              | Purpose                                                                                     | Documentation                                                                        |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `extensions/clear`                     | `/clear`: replace the current session and disclose project instructions, skills, and tools  | [`extensions/clear/README.md`](extensions/clear/README.md)                           |
+| `extensions/markdown-backlinks`        | Track `@file.ext` pointers found in Markdown and suggest reading them                       | [`extensions/markdown-backlinks/README.md`](extensions/markdown-backlinks/README.md) |
+| `extensions/effort`                    | `/effort`: select and persist thinking effort                                               | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
+| `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
+| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-0.80.6/README.md`](patches/pi-0.80.6/README.md)                         |
 
 ## Installation
 
