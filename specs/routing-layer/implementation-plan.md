@@ -3,12 +3,14 @@
 Status: **implemented and real-provider evaluated**. Deferred circuit-breaker and workflow-specific horizon work is
 tracked in [`future-work.md`](future-work.md).
 
-This is the execution plan for [`SPEC.md`](SPEC.md). It incorporates useful deltas from the external implementation plan
-while treating that file as untrusted reference material and ignoring its Python implementation.
+This is the execution plan for [`SPEC.md`](SPEC.md). The provenance and disposition of its historical design inputs are
+recorded in [`source-basis.md`](source-basis.md); every adopted requirement is restated in checked-in documents below.
+The historical Python prototype is not an implementation dependency.
 
 ## Reconciliation completed before coding
 
-The external plan contained four material updates that were missing from the local spec and have now been adopted:
+The pre-implementation source review identified four material updates that were missing from the first local spec. They
+have now been adopted:
 
 1. Ordinary routes have exactly a primary and fallback; there is no availability-only third model.
 2. Review is sequential across both non-builder model vendors, with the existing builder as a fixed final fallback when
@@ -17,8 +19,8 @@ The external plan contained four material updates that were missing from the loc
    compatibility are hard eligibility filters.
 4. Multi-PR planning and implementation are separate attempts and leases with separate telemetry.
 
-Concrete external model assignments remain bootstrap hints only. Policy v2 resolves exact IDs against pi's live
-`ModelRegistry`, including the explicitly configured Bifrost Bedrock Sonnet availability endpoint, and rejects
+Concrete model assignments from the historical inputs remain bootstrap hints only. Policy v2 resolves exact IDs against
+pi's live `ModelRegistry`, including the explicitly configured Bifrost Bedrock Sonnet availability endpoint, and rejects
 unvalidated combinations.
 
 ## Delivery slices

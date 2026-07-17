@@ -3,8 +3,8 @@
 Status: **implemented (shadow-first rollout)**. The TypeScript extension is in
 [`extensions/router`](../../extensions/router), defaults to shadow mode, and has passed deterministic, installer,
 shadow, active-canary, and full explicit-Bifrost checks. See [`decisions.md`](decisions.md),
-[`implementation-decisions.md`](implementation-decisions.md), [`eval.md`](eval.md), and the
-[2026-07-17 real-provider results](eval-results-2026-07-17.md).
+[`implementation-decisions.md`](implementation-decisions.md), [`eval.md`](eval.md),
+[`source-basis.md`](source-basis.md), and the [2026-07-17 real-provider results](eval-results-2026-07-17.md).
 
 ## Context
 
@@ -77,13 +77,57 @@ The classifier returns **semantic features only, never a model name**. A determi
 archetype; filters eligible models; ranks the ordinary primary/fallback or the review sequence; enforces every ordinary
 fallback is OpenAI or Anthropic; selects a validated prompt profile; compiles the final request.
 
+The bounded context input is the checked-in [`SessionSynopsis`](../../extensions/router/core/synopsis.ts) contract:
+builder and tool metadata, token shape, repository state, observed artifacts, recent goals/outcomes, prior decisions,
+and an optional compaction summary. It is built deterministically, sanitizes copied text, and is trimmed to an
+8,000-byte UTF-8 budget; raw session entries are never part of the classifier contract.
+
 ### Feature schema (required axes)
 
-Intent (answer/research/plan/implement/review/diagnose/operate/summarize/transform/continue), action mode
-(information-only … external side effect), instruction style, task horizon (one response … 2–10 PRs … 11–100/unknown
-program), tool dependence, context shape, output rigidity, independence requirement (none / different-provider review),
-task continuity class, and cache value estimate — plus risk, ambiguity, confidence, and a short evidence list. See the
-reference feature object in the external spec for the concrete JSON shape.
+The executable contract is [`TaskFeaturesSchema`](../../extensions/router/core/features.ts). It is a closed object:
+unknown keys, missing keys, out-of-range estimates, and invalid enum values fail validation. A representative valid
+value, using every required field, is:
+
+```json
+{
+  "intent": "plan",
+  "workflowType": "implementation_planning",
+  "actionMode": "information_only",
+  "instructionStyle": "outcome_first",
+  "literalAdherenceRequired": true,
+  "horizon": "two_to_ten_prs",
+  "toolDependence": "repository_agent",
+  "contextShape": "multi_file_repository",
+  "outputRigidity": "structured",
+  "independenceRequirement": "none",
+  "taskContinuity": "new_task",
+  "cacheValue": {
+    "cachedTokens": 42000,
+    "expectedReuseRatio": 0.62
+  },
+  "risk": "high",
+  "ambiguity": "medium",
+  "confidence": 0.91,
+  "reviewIntent": false,
+  "interactivity": "developer_loop",
+  "expectedAgentTurns": 12,
+  "expectedFilesRead": 40,
+  "expectedFilesChanged": 0,
+  "expectedToolOutputTokens": 32000,
+  "verificationStrength": "integration_tests",
+  "decompositionRecommended": true,
+  "evidence": [
+    "The user requested a multi-PR implementation plan",
+    "Repository evidence is required before defining dependencies"
+  ]
+}
+```
+
+The fields cover intent, workflow/action mode, instruction style, horizon, tool dependence, context shape, output
+rigidity, independence/review requirements, continuity/cache value, risk, ambiguity, confidence, interactivity, expected
+work size, verification strength, decomposition, and grounded evidence. Exact enums and numeric bounds live in the
+linked TypeBox schema so documentation and classifier tool validation share one executable definition. The
+[design-source reconciliation](source-basis.md) explains how this contract differs from the historical feature example.
 
 The classifier does not have a `response_format`-style structured-output knob available to it (see `decisions.md`).
 Enforce the schema by forcing a **tool call** whose parameters are the TypeBox schema, and validate the returned

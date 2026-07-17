@@ -1,8 +1,9 @@
 # Routing layer — architecture decisions
 
-Companion to [`SPEC.md`](SPEC.md) (the functional spec) and [`eval.md`](eval.md) (the evaluation harness). This document
-records _how_ it will be built and why — language, framework, tooling — plus the implementation-time findings that
-resolve the original open items. The extension is implemented and remains in its intended shadow-first rollout.
+Companion to [`SPEC.md`](SPEC.md) (the functional spec), [`eval.md`](eval.md) (the evaluation harness), and
+[`source-basis.md`](source-basis.md) (design provenance and public references). This document records _how_ it will be
+built and why — language, framework, tooling — plus the implementation-time findings that resolve the original open
+items. The extension is implemented and remains in its intended shadow-first rollout.
 
 ## Decision: TypeScript, in-process, as a pi extension
 
@@ -12,7 +13,7 @@ machine, prompt compiler) runs once per task boundary over kilobytes of data —
 effectively zero wall-clock; there is no hot loop to justify one.
 
 What _is_ recurring cost is the **per-turn integration boundary**: the router is consulted on every user turn. Running
-out-of-process (e.g. the reference implementation's Python, as a sidecar) would mean IPC plus full harness-state
+the discarded historical Python prototype out-of-process as a sidecar would mean IPC plus full harness-state
 serialization (session, tokens, tool inventory, builder identity, cache stats) on every turn. Running in-process in pi's
 own runtime avoids that entirely.
 
@@ -34,10 +35,9 @@ already exposes every hook this spec's pipeline needs:
 The existing extensions in this repo (`extensions/{clear,effort,markdown-backlinks}`, each `index.ts` + `helpers.ts` +
 `index.test.mjs`) already demonstrate the shape this layer should take.
 
-**The prose functional spec (`SPEC.md`) is the implementation authority — not the external Python reference router.**
-That reference is untested and untrialed; treat it as informal illustration only, and do not conform to its output
-shapes, schemas, or behavior. Tests should be authored directly from `SPEC.md`'s invariants, not as a diff against the
-reference.
+**The prose functional spec (`SPEC.md`) is the implementation authority — not the historical Python prototype described
+in `source-basis.md`.** That prototype was untested and untrialed; its output shapes, schemas, and behavior were not
+imported. Tests are authored directly from `SPEC.md`'s invariants and the checked-in TypeScript contracts.
 
 ## Why not an agent framework
 
@@ -45,10 +45,8 @@ Not LangChain, CrewAI, LangGraph, or the Anthropic/OpenAI Agents SDKs. What we'r
 classifier plus a deterministic decision engine plus a prompt compiler — not an agent: there is no agentic loop, tool
 orchestration, or multi-agent coordination to own, because pi already is the agent and owns the loop. Dropping an agent
 framework in would fight the in-process integration described above and add a heavy abstraction around what is, on the
-LLM side, a single low-temperature structured-output classification call. This also matches how Upstart treats these
-frameworks internally: the Anthropic/OpenAI Agents SDKs and CrewAI are explicitly experimental/prototyping-only there,
-and the company's real agent investment (LangGraph, the `upstart-genai-platform` SDK) is Python-only with no TypeScript
-equivalent — so there's neither a good reason nor an internal convention to reuse here.
+LLM side, a single low-temperature structured-output classification call. The repository therefore uses no agent
+framework.
 
 ## Dependency set
 
@@ -59,7 +57,7 @@ pi's bundled packages already cover nearly the entire runtime surface. Reuse the
 | Schema/validation            | **TypeBox** through its canonical `typebox` / `typebox/value` exports. Not Zod — TypeBox is a first-class pi dependency and matches pi's own `ToolDefinition` model.                                         |
 | Structured classifier output | forced **tool call** with TypeBox parameters, validated via pi-ai's `validateToolCall`/`validateToolArguments` (+ `parseJsonWithRepair` for recovery). There is no `response_format`-style enforcement path. |
 | One-shot LLM call            | pi-ai's public `complete()` compatibility export, with registry-resolved auth (verified live).                                                                                                               |
-| Provider access              | **Bifrost** (Upstart's sanctioned AI gateway) — see the Provider access section below.                                                                                                                       |
+| Provider access              | **[Bifrost](https://github.com/maximhq/bifrost)** where configured — see the Provider access section below.                                                                                                  |
 | Token/context sizing         | `ctx.getContextUsage()` + pi-ai's `estimateContextTokens`/`calculateCost` helpers. No tiktoken — pi has no real tokenizer, and estimation is the norm here.                                                  |
 | Eligibility/ranking inputs   | `ctx.modelRegistry.getAvailable()`/`.find()`, `Model.{cost,contextWindow,maxTokens,reasoning}`, pi-ai's `calculateCost()`.                                                                                   |
 | Lease/state persistence      | `pi.appendEntry()` (per-session custom entries) + `getAgentDir()`.                                                                                                                                           |
@@ -83,10 +81,10 @@ No web framework — this is a library plus a thin pi-extension adapter, not a s
   a tiny transport interface for deterministic tests, but production always uses `complete()` with one TypeBox schema
   tool, low temperature where supported, and validated tool arguments.
 - **Provider access — registry-resolved, with Bifrost preferred where configured.** Production calls use the selected
-  model's `baseUrl` and `ModelRegistry`-resolved auth. Upstart deployments should configure those models through
-  Bifrost, its sanctioned gateway, with credentials read from environment/settings and never hardcoded. Local pi
-  installations may use their already-configured direct or OAuth endpoint. The eval harness is stricter: real eval calls
-  require explicit `BIFROST_BASE_URL` and `BIFROST_VIRTUAL_KEY` so an evaluation cannot silently hit another endpoint.
+  model's `baseUrl` and `ModelRegistry`-resolved auth. Deployments exposing models through Bifrost configure credentials
+  in environment/settings and never hardcode them. Local pi installations may use an already-configured direct or OAuth
+  endpoint. The eval harness is stricter: real eval calls require explicit `BIFROST_BASE_URL` and `BIFROST_VIRTUAL_KEY`
+  so an evaluation cannot silently hit another endpoint.
 - **Deterministic core** (eligibility, ranking, lease, compiler): a standalone TS module tree with **zero pi imports**,
   so it stays unit-testable in isolation and portable if the router is ever needed outside pi.
 
@@ -104,14 +102,14 @@ No web framework — this is a library plus a thin pi-extension adapter, not a s
     instruments no spans, metrics, or logs itself. (Verified against pi v0.80.7's `dist/core/telemetry.d.ts` and its
     dependency tree — `@opentelemetry/api` is present only as a transitive dependency of an unrelated package, not one
     pi itself uses.)
-  - There is, however, a dedicated companion extension for this: **`pi-telemetry-otel`**
-    (`pi install npm:pi-telemetry-otel`, v0.1.1). It emits OpenTelemetry spans for pi's own session/ agent/turn/tool
-    lifecycle to an OTLP/HTTP collector, and — the behavior we specifically want to fit to — its helper **automatically
-    parents new spans under pi's currently-active span**, so our routing-decision spans nest into the live
-    session/agent/turn trace rather than starting a disconnected trace. It honors the standard
-    `OTEL_EXPORTER_OTLP_ENDPOINT`/`_HEADERS`, `OTEL_SERVICE_NAME`, `OTEL_RESOURCE_ATTRIBUTES` env vars (plus
-    `PI_AGENT_TRACE_ID`/ `PI_AGENT_SPAN_ID` for subprocess linking) — this is exactly Upstart's standard OTel→Datadog
-    path (via the in-cluster OTel Collector / `corp-otel-gateway`), so no bespoke config to invent.
+  - There is, however, a dedicated companion extension for this:
+    **[`pi-telemetry-otel`](https://www.npmjs.com/package/pi-telemetry-otel)** (`pi install npm:pi-telemetry-otel`,
+    v0.1.1). It emits OpenTelemetry spans for pi's own session/ agent/turn/tool lifecycle to an OTLP/HTTP collector, and
+    — the behavior we specifically want to fit to — its helper **automatically parents new spans under pi's
+    currently-active span**, so our routing-decision spans nest into the live session/agent/turn trace rather than
+    starting a disconnected trace. It honors the standard `OTEL_EXPORTER_OTLP_ENDPOINT`/`_HEADERS`, `OTEL_SERVICE_NAME`,
+    `OTEL_RESOURCE_ATTRIBUTES` env vars (plus `PI_AGENT_TRACE_ID`/ `PI_AGENT_SPAN_ID` for subprocess linking), so it
+    composes with a standard OTLP collector without router-specific exporter configuration.
   - **One resolution-decoupled integration path:** `pi-telemetry-otel` exposes
     `Symbol.for("pi.telemetry-otel.runtimeRegistry.v1")` (tracer/export pipeline) and
     `Symbol.for("pi.telemetry-otel.activeSpanContextRegistry.v1")` (active span context), keyed by
@@ -189,7 +187,7 @@ semantic summary only if it outperforms the deterministic round-robin baseline.
    Bifrost-configured model therefore uses Bifrost; direct-provider configurations keep working. The real-call eval
    runner requires explicit `BIFROST_*` configuration and never silently changes endpoints.
 4. **Concrete registry mapping:** policy v2 uses exact IDs present in pi v0.80.7's live registry
-   (`gpt-5.6-{luna,terra,sol}`, `claude-{haiku-4-5,sonnet-5,opus-4-8,fable-5}`, `gemini-3.5-flash`) plus Upstart's exact
+   (`gpt-5.6-{luna,terra,sol}`, `claude-{haiku-4-5,sonnet-5,opus-4-8,fable-5}`, `gemini-3.5-flash`) plus the configured
    `bifrost/bedrock/anthropic.claude-sonnet-5` endpoint as a Sonnet 5 availability alternative. These have version-aware
    profile families and deterministic lower-tier fallback resolution when a preferred exact ID is unavailable. Bifrost
    evaluation found its advertised Vertex 3.5 route unavailable in-region, so policy also lists exact

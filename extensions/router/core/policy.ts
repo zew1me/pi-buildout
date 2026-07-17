@@ -46,7 +46,7 @@ const GPT_54_MEDIUM = refs("openai", "gpt-5.4", "medium", 2, ["openai-codex", "o
 const HAIKU_LOW = refs("anthropic", "claude-haiku-4-5", "low", 1, ANTHROPIC_PROVIDERS);
 const SONNET_MEDIUM = [
   ...refs("anthropic", "claude-sonnet-5", "medium", 2, ANTHROPIC_PROVIDERS),
-  // Upstart exposes this exact AWS Bedrock model ID through its Bifrost gateway.
+  // This policy supports the configured exact AWS Bedrock model ID through Bifrost.
   ...refs("anthropic", BIFROST_BEDROCK_SONNET, "medium", 2, ["bifrost"]),
 ];
 const SONNET_HIGH = [

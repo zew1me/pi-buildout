@@ -98,7 +98,7 @@ describe("ordinary route selection", () => {
     assert.equal(decision.fallback.modelId, "gpt-5.6-terra");
   });
 
-  it("uses Upstart's Bifrost Bedrock Sonnet endpoint when direct Anthropic is unavailable", () => {
+  it("uses the configured Bifrost Bedrock Sonnet endpoint when direct Anthropic is unavailable", () => {
     const models = [
       ...registry().filter((candidate) => candidate.modelId !== "claude-sonnet-5"),
       model("bifrost", "bedrock/anthropic.claude-sonnet-5", "anthropic"),

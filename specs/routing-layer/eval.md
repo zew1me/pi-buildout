@@ -8,28 +8,22 @@ ordinary tests skip them. The accepted full-run metrics are recorded in
 
 ## Decision: TS-native harness, real provider calls via Bifrost — no mocks
 
-There is no TypeScript eval framework in use anywhere across the user's reference repos, and no single company-mandated
-eval tool even in Python — Upstart's own eval-platform choice is explicitly still open (`ai-acceleration#136` weighs
-Arize Phoenix vs LangSmith vs Logfire). The two most institutionalized internal options, Arize/Phoenix (chosen over
-promptfoo/DeepEval per SRE's ADR-0032) and pydantic-evals + Logfire, are both Python-only, and every existing TS repo
-that touches an LLM **mocks the provider in tests** rather than calling it for real.
-
-Given that, and that the router itself is TypeScript, in-process, and the workload is LLM-I/O-bound (see
-`decisions.md`), the harness for this component is a small **TS-native suite that makes real calls** rather than
-reaching into an external Python eval platform:
+This repository has no general-purpose evaluation framework dependency. The router is TypeScript, runs in-process, and
+is LLM-I/O-bound (see `decisions.md`), so its harness is a small **TS-native suite that makes real calls** rather than a
+second Python evaluation service:
 
 - One language, living next to the code it evaluates, runnable the same way as the router's own unit tests
   (`node --test`).
-- **Real calls, no mocks** — through Bifrost, the sanctioned gateway required for evaluation (see `decisions.md`'s
-  Provider access section). It exercises the same pi-ai OpenAI-compatible transport and schemas as production while
-  deliberately refusing to fall back to a locally configured direct provider.
-- Adds no new institutional platform dependency; if a future company-wide eval platform decision lands, this harness's
-  real-call, no-mock discipline transfers directly — only the runner/scoring glue would move, not the philosophy.
+- **Real calls, no mocks** — through [Bifrost](https://github.com/maximhq/bifrost), the gateway required by this
+  evaluation command (see `decisions.md`'s Provider access section). It exercises the same pi-ai OpenAI-compatible
+  transport and schemas as production while deliberately refusing to fall back to a locally configured direct provider.
+- Adds no hosted platform dependency. If the repository later adopts one, the real-call, no-mock discipline transfers
+  directly — only the runner/scoring glue would move, not the philosophy.
 
 This is deliberately narrower than Arize/Phoenix or pydantic-evals: no experiment-tracking UI, no hosted dataset store,
 no trace-based regression dashboard. If the router's evaluation needs grow past what a golden-corpus `node --test` suite
-can hold, revisit adopting one of Upstart's Python eval platforms rather than growing a bespoke one here — but that is
-out of scope until there's evidence this harness can't keep up.
+can hold, adopt a maintained evaluation platform rather than growing a bespoke one here — but that is out of scope until
+there is evidence this harness cannot keep up.
 
 ## What gets evaluated
 
@@ -57,8 +51,8 @@ Metrics (mirroring `SPEC.md`'s classifier-metrics list):
 
 For a small set of representative tasks (one per archetype in the bootstrap priors table), run the compiled prompt
 through the first Bifrost-available exact policy candidate and its validated profile, then score the response with an
-**LLM-as-judge** (also a real Bifrost call, from a model different than the one being judged) against the profile's own
-stated goals from `SPEC.md`'s model-specific-profile expectations:
+**LLM-as-judge** (also a real Bifrost call, from a model different than the one being judged) against the selected
+checked-in [`PromptProfile`](../../extensions/router/core/profiles.ts) contract:
 
 - instruction adherence (did the response follow the compiled contract, not just the raw user ask);
 - output-schema validity, where the archetype specifies structured/rigid output;
@@ -71,14 +65,17 @@ stated goals from `SPEC.md`'s model-specific-profile expectations:
 
 ```json
 {
-  "id": "median-repo-impl-001",
-  "prompt": "Add input validation to the /users endpoint",
-  "contextSynopsis": { "...": "deterministically-shaped synopsis, matching SPEC.md's schema" },
-  "expected": {
+  "id": "median-repository-001",
+  "prompt": "Add validation to the users endpoint and test it.",
+  "featureOverrides": {
     "intent": "implement",
+    "workflowType": "coding_implementation",
+    "horizon": "single_pr"
+  },
+  "expected": {
     "archetype": "median_repository_implementation",
-    "risk": "medium",
-    "review_intent": false
+    "primaryModel": "gpt-5.6-terra",
+    "fallbackModel": "claude-sonnet-5"
   }
 }
 ```
@@ -86,8 +83,8 @@ stated goals from `SPEC.md`'s model-specific-profile expectations:
 Corpus composition: one fixture per archetype row in `SPEC.md`'s bootstrap priors table. Separate lease and classifier
 tests target every hard boundary (new window, post-compaction, post-push, subagent) and the confidence-escalation paths
 (low confidence, high risk, disagreement), because boundary state is deterministic input to the classifier rather than
-an archetype fixture. Fixtures are sourced from this repo's own spec and real, anonymized task shapes — never copied
-from the external reference document's examples.
+an archetype fixture. Fixtures are sourced from this repository's spec and real, anonymized task shapes. Their exact
+shape is the checked-in corpus rather than a historical design example.
 
 ## Harness shape
 
@@ -113,8 +110,8 @@ extensions/router/eval/
 ## When this runs
 
 - **Locally**, on demand, while iterating on `classifier.ts` or a specific prompt profile.
-- **In CI**, on PRs touching `extensions/router/**`, using a CI-scoped Bifrost virtual key (one key per use case per
-  environment, per Upstart's ADR-005) — never the same key as production routing traffic.
+- **In CI**, on PRs touching `extensions/router/**`, using an evaluation-scoped Bifrost virtual key that is distinct
+  from production routing credentials.
 - **Before making active mode the default**: a full corpus run with no hard-policy violations and no regression against
   the last accepted baseline is a precondition. Explicit active canaries may run earlier, while normal installation
   remains shadow-first.
@@ -125,5 +122,5 @@ extensions/router/eval/
   scope outgrows a golden-corpus `node --test` suite.
 - No synthetic-only corpus — fixtures should be traceable to a real archetype or boundary case in `SPEC.md`, not
   invented to pad coverage numbers.
-- No mocking, ever, for this harness specifically — that is the entire point of building it TS-native instead of reusing
-  an existing mocked test pattern from elsewhere in the org.
+- No mocking for this harness specifically — deterministic unit tests cover transport seams separately, while this
+  command exists to exercise real provider behavior.

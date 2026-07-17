@@ -6,6 +6,23 @@ eligibility/ranking policy, selects a versioned model prompt profile, and record
 The extension starts in **shadow mode**: it logs and displays the route but does not change the model, effort, or system
 prompt. This is intentional.
 
+## Repository contract
+
+The router has no dependency on an untracked design document or local conversation export. Its checked-in authorities
+are:
+
+- the [functional specification](../../specs/routing-layer/SPEC.md) and
+  [source basis](../../specs/routing-layer/source-basis.md);
+- the executable [feature](core/features.ts), [synopsis](core/synopsis.ts), [policy](core/policy.ts), and
+  [prompt-profile](core/profiles.ts) contracts;
+- the [architecture decisions](../../specs/routing-layer/decisions.md),
+  [implementation record](../../specs/routing-layer/implementation-plan.md), and
+  [evaluation contract](../../specs/routing-layer/eval.md).
+
+The source-basis document records the historical inputs that were incorporated and links the public provider, benchmark,
+Bifrost, and telemetry references. If prose and executable contracts diverge, treat that as a repository bug; do not
+reconstruct behavior from the historical export.
+
 ## Commands
 
 - `/route` — show the current mode, task lease, model, effort, profile, and attempt.
