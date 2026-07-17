@@ -66,6 +66,20 @@ matches_checksum() {
   [[ -f "$2" && "$(sha256 "$2")" == "$1" ]]
 }
 
+find_pi_package() {
+  local path
+  path=$(realpath "$1" 2>/dev/null) || return 1
+  path=$(dirname "$path")
+  while [[ "$path" != / ]]; do
+    if [[ -f "$path/package.json" ]]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+    path=$(dirname "$path")
+  done
+  return 1
+}
+
 for arg in "$@"; do
   case "$arg" in
     --skip-skill-loading-patch) APPLY_SKILLS_PATCH=0 ;;
@@ -91,8 +105,9 @@ if (( APPLY_SKILLS_PATCH )); then
   if [[ -z "$PI_PACKAGE_DIR" ]]; then
     PI_BIN=$(command -v pi || true)
     if [[ -n "$PI_BIN" ]]; then
-      PI_BIN=$(realpath "$PI_BIN")
-      PI_PACKAGE_DIR=$(cd "$(dirname "$PI_BIN")/../lib/node_modules/@earendil-works/pi-coding-agent" 2>/dev/null && pwd || true)
+      # `pi` is commonly a symlink to <package>/dist/cli.js, so find the
+      # package from its resolved entry point instead of assuming npm's bin layout.
+      PI_PACKAGE_DIR=$(find_pi_package "$PI_BIN" || true)
     fi
   fi
   if [[ -z "$PI_PACKAGE_DIR" || ! -f "$PI_PACKAGE_DIR/package.json" ]]; then
