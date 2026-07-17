@@ -350,8 +350,24 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			await record(
 				ctx,
 				"fallback",
-				{ action: fallback.action, reason: fallback.reason, failure: "availability" },
-				{ taskId: candidate.taskId, archetype: candidate.archetype },
+				{
+					action: fallback.action,
+					reason: fallback.reason,
+					failure: "availability",
+					failedSelection: candidate.selected,
+					...(fallback.action === "use_choice" ? { nextSelection: fallback.choice } : {}),
+				},
+				{
+					taskId: candidate.taskId,
+					routeKey: candidate.archetype,
+					archetype: candidate.archetype,
+					provider: candidate.selected.provider,
+					modelId: candidate.selected.modelId,
+					effort: candidate.selected.effort,
+					promptProfileId: candidate.promptProfileId,
+					policyVersion: candidate.policyVersion,
+					modelSnapshotId: candidate.modelSnapshotId,
+				},
 			);
 			if (fallback.action !== "use_choice") {
 				if (fallback.action === "restore_previous" && fallback.choice) await applyChoice(ctx, fallback.choice);
@@ -406,9 +422,22 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				action: fallback.action,
 				reason: fallback.reason,
 				failure,
-				...(fallback.action === "use_choice" ? { reviewFellBackToBuilder: fallback.reviewFellBackToBuilder } : {}),
+				failedSelection: active.selected,
+				...(fallback.action === "use_choice"
+					? { nextSelection: fallback.choice, reviewFellBackToBuilder: fallback.reviewFellBackToBuilder }
+					: {}),
 			},
-			{ taskId: active.taskId, archetype: active.archetype },
+			{
+				taskId: active.taskId,
+				routeKey: active.archetype,
+				archetype: active.archetype,
+				provider: active.selected.provider,
+				modelId: active.selected.modelId,
+				effort: active.selected.effort,
+				promptProfileId: active.promptProfileId,
+				policyVersion: active.policyVersion,
+				modelSnapshotId: active.modelSnapshotId,
+			},
 		);
 		if (fallback.action === "use_choice") {
 			if (!(await applyChoice(ctx, fallback.choice))) return;
@@ -479,8 +508,15 @@ export default function routerExtension(pi: ExtensionAPI): void {
 					reason: decision.kind === "unroutable" ? decision.reason : "review selector returned an ordinary route",
 					exclusions: decision.exclusions,
 				},
-				{ taskId: parent.taskId, archetype: parent.archetype },
+				{
+					taskId: parent.taskId,
+					routeKey: "code_review",
+					archetype: parent.archetype,
+					policyVersion: decision.policyVersion,
+					modelSnapshotId: registrySnapshotId(registry),
+				},
 			);
+			ctx.ui.notify("Required independent review is unroutable; inspect router telemetry before continuing", "error");
 			return;
 		}
 		reviewParentAttemptMetrics = lastAttemptMetrics;
@@ -532,14 +568,21 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			{
 				kind: "required_independent_review",
 				parentTaskId: parent.taskId,
+				selection: decision.primary,
+				exclusions: decision.exclusions,
+				ceilingMismatchVendors: decision.ceilingMismatchVendors,
 				fallbacks: applied.fallbacks.map((choice) => `${choice.provider}/${choice.modelId}`),
 			},
 			{
 				taskId: applied.taskId,
+				routeKey: "code_review",
 				archetype: "code_review",
 				provider: applied.selected.provider,
 				modelId: applied.selected.modelId,
+				effort: applied.selected.effort,
 				promptProfileId: applied.promptProfileId,
+				policyVersion: applied.policyVersion,
+				modelSnapshotId: applied.modelSnapshotId,
 			},
 		);
 		pi.sendMessage(
@@ -745,8 +788,19 @@ export default function routerExtension(pi: ExtensionAPI): void {
 					await record(
 						ctx,
 						"route_decision",
-						{ kind: "unroutable", reason: routed.decision.reason, exclusions: routed.decision.exclusions },
-						{ archetype: routed.decision.archetype, policyVersion: routed.decision.policyVersion },
+						{
+							kind: "unroutable",
+							reason: routed.decision.reason,
+							exclusions: routed.decision.exclusions,
+							classifierOutput: routedClassification.features,
+							classifierAttempts: routedClassification.attempts,
+						},
+						{
+							routeKey: routed.decision.archetype,
+							archetype: routed.decision.archetype,
+							policyVersion: routed.decision.policyVersion,
+							modelSnapshotId: registrySnapshotId(routed.registry),
+						},
 					);
 					ctx.ui.notify(`Router retained current model: ${routed.decision.reason}`, "warning");
 					return;
@@ -909,7 +963,16 @@ export default function routerExtension(pi: ExtensionAPI): void {
 			ctx,
 			"outcome",
 			{ manualOverride: "model", provider: event.model.provider, modelId: event.model.id },
-			state.active ? { taskId: state.active.taskId, archetype: state.active.archetype } : {},
+			state.active
+				? {
+						taskId: state.active.taskId,
+						archetype: state.active.archetype,
+						provider: event.model.provider,
+						modelId: event.model.id,
+						policyVersion: state.active.policyVersion,
+						modelSnapshotId: state.active.modelSnapshotId,
+					}
+				: {},
 		);
 	});
 
@@ -932,7 +995,18 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				leaseUpdated: changed?.success ?? false,
 				...(!changed?.success && changed ? { reason: changed.reason } : {}),
 			},
-			state.active ? { taskId: state.active.taskId, archetype: state.active.archetype } : {},
+			state.active
+				? {
+						taskId: state.active.taskId,
+						archetype: state.active.archetype,
+						provider: state.active.selected.provider,
+						modelId: state.active.selected.modelId,
+						effort: event.level,
+						promptProfileId: state.active.promptProfileId,
+						policyVersion: state.active.policyVersion,
+						modelSnapshotId: state.active.modelSnapshotId,
+					}
+				: {},
 		);
 	});
 
@@ -1048,6 +1122,8 @@ export default function routerExtension(pi: ExtensionAPI): void {
 				modelId: attemptedModel,
 				effort: isActiveAttempt ? active.selected.effort : pi.getThinkingLevel(),
 				...(isActiveAttempt ? { promptProfileId: active.promptProfileId } : {}),
+				policyVersion: active.policyVersion,
+				modelSnapshotId: active.modelSnapshotId,
 			},
 		);
 		const deterministicVerificationFailed =
