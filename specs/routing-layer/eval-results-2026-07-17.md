@@ -41,6 +41,19 @@ Results:
 
 Both real-eval tests passed. The full run took approximately 271 seconds.
 
+## Post-acceptance hardening verification
+
+After clarifying classifier semantics and adding bounded exponential backoff for provider `stopReason=error` responses,
+the current code received two additional full-dimension checks:
+
+- all 11 classifier fixtures, paired with one profile canary: axis accuracy 0.8879, archetype accuracy 1.0, zero false
+  or missed review intents, zero hard-policy violations, and zero failed-closed classifications;
+- all 11 profile treatments, paired with one classifier canary: 11/11 accepted, output-schema validity 1.0,
+  tool-selection accuracy 1.0, and progress-claim accuracy 0.9091.
+
+The split reruns isolate each full dimension while avoiding an unnecessary duplicate of the other provider workload.
+Transport retries remain bounded and still fail loudly after exhaustion; they do not replace schema or quality gates.
+
 ## Findings incorporated before acceptance
 
 1. Bifrost did not reliably return structured tool calls for the `gpt-5.6-*` classifier routes; `gpt-5.5` and

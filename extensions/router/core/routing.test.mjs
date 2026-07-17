@@ -62,6 +62,18 @@ describe("deriveArchetype", () => {
       "large_program_planning",
     );
   });
+
+  it("keeps critical ambiguous advice out of review routing when review is only inferred", () => {
+    const features = {
+      ...conservativeFeatures(),
+      intent: "research",
+      workflowType: "research_or_analysis",
+      risk: "critical",
+      ambiguity: "high",
+      reviewIntent: true,
+    };
+    assert.equal(deriveArchetype(features).archetype, "highest_risk_advisory");
+  });
 });
 
 describe("ordinary route selection", () => {
@@ -96,6 +108,14 @@ describe("ordinary route selection", () => {
     assert.equal(decision.fallback.provider, "bifrost");
     assert.equal(decision.fallback.modelId, "bedrock/anthropic.claude-sonnet-5");
     assert.equal(decision.fallback.profileId, "anthropic-claude-fast-agent-v1");
+  });
+
+  it("does not treat the Bedrock Sonnet endpoint as independent from direct Sonnet", () => {
+    const models = [...registry(), model("bifrost", "bedrock/anthropic.claude-sonnet-5", "anthropic")];
+    const decision = selectOrdinaryRoute("long_context_synthesis", models, REQUIREMENTS);
+    assert.equal(decision.kind, "ordinary");
+    assert.equal(decision.primary.modelId, "claude-sonnet-5");
+    assert.equal(decision.fallback.modelId, "gpt-5.6-sol");
   });
 
   it("rejects candidates that exceed 70% context headroom", () => {

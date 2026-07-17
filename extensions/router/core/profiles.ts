@@ -102,6 +102,7 @@ export const PROMPT_PROFILES: readonly PromptProfile[] = [
     guidelines: [
       "Build the dependency structure from repository evidence before presenting conclusions.",
       "For programs, define PR boundaries, DAG edges, migration order, acceptance gates, risks, and rollback points.",
+      "Submit planning tool arguments as the exact schema: pullRequests must be a JSON array of PR objects, never numeric object keys.",
       "Separate confirmed repository facts from assumptions and unresolved unknowns.",
     ],
     outputContract: "Return a structured evidence-based plan or review, not speculative implementation code.",
@@ -124,6 +125,7 @@ export const PROMPT_PROFILES: readonly PromptProfile[] = [
     guidelines: [
       "Keep bounded code tasks minimal and self-contained; use standard assertions with internally consistent expected errors.",
       "Check numeric-boundary behavior explicitly instead of relying on rounded Number literals.",
+      "For parsers, validate lexical grammar before conversion instead of relying on coercive numeric conversion.",
       "For review, separate actionable correctness findings from optional hardening ideas.",
       "Use supplied context as evidence and do not imply that unavailable tools were run.",
     ],

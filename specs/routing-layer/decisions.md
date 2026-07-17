@@ -188,8 +188,9 @@ semantic summary only if it outperforms the deterministic round-robin baseline.
 3. **Provider endpoint:** production classification uses the endpoint already resolved on the chosen pi model. A
    Bifrost-configured model therefore uses Bifrost; direct-provider configurations keep working. The real-call eval
    runner requires explicit `BIFROST_*` configuration and never silently changes endpoints.
-4. **Concrete registry mapping:** policy v1 uses exact IDs present in pi v0.80.7's live registry
-   (`gpt-5.6-{luna,terra,sol}`, `claude-{haiku-4-5,sonnet-5,opus-4-8,fable-5}`, `gemini-3.5-flash`) with version-aware
+4. **Concrete registry mapping:** policy v2 uses exact IDs present in pi v0.80.7's live registry
+   (`gpt-5.6-{luna,terra,sol}`, `claude-{haiku-4-5,sonnet-5,opus-4-8,fable-5}`, `gemini-3.5-flash`) plus Upstart's exact
+   `bifrost/bedrock/anthropic.claude-sonnet-5` endpoint as a Sonnet 5 availability alternative. These have version-aware
    profile families and deterministic lower-tier fallback resolution when a preferred exact ID is unavailable. Bifrost
    evaluation found its advertised Vertex 3.5 route unavailable in-region, so policy also lists exact
    `google-vertex/gemini-2.5-flash` behind 3.5 with a separate generation-specific profile.

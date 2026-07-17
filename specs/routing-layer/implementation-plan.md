@@ -17,8 +17,9 @@ The external plan contained four material updates that were missing from the loc
    compatibility are hard eligibility filters.
 4. Multi-PR planning and implementation are separate attempts and leases with separate telemetry.
 
-Concrete external model assignments remain bootstrap hints only. Policy v1 resolves exact IDs against pi's live
-`ModelRegistry` and rejects unvalidated combinations.
+Concrete external model assignments remain bootstrap hints only. Policy v2 resolves exact IDs against pi's live
+`ModelRegistry`, including the explicitly configured Bifrost Bedrock Sonnet availability endpoint, and rejects
+unvalidated combinations.
 
 ## Delivery slices
 
@@ -102,7 +103,7 @@ smoke tests pass.
 
 ## Verification record
 
-- 84 deterministic/unit/adapter/installer checks pass; ordinary checks explicitly skip provider calls even when local
+- 88 deterministic/unit/adapter/installer checks pass; ordinary checks explicitly skip provider calls even when local
   credentials exist.
 - `npm audit --audit-level=high --registry=https://registry.npmjs.org/` reports zero vulnerabilities.
 - Shadow and active live pi canaries passed, including actual-vs-proposed telemetry attribution and an active route from

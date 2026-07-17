@@ -26,12 +26,15 @@ export function deriveArchetype(features: TaskFeatures): ArchetypeDecision {
   const reasons: string[] = [];
   let archetype: Archetype;
 
-  if (features.workflowType === "code_review" || features.intent === "review" || features.reviewIntent) {
+  if (features.workflowType === "code_review" || features.intent === "review") {
     archetype = "code_review";
-    reasons.push("explicit or inferred review intent");
+    reasons.push("explicit review workflow or intent");
   } else if (features.risk === "critical" || (features.risk === "high" && features.ambiguity === "high")) {
     archetype = "highest_risk_advisory";
     reasons.push(`${features.risk} risk with ${features.ambiguity} ambiguity`);
+  } else if (features.reviewIntent) {
+    archetype = "code_review";
+    reasons.push("inferred review intent");
   } else if (
     features.workflowType === "implementation_planning" ||
     features.intent === "plan" ||

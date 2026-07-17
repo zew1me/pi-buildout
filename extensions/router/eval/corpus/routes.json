@@ -74,7 +74,7 @@
   },
   {
     "id": "terminal-heavy-001",
-    "prompt": "Diagnose the failing container build from logs and fix it.",
+    "prompt": "Use terminal and log inspection to diagnose the failing container build, apply the bounded operational fix, and verify it.",
     "featureOverrides": {
       "intent": "diagnose",
       "workflowType": "incident_or_operations",
@@ -92,7 +92,7 @@
   },
   {
     "id": "algorithmic-iterative-001",
-    "prompt": "Implement this bounded parser function and its unit tests.",
+    "prompt": "Implement one isolated bounded parser function and one focused unit-test file using only the supplied context.",
     "featureOverrides": {
       "intent": "implement",
       "workflowType": "coding_implementation",
@@ -181,7 +181,7 @@
   },
   {
     "id": "highest-risk-advisory-001",
-    "prompt": "Advise on an ambiguous irreversible production data migration.",
+    "prompt": "Provide information-only advice on an ambiguous irreversible production data migration; this is not a request to review an existing patch.",
     "featureOverrides": {
       "intent": "research",
       "workflowType": "research_or_analysis",

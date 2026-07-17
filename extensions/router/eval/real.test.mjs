@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, it } from "node:test";
 import { complete, Type, validateToolArguments } from "@earendil-works/pi-ai/compat";
 import { CLASSIFIER_TOOL_NAME, classifyTask } from "../classifier.ts";
@@ -40,6 +41,18 @@ function compactProviderError(value) {
     .trim()
     .slice(0, 500);
 }
+
+async function completeWithStopRetry(run, maximumAttempts = 4) {
+  const responses = [];
+  for (let attempt = 0; attempt < maximumAttempts; attempt++) {
+    const response = await run();
+    responses.push(response);
+    if (response.stopReason !== "error") break;
+    if (attempt + 1 < maximumAttempts) await delay(1_000 * 2 ** attempt);
+  }
+  return responses;
+}
+
 const limit = positiveInteger(process.env.ROUTER_EVAL_LIMIT, fixtures.length);
 
 function model(id, provider) {
@@ -76,25 +89,29 @@ function classifierVendor(modelId) {
 function classifierTransport(selectedModel, vendor) {
   return async (request) => {
     const started = performance.now();
-    const response = await complete(
-      selectedModel,
-      {
-        systemPrompt: request.systemPrompt,
-        messages: [{ role: "user", content: request.userPrompt, timestamp: Date.now() }],
-        tools: [classifierTool],
-      },
-      {
-        apiKey: bifrostKey,
-        maxTokens: 4_096,
-        maxRetries: 1,
-        onPayload: (payload) => requireToolCall(payload, selectedModel.api, CLASSIFIER_TOOL_NAME),
-      },
+    const responses = await completeWithStopRetry(() =>
+      complete(
+        selectedModel,
+        {
+          systemPrompt: request.systemPrompt,
+          messages: [{ role: "user", content: request.userPrompt, timestamp: Date.now() }],
+          tools: [classifierTool],
+        },
+        {
+          apiKey: bifrostKey,
+          maxTokens: 4_096,
+          maxRetries: 1,
+          onPayload: (payload) => requireToolCall(payload, selectedModel.api, CLASSIFIER_TOOL_NAME),
+        },
+      ),
     );
+    const response = responses.at(-1);
+    assert.ok(response, "Bifrost classifier returned no response");
     const toolCall = response.content.find((part) => part.type === "toolCall" && part.name === CLASSIFIER_TOOL_NAME);
     if (!toolCall) {
       const contentTypes = response.content.map((part) => part.type).join(",") || "none";
       throw new Error(
-        `Bifrost classifier omitted the schema tool call (stop=${response.stopReason}, content=${contentTypes})`,
+        `Bifrost classifier omitted the schema tool call after ${responses.length} transport attempts (stop=${response.stopReason}, content=${contentTypes}, error=${compactProviderError(response.errorMessage) ?? "none"})`,
       );
     }
     return {
@@ -361,25 +378,29 @@ describe("real Bifrost routing evaluation", { skip: !enabled }, () => {
         { role: "user", content: compiled.contextMessage, timestamp: Date.now() },
         { role: "user", content: compiled.userRequest, timestamp: Date.now() },
       ];
-      let workerResponse = await complete(
-        workerModel,
-        {
-          systemPrompt: compiled.systemPrompt,
-          messages: workerMessages,
-          ...(planning ? { tools: [planTool] } : {}),
-        },
-        {
-          apiKey: bifrostKey,
-          maxTokens: planning ? 8_192 : 16_384,
-          maxRetries: 0,
-          timeoutMs: planning ? 180_000 : 90_000,
-          reasoning: treatment.effort,
-          ...(planning
-            ? { onPayload: (payload) => requireToolCall(payload, "openai-completions", planTool.name) }
-            : {}),
-        },
+      const initialWorkerResponses = await completeWithStopRetry(() =>
+        complete(
+          workerModel,
+          {
+            systemPrompt: compiled.systemPrompt,
+            messages: workerMessages,
+            ...(planning ? { tools: [planTool] } : {}),
+          },
+          {
+            apiKey: bifrostKey,
+            maxTokens: planning ? 8_192 : 16_384,
+            maxRetries: 0,
+            timeoutMs: planning ? 180_000 : 90_000,
+            reasoning: treatment.effort,
+            ...(planning
+              ? { onPayload: (payload) => requireToolCall(payload, "openai-completions", planTool.name) }
+              : {}),
+          },
+        ),
       );
-      const workerUsage = [workerResponse.usage];
+      let workerResponse = initialWorkerResponses.at(-1);
+      assert.ok(workerResponse, `worker returned no response for ${treatment.archetype}`);
+      const workerUsage = initialWorkerResponses.map((response) => response.usage);
       let planValid;
       let planValidationError;
       let planToolCalled = false;
@@ -399,32 +420,36 @@ describe("real Bifrost routing evaluation", { skip: !enabled }, () => {
         }
         if (planCall && planValid) {
           const planResponse = workerResponse;
-          workerResponse = await complete(
-            workerModel,
-            {
-              systemPrompt: compiled.systemPrompt,
-              messages: [
-                ...workerMessages,
-                planResponse,
-                {
-                  role: "toolResult",
-                  toolCallId: planCall.id,
-                  toolName: planTool.name,
-                  content: [{ type: "text", text: "Implementation-plan DAG validated successfully." }],
-                  isError: false,
-                  timestamp: Date.now(),
-                },
-              ],
-            },
-            {
-              apiKey: bifrostKey,
-              maxTokens: 2_048,
-              maxRetries: 0,
-              timeoutMs: 60_000,
-              reasoning: treatment.effort,
-            },
+          const finalWorkerResponses = await completeWithStopRetry(() =>
+            complete(
+              workerModel,
+              {
+                systemPrompt: compiled.systemPrompt,
+                messages: [
+                  ...workerMessages,
+                  planResponse,
+                  {
+                    role: "toolResult",
+                    toolCallId: planCall.id,
+                    toolName: planTool.name,
+                    content: [{ type: "text", text: "Implementation-plan DAG validated successfully." }],
+                    isError: false,
+                    timestamp: Date.now(),
+                  },
+                ],
+              },
+              {
+                apiKey: bifrostKey,
+                maxTokens: 2_048,
+                maxRetries: 0,
+                timeoutMs: 60_000,
+                reasoning: treatment.effort,
+              },
+            ),
           );
-          workerUsage.push(workerResponse.usage);
+          workerUsage.push(...finalWorkerResponses.map((response) => response.usage));
+          workerResponse = finalWorkerResponses.at(-1);
+          assert.ok(workerResponse, `planning worker returned no final response for ${treatment.archetype}`);
         }
       }
       const judgeId =
@@ -458,17 +483,22 @@ describe("real Bifrost routing evaluation", { skip: !enabled }, () => {
       const judgeResponses = [];
       let judgmentCall;
       for (let attempt = 0; attempt < 2 && !judgmentCall; attempt++) {
-        const response = await complete(judgeModel, judgeRequest, {
-          apiKey: bifrostKey,
-          maxTokens: 1_024,
-          maxRetries: 0,
-          timeoutMs: 60_000,
-          onPayload: (payload) => requireToolCall(payload, "openai-completions", judgeTool.name),
-        });
-        judgeResponses.push(response);
+        const transportResponses = await completeWithStopRetry(() =>
+          complete(judgeModel, judgeRequest, {
+            apiKey: bifrostKey,
+            maxTokens: 1_024,
+            maxRetries: 0,
+            timeoutMs: 60_000,
+            onPayload: (payload) => requireToolCall(payload, "openai-completions", judgeTool.name),
+          }),
+        );
+        judgeResponses.push(...transportResponses);
+        const response = transportResponses.at(-1);
+        assert.ok(response, `judge returned no response for ${treatment.archetype}`);
         judgmentCall = response.content.find(
           (part) => part.type === "toolCall" && part.name === "report_profile_judgment",
         );
+        if (response.stopReason === "error") break;
       }
       const judgeResponse = judgeResponses.at(-1);
       const judgeDiagnostics = judgeResponse

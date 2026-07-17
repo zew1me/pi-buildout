@@ -229,10 +229,16 @@ function evaluateCandidate(
   };
 }
 
+function modelIdentity(choice: RouteChoice): string {
+  // This exact Bifrost Bedrock ID is an endpoint alternative for Sonnet 5, not an independent fallback model.
+  const modelId = choice.modelId.replace(/^bedrock\/anthropic\./, "");
+  return `${choice.vendor}/${modelId}`;
+}
+
 function deduplicateChoices(choices: readonly RouteChoice[], exclusions: CandidateExclusion[]): RouteChoice[] {
   const seen = new Set<string>();
   return choices.filter((choice) => {
-    const key = `${choice.vendor}/${choice.modelId}`;
+    const key = modelIdentity(choice);
     if (seen.has(key)) {
       exclusions.push({
         candidate: `${choice.provider}/${choice.modelId}`,
