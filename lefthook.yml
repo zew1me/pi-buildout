@@ -1,0 +1,21 @@
+pre-commit:
+  parallel: true
+  commands:
+    format:
+      glob: "*.{js,mjs,cjs,ts,mts,cts,json,jsonc,md,yaml,yml,sh}"
+      run: npx prettier --write --ignore-unknown {staged_files}
+      stage_fixed: true
+    eslint:
+      glob: "*.{js,mjs,cjs,ts,mts,cts}"
+      run: npx eslint --fix --max-warnings 0 {staged_files}
+      stage_fixed: true
+    markdown:
+      glob: "*.md"
+      exclude: "^patches/"
+      run: npx markdownlint-cli2 --fix {staged_files}
+      stage_fixed: true
+
+pre-push:
+  commands:
+    check:
+      run: npm run check
