@@ -44,7 +44,8 @@ describe("buildSessionSynopsis", () => {
     assert.equal(first.recentGoals.length, 1);
     assert.ok(first.recentGoals[0].length <= 360);
     assert.deepEqual(first.activeTools, ["bash", "read", "write"]);
-    assert.deepEqual(first.artifactState.modifiedFiles, ["src/a.ts", "src/changed.ts"]);
+    assert.deepEqual(first.artifactState.readFiles, ["src/old.ts", "src/a.ts"]);
+    assert.deepEqual(first.artifactState.modifiedFiles, ["src/changed.ts", "src/a.ts"]);
     assert.deepEqual(first.artifactState.failedTools, ["bash"]);
     assert.deepEqual(first.priorDecisions, ["Decision: use TypeBox", "Chose JSONL telemetry"]);
     assert.equal(first.context.percent, 25);
@@ -72,5 +73,20 @@ describe("buildSessionSynopsis", () => {
     assert.equal(synopsis.recentOutcomes.length, 1);
     assert.equal(synopsis.recentGoals.length, 2);
     assert.equal(synopsis.priorDecisions.length, 7);
+  });
+
+  it("trims modified-file metadata to the synopsis byte budget", () => {
+    const entries = Array.from({ length: 40 }, (_, index) => ({
+      kind: "tool",
+      toolName: "edit",
+      path: `modified/${index}-${"m".repeat(220)}.ts`,
+    }));
+    const synopsis = buildSessionSynopsis(input(entries));
+
+    assert.ok(synopsisByteLength(synopsis) <= 8_000);
+    assert.ok(synopsis.artifactState.modifiedFiles.length < entries.length);
+    assert.ok(synopsis.artifactState.modifiedFiles.length >= 5);
+    assert.equal(synopsis.artifactState.modifiedFiles[0], entries.at(-1).path);
+    assert.ok(!synopsis.artifactState.modifiedFiles.includes(entries[0].path));
   });
 });

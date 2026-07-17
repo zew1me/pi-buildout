@@ -109,7 +109,9 @@ function trimToBudget(synopsis: SessionSynopsis): SessionSynopsis {
       break;
     }
     if (trimmedRecent) continue;
+    // Trim read paths before modified paths, while retaining at least five of each.
     if (synopsis.artifactState.readFiles.length > 5) synopsis.artifactState.readFiles.pop();
+    else if (synopsis.artifactState.modifiedFiles.length > 5) synopsis.artifactState.modifiedFiles.pop();
     else if (synopsis.repository.changedFiles.length > 5) synopsis.repository.changedFiles.pop();
     else if (synopsis.lastCompactionSummary && synopsis.lastCompactionSummary.length > 500) {
       synopsis.lastCompactionSummary = `${synopsis.lastCompactionSummary.slice(0, 499)}…`;
@@ -140,7 +142,7 @@ export function buildSessionSynopsis(input: SynopsisInput): SessionSynopsis {
     240,
   );
   const readFiles = boundedUnique(
-    input.entries.flatMap((entry) => [
+    reverseEntries.flatMap((entry) => [
       ...(entry.readFiles ?? []),
       ...(entry.toolName === "read" && entry.path ? [entry.path] : []),
     ]),
@@ -148,7 +150,7 @@ export function buildSessionSynopsis(input: SynopsisInput): SessionSynopsis {
     240,
   );
   const modifiedFiles = boundedUnique(
-    input.entries.flatMap((entry) => [
+    reverseEntries.flatMap((entry) => [
       ...(entry.modifiedFiles ?? []),
       ...(["edit", "write"].includes(entry.toolName ?? "") && entry.path ? [entry.path] : []),
     ]),
