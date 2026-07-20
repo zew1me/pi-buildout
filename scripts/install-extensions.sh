@@ -5,7 +5,7 @@ ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 AGENT_DIR=${PI_AGENT_DIR:-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"}
 EXTENSION_DIR="$AGENT_DIR/extensions"
 APPLY_SKILLS_PATCH=1
-EXTENSIONS=(clear effort markdown-backlinks router)
+EXTENSIONS=(clear effort markdown-backlinks router subagents)
 PATCH_FILES=(
   dist/core/resource-loader.js
   dist/core/skill-management.js

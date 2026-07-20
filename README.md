@@ -8,6 +8,7 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 | `extensions/markdown-backlinks`        | Track `@file.ext` pointers found in Markdown and suggest reading them                       | [`extensions/markdown-backlinks/README.md`](extensions/markdown-backlinks/README.md) |
 | `extensions/effort`                    | `/effort`: select and persist thinking effort                                               | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
 | `extensions/router`                    | Shadow-first, task-leased model and prompt-profile routing                                  | [`extensions/router/README.md`](extensions/router/README.md)                         |
+| `extensions/subagents`                 | Natural-language creation and control of isolated, recursively nestable Pi subagents        | [`extensions/subagents/README.md`](extensions/subagents/README.md)                   |
 | `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
 | `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-0.80.6/README.md`](patches/pi-0.80.6/README.md)                         |
 

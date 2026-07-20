@@ -1,5 +1,6 @@
 import eslint from "@eslint/js";
 import importX from "eslint-plugin-import-x";
+import globals from "globals";
 import security from "eslint-plugin-security";
 import sonarjs from "eslint-plugin-sonarjs";
 import unicorn from "eslint-plugin-unicorn";
@@ -29,6 +30,7 @@ export default tseslint.config(
   {
     files: ["extensions/**/*.{ts,mjs}"],
     languageOptions: {
+      globals: globals.node,
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
@@ -43,7 +45,10 @@ export default tseslint.config(
     rules: {
       "import-x/consistent-type-specifier-style": ["error", "prefer-top-level"],
       "import-x/no-duplicates": "error",
-      "max-len": ["error", { code: 120, ignoreUrls: true }],
+      "max-len": [
+        "error",
+        { code: 120, ignoreComments: true, ignoreStrings: true, ignoreTemplateLiterals: true, ignoreUrls: true },
+      ],
       "security/detect-buffer-noassert": "error",
       "security/detect-child-process": "error",
       "security/detect-disable-mustache-escape": "error",
