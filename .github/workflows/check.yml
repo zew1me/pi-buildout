@@ -28,4 +28,4 @@ jobs:
       - name: Check formatting, lint, types, and tests
         run: npm run check
       - name: Audit dependencies
-        run: npm audit --audit-level=high --registry=https://registry.npmjs.org/
+        run: npm run audit
