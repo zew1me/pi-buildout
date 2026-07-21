@@ -36,6 +36,7 @@ describe("routerExtension", () => {
     });
     for (const event of [
       "session_start",
+      "session_shutdown",
       "session_compact",
       "session_before_fork",
       "input",

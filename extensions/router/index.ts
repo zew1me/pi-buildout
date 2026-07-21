@@ -160,6 +160,10 @@ export default function routerExtension(pi: ExtensionAPI): void {
     process.env.PI_ROUTER_TELEMETRY_PATH ?? join(getAgentDir(), "router-telemetry", "events.jsonl"),
   );
   let state: LeaseState = { mode: defaultMode(), manualOverride: false };
+  // The replacement session has a new branch, so carry only the enablement mode
+  // across /clear. The task lease must still be discarded at the new-session
+  // boundary.
+  let modeForNextSession: RouterMode | undefined;
   let pendingInput: PendingInput | undefined;
   let nextParentTaskId: string | undefined;
   let lastRoute: LastRoute = {};
@@ -685,11 +689,20 @@ export default function routerExtension(pi: ExtensionAPI): void {
     },
   });
 
+  pi.on("session_shutdown", (event) => {
+    if (event.reason === "new") modeForNextSession = state.mode;
+  });
+
   pi.on("session_start", async (event, ctx) => {
     attemptDisposition = "unknown";
     state = restoreLeaseState(ctx.sessionManager.getBranch(), defaultMode());
     nextParentTaskId = event.reason === "fork" ? state.active?.taskId : undefined;
     if (event.reason !== "reload") state = setHardBoundary(state, event.reason === "fork" ? "subagent" : "new_session");
+    if (event.reason === "new" && modeForNextSession !== undefined) {
+      state = { ...state, mode: modeForNextSession };
+      modeForNextSession = undefined;
+      persistState();
+    }
     const repository = await readRepositoryMetadata(pi, ctx.cwd);
     lastUpstream = repository.upstream;
     updateStatus(ctx);

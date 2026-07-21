@@ -38,7 +38,9 @@ fallback policy applies. A request to start implementation always receives a new
 automatically run a read-only, provider-independent child review before restoring the builder lease.
 
 `PI_ROUTER_MODE=shadow|active|off` controls the initial mode when a session has no persisted router state. The default
-is `shadow`.
+is `shadow`. The routing enablement mode selected with `/route shadow|active|off` is carried through `/clear`; only the
+mode is preserved, not the task lease, selected model, or effort. Other new sessions still use `PI_ROUTER_MODE` when
+they have no persisted router state.
 
 ## Data and telemetry
 
