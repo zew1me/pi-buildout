@@ -89,7 +89,7 @@ export function deterministicCheckCommand(command: string): string | undefined {
 
 type RouterConfigFile = {
   startMode?: string;
-}
+};
 
 async function readRouterConfig(): Promise<RouterConfigFile | undefined> {
   try {
