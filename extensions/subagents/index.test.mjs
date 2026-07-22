@@ -5,8 +5,10 @@ import {
   boundContextForModel,
   clampThinkingLevel,
   excludeCurrentDelegationTurn,
+  findRequestedModel,
   formatModelCatalog,
   parseClassifierDecision,
+  parseModelRequest,
   supportedThinkingLevels,
   truncateMiddle,
 } from "./helpers.ts";
@@ -20,6 +22,28 @@ test("classifier parser accepts fenced JSON and rejects invalid effort", () => {
   );
   assert.equal(parseClassifierDecision('{"model":"x/y","effort":"extreme"}'), undefined);
   assert.equal(parseClassifierDecision("not json"), undefined);
+});
+
+test("model requests parse effort suffixes without breaking provider ids that contain colons", () => {
+  assert.deepEqual(parseModelRequest("openai-codex/gpt-5.6-luna:high"), {
+    reference: "openai-codex/gpt-5.6-luna",
+    effort: "high",
+  });
+  assert.deepEqual(parseModelRequest("amazon-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0"), {
+    reference: "amazon-bedrock/anthropic.claude-haiku-4-5-20251001-v1:0",
+  });
+});
+
+test("model request resolution accepts qualified ids and preferred-provider bare ids", () => {
+  const models = [
+    { provider: "openai", id: "gpt-5.5" },
+    { provider: "openai-codex", id: "gpt-5.5" },
+    { provider: "openai-codex", id: "gpt-5.6-luna" },
+  ];
+  assert.deepEqual(findRequestedModel("openai-codex/gpt-5.5", models).model, models[1]);
+  assert.deepEqual(findRequestedModel("gpt-5.5", models, "openai-codex").model, models[1]);
+  assert.deepEqual(findRequestedModel("gpt-5.6-luna", models).model, models[2]);
+  assert.match(findRequestedModel("gpt-5.5", models).error ?? "", /ambiguous/);
 });
 
 test("thinking support follows model maps and clamps safely", () => {
