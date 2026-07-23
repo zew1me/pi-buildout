@@ -80,6 +80,15 @@ find_pi_package() {
   return 1
 }
 
+find_global_pi_package() {
+  local npm_root package_dir
+  command -v npm > /dev/null || return 1
+  npm_root=$(npm root --global 2> /dev/null) || return 1
+  package_dir="$npm_root/@earendil-works/pi-coding-agent"
+  [[ -f "$package_dir/package.json" ]] || return 1
+  printf '%s\n' "$package_dir"
+}
+
 for arg in "$@"; do
   case "$arg" in
     --skip-skill-loading-patch) APPLY_SKILLS_PATCH=0 ;;
@@ -113,6 +122,11 @@ if ((APPLY_SKILLS_PATCH)); then
       # `pi` is commonly a symlink to <package>/dist/cli.js, so find the
       # package from its resolved entry point instead of assuming npm's bin layout.
       PI_PACKAGE_DIR=$(find_pi_package "$PI_BIN" || true)
+    fi
+    # Version managers such as mise can expose `pi` through a shim rather
+    # than the package's CLI entrypoint. Fall back to npm's global package root.
+    if [[ -z "$PI_PACKAGE_DIR" ]]; then
+      PI_PACKAGE_DIR=$(find_global_pi_package || true)
     fi
   fi
   if [[ -z "$PI_PACKAGE_DIR" || ! -f "$PI_PACKAGE_DIR/package.json" ]]; then
