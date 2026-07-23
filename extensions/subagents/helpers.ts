@@ -7,6 +7,11 @@ export type ClassifierDecision = {
   rationale?: string;
 };
 
+export type ParsedModelRequest = {
+  reference: string;
+  effort?: ThinkingLevel;
+};
+
 export type ModelLike = {
   provider: string;
   id: string;
@@ -88,6 +93,46 @@ export function parseClassifierDecision(text: string): ClassifierDecision | unde
   } catch {
     return undefined;
   }
+}
+
+export function parseModelRequest(request: string): ParsedModelRequest {
+  const trimmed = request.trim();
+  const separator = trimmed.lastIndexOf(":");
+  if (separator <= 0) return { reference: trimmed };
+  const suffix = trimmed.slice(separator + 1);
+  if (!THINKING_LEVELS.includes(suffix as ThinkingLevel)) return { reference: trimmed };
+  return { reference: trimmed.slice(0, separator), effort: suffix as ThinkingLevel };
+}
+
+function modelRef(model: ModelLike): string {
+  return `${model.provider}/${model.id}`;
+}
+
+export function findRequestedModel(
+  request: string,
+  models: ModelLike[],
+  preferredProvider?: string,
+): { model?: ModelLike; error?: string } {
+  const { reference } = parseModelRequest(request);
+  if (!reference) return { error: "Model request is empty." };
+  const providerSeparator = reference.indexOf("/");
+  if (providerSeparator > 0) {
+    const provider = reference.slice(0, providerSeparator);
+    const id = reference.slice(providerSeparator + 1);
+    const model = models.find((candidate) => candidate.provider === provider && candidate.id === id);
+    return model ? { model } : { error: `Model '${reference}' was not found.` };
+  }
+  const exact = models.filter((candidate) => candidate.id === reference);
+  const onlyExact = exact[0];
+  if (exact.length === 1 && onlyExact) return { model: onlyExact };
+  const preferred = exact.find((candidate) => candidate.provider === preferredProvider);
+  if (preferred) return { model: preferred };
+  if (exact.length > 1) {
+    return {
+      error: `Model '${reference}' is ambiguous; use a provider-qualified model: ${exact.map(modelRef).join(", ")}.`,
+    };
+  }
+  return { error: `Model '${reference}' was not found.` };
 }
 
 export function supportedThinkingLevels(model: ModelLike): ThinkingLevel[] {

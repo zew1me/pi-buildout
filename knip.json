@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["extensions/*/index.ts", "extensions/*/*.test.mjs", "extensions/subagents/auth-bridge.ts"],
+  "entry": ["extensions/*/index.ts", "extensions/**/*.test.mjs", "extensions/subagents/auth-bridge.ts"],
   "project": ["extensions/**/*.{ts,mjs}"],
   "ignoreBinaries": ["shellcheck", "taskkill"],
   "ignoreDependencies": ["@secretlint/secretlint-rule-preset-recommend"]

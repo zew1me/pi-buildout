@@ -19,5 +19,5 @@
     "types": ["node"]
   },
   "include": ["extensions/**/*.ts", "extensions/**/*.mjs"],
-  "exclude": ["node_modules", "patches"]
+  "exclude": ["node_modules", "patches", "extensions/router/**/*.test.mjs"]
 }

@@ -62,6 +62,40 @@ include named/default agent types, custom agent frontmatter, proactive completio
 scheduling, event-bus RPC, persistent memory, worktree isolation, skill preloading, and its three-tool Claude
 Code-compatible surface.
 
+## Routing layer (`extensions/router`)
+
+Full design provenance, including the historical conversation export the router's spec derives from and the public
+prompting/benchmark references consulted for background, is recorded in
+[`specs/routing-layer/source-basis.md`](specs/routing-layer/source-basis.md) and
+[`specs/routing-layer/decisions.md`](specs/routing-layer/decisions.md). The two external, runnable/integrable projects
+referenced by the implementation are recorded here as well, per this file's role as the repository's attribution record
+of first resort.
+
+### `maximhq/bifrost`
+
+- Repository: <https://github.com/maximhq/bifrost>
+- Revision reviewed: not pinned; the router calls Bifrost only as a configured OpenAI-compatible HTTP gateway
+  (`BIFROST_BASE_URL` / `BIFROST_VIRTUAL_KEY`) and vendors no Bifrost code
+- License: not verified in this repository; see the upstream repository for its declared license
+
+Use: Bifrost is the required real-provider transport for the opt-in explicit-provider evaluation harness
+(`extensions/router/eval/real.test.mjs`, `npm run test:eval:real`) and an optional production gateway when a deployment
+configures models through it. No Bifrost source was copied; the router only depends on its OpenAI-compatible request
+contract and its Bedrock model-path naming, documented in
+[`specs/routing-layer/decisions.md`](specs/routing-layer/decisions.md).
+
+### `pi-telemetry-otel`
+
+- Package: <https://www.npmjs.com/package/pi-telemetry-otel>
+- Revision reviewed: not pinned; it is an optional, separately installed companion package, not an extension runtime
+  dependency
+- License: not verified in this repository; see the npm listing for its declared license
+
+Use: `extensions/router/telemetry.ts` studies and consumes this package's public, documented integration contract — the
+`Symbol.for("pi.telemetry-otel.runtimeRegistry.v1")` and `Symbol.for("pi.telemetry-otel.activeSpanContextRegistry.v1")`
+global registries — to emit optional parented OTel spans without a static dependency, and no-ops cleanly when the
+package is absent. No `pi-telemetry-otel` source was copied.
+
 ## Pi documentation and examples
 
 - Source: `@earendil-works/pi-coding-agent`
