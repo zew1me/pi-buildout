@@ -342,7 +342,7 @@ ${catalog}`;
       model: fallback.model,
       effort: fallback.effort,
       source: "fallback",
-      rationale: `Classifier unavailable; inherited parent settings (${error instanceof Error ? error.message : String(error)}).`,
+      rationale: `Classifier unavailable; used the ${requestedModel ? "requested" : "parent"} model and the ${requestedEffort ? "requested" : "parent"} effort (${error instanceof Error ? error.message : String(error)}).`,
     };
   }
 }

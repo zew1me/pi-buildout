@@ -76,6 +76,11 @@ Ideas and API patterns used:
 - RPC JSONL framing and the `prompt`, `steer`, `follow_up`, `abort`, state, and event protocols.
 - Model-registry authentication, fuzzy CLI-equivalent model resolution, thinking-level capability maps, and normal child
   resource inheritance.
+- Pi's thinking-level clamp policy (prefer the nearest supported level above the request, fall back downward only when
+  necessary) is a conceptual adaptation, reimplemented in `extensions/subagents/helpers.ts`; no Pi code was copied.
+  `supportedThinkingLevels` additionally narrows OpenAI's direct GPT-5.6 levels beyond what Pi's generated model
+  metadata declares, because the live endpoint rejects `minimal` and `max`. Pi's own permissive handling of those two
+  levels is intentionally not adopted.
 - Pi's bundled subagent and custom-compaction examples as reference implementations for process invocation, output
   bounds, and compaction setup.
 
