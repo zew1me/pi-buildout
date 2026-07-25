@@ -335,6 +335,11 @@ ${catalog}`;
       source: "classified",
       ...(decision.rationale ? { rationale: decision.rationale } : {}),
     };
+    // This catch deliberately also covers resolving the classifier's chosen
+    // model: that resolution reads the registry again, which can throw on an
+    // uninitialized facade, and a hallucinated model name is a classifier
+    // failure. The caller's own explicit model resolves earlier and still
+    // propagates. Do not narrow this to the completion call.
   } catch (error) {
     if (signal?.aborted) throw error;
     const fallback = parentFallback(pi, ctx, requestedModel, requestedEffort);
@@ -342,7 +347,7 @@ ${catalog}`;
       model: fallback.model,
       effort: fallback.effort,
       source: "fallback",
-      rationale: `Classifier unavailable; used the ${requestedModel ? "requested" : "parent"} model and the ${requestedEffort ? "requested" : "parent"} effort (${error instanceof Error ? error.message : String(error)}).`,
+      rationale: `Classification failed; used the ${requestedModel ? "requested" : "parent"} model and the ${requestedEffort ? "requested" : "parent"} effort (${error instanceof Error ? error.message : String(error)}).`,
     };
   }
 }
