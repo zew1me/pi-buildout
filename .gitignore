@@ -23,4 +23,15 @@ target
 node_modules/
 coverage/
 *.tsbuildinfo
+npm-debug.log*
+
+# Local credentials
+.env
+.env.*
+*.pem
+*.key
+
+# Local editor/agent state
 .DS_Store
+.pi/
+.serena/

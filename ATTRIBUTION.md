@@ -10,7 +10,9 @@
 The provider-verified thinking-level filtering in [`extensions/effort`](extensions/effort) was ported from this closed
 PR and adapted to the current main branch. It uses Pi's model capability metadata to hide and reject unsupported effort
 levels while preserving the historical choices on older Pi versions. The installer's atomic per-extension replacement
-pattern was also adapted from the PR so stale files are removed without exposing a partially copied extension.
+pattern was also adapted from the PR so stale files are removed without exposing a partially copied extension. Its
+GitHub Actions quality workflow and generic local-state/credential ignore rules were retained as repository-wide
+safeguards for the non-router extensions.
 
 The PR's router extension, routing specifications and documentation, router-specific configuration and tooling, and
 router-specific installer behavior were intentionally not adopted. No code under `extensions/router` was copied.
