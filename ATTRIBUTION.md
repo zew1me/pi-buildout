@@ -1,5 +1,21 @@
 # Attribution
 
+## Closed fork PR #19
+
+- Source: `nigel-upstart/pi-buildout`, PR #19
+- Canonical URL: <https://github.com/zew1me/pi-buildout/pull/19>
+- Revision reviewed: `4a7532ff3a2d48a70591ffa016be4349963b02fc`
+- License: MIT
+
+The provider-verified thinking-level filtering in [`extensions/effort`](extensions/effort) was ported from this closed
+PR and adapted to the current main branch. It uses Pi's model capability metadata to hide and reject unsupported effort
+levels while preserving the historical choices on older Pi versions.
+
+The PR's router extension, routing specifications and documentation, router-specific configuration and tooling, and
+router-specific installer behavior were intentionally not adopted. No code under `extensions/router` was copied.
+
+## Subagent implementations
+
 The subagent extension in [`extensions/subagents`](extensions/subagents) was informed by the two implementations
 identified by the project owner. The implementation in this repository is original code, but it deliberately carries
 forward architectural ideas and operational lessons from both projects.
