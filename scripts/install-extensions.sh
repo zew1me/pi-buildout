@@ -18,6 +18,10 @@ PATCH_STAGE_DIR=
 PATCH_BACKUP_DIR=
 PATCH_COMMIT_IN_PROGRESS=0
 PATCH_APPLIED=()
+EXTENSION_STAGE_DIR=
+EXTENSION_TARGET=
+EXTENSION_BACKUP=
+EXTENSION_COMMIT_IN_PROGRESS=0
 
 restore_applied_files() {
   local restored
@@ -39,6 +43,14 @@ cleanup() {
     printf 'Interrupted while applying /skills patch; restoring replaced files.\n' >&2
     restore_applied_files
   fi
+  if ((EXTENSION_COMMIT_IN_PROGRESS)); then
+    if [[ ! -e "$EXTENSION_TARGET" && ! -L "$EXTENSION_TARGET" && (-e "$EXTENSION_BACKUP" || -L "$EXTENSION_BACKUP") ]]; then
+      printf 'Interrupted while installing an extension; restoring %s.\n' "$EXTENSION_TARGET" >&2
+      mv "$EXTENSION_BACKUP" "$EXTENSION_TARGET" || true
+    fi
+  fi
+  [[ -z "$EXTENSION_STAGE_DIR" ]] || rm -rf "$EXTENSION_STAGE_DIR" || true
+  [[ -z "$EXTENSION_BACKUP" ]] || rm -rf "$EXTENSION_BACKUP" || true
   [[ -z "$PATCH_STAGE_DIR" ]] || rm -rf "$PATCH_STAGE_DIR" || true
   [[ -z "$PATCH_BACKUP_DIR" ]] || rm -rf "$PATCH_BACKUP_DIR" || true
   exit "$status"
@@ -202,27 +214,33 @@ fi
 
 mkdir -p "$EXTENSION_DIR"
 for extension in "${EXTENSIONS[@]}"; do
-  extension_stage=$(mktemp -d "$EXTENSION_DIR/.${extension}.XXXXXX")
+  EXTENSION_STAGE_DIR=$(mktemp -d "$EXTENSION_DIR/.${extension}.XXXXXX")
   while IFS= read -r -d '' source_file; do
     relative_file=${source_file#"$ROOT_DIR/extensions/$extension/"}
-    mkdir -p "$extension_stage/$(dirname "$relative_file")"
-    cp "$source_file" "$extension_stage/$relative_file"
+    mkdir -p "$EXTENSION_STAGE_DIR/$(dirname "$relative_file")"
+    cp "$source_file" "$EXTENSION_STAGE_DIR/$relative_file"
   done < <(find "$ROOT_DIR/extensions/$extension" -type f -name '*.ts' ! -name '*.test.*' -print0)
-  extension_target="$EXTENSION_DIR/$extension"
-  extension_backup="$EXTENSION_DIR/.${extension}.backup.$$"
-  rm -rf "$extension_backup"
-  if [[ -e "$extension_target" ]]; then
-    mv "$extension_target" "$extension_backup"
+
+  EXTENSION_TARGET="$EXTENSION_DIR/$extension"
+  EXTENSION_BACKUP="$EXTENSION_STAGE_DIR.backup"
+  EXTENSION_COMMIT_IN_PROGRESS=1
+  if [[ -e "$EXTENSION_TARGET" || -L "$EXTENSION_TARGET" ]]; then
+    mv "$EXTENSION_TARGET" "$EXTENSION_BACKUP"
   fi
-  if mv "$extension_stage" "$extension_target"; then
-    rm -rf "$extension_backup"
-  else
-    rm -rf "$extension_target"
-    if [[ -e "$extension_backup" ]]; then
-      mv "$extension_backup" "$extension_target"
+  if ! mv "$EXTENSION_STAGE_DIR" "$EXTENSION_TARGET"; then
+    printf 'Could not install %s; restoring its previous extension tree.\n' "$extension" >&2
+    rm -rf "$EXTENSION_TARGET"
+    if [[ -e "$EXTENSION_BACKUP" || -L "$EXTENSION_BACKUP" ]]; then
+      mv "$EXTENSION_BACKUP" "$EXTENSION_TARGET"
     fi
+    EXTENSION_COMMIT_IN_PROGRESS=0
     exit 1
   fi
+  EXTENSION_STAGE_DIR=
+  rm -rf "$EXTENSION_BACKUP"
+  EXTENSION_BACKUP=
+  EXTENSION_TARGET=
+  EXTENSION_COMMIT_IN_PROGRESS=0
 done
 
 if [[ -n "$PATCH_STAGE_DIR" ]]; then

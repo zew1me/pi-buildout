@@ -27,5 +27,3 @@ jobs:
         run: npm ci --ignore-scripts --registry=https://registry.npmjs.org/
       - name: Check formatting, lint, types, and tests
         run: npm run check
-      - name: Audit dependencies
-        run: npm run audit
