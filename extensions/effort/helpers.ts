@@ -11,7 +11,7 @@ const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "hi
 const VERIFIED_THINKING_LEVELS_VERSION = { major: 0, minor: 82, patch: 0 } as const;
 
 export function supportsVerifiedThinkingLevels(piVersion: string): boolean {
-  const match = /^(\d+)\.(\d+)\.(\d+)/.exec(piVersion);
+  const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(piVersion);
   if (!match) return false;
 
   const major = Number(match[1]);

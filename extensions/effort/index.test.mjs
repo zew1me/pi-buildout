@@ -22,6 +22,7 @@ describe("supportsVerifiedThinkingLevels", () => {
 
   it("falls back safely for malformed versions", () => {
     assert.equal(supportsVerifiedThinkingLevels("unknown"), false);
+    assert.equal(supportsVerifiedThinkingLevels("0.82.0garbage"), false);
   });
 });
 
