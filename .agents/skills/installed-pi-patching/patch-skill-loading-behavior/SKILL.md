@@ -96,6 +96,7 @@ github.com:earendil-works/pi-mono
 The command surfaces are deliberately thin wrappers around `dist/core/skill-management.js`:
 
 - interactive: `/skills active|list|search|add|remove|reload`
+- `/skills reload` takes no arguments; anything after it is a usage error, not a reload
 - CLI: `pi skills active|list|search|add|remove`
 - session scope is interactive-only; mutate `resourceLoader.additionalSkillPaths` and reload
 - global/repo scopes mutate JSON first, then reload so the current session reflects the change

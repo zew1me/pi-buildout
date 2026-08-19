@@ -378,7 +378,7 @@ index d4da288..aa9726e 100644
      if (parsed.diagnostics.length > 0) {
          for (const d of parsed.diagnostics) {
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 6a88679..3a7e6de 100644
+index 6a88679..f29b34a 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
 @@ -23,6 +23,7 @@ import { CredentialSynchronizationError } from "../../core/model-runtime.js";
@@ -407,7 +407,7 @@ index 6a88679..3a7e6de 100644
      // =========================================================================
 +    async handleSkillsCommand(text) {
 +        const args = text.slice("/skills".length).trim().split(/\s+/).filter(Boolean);
-+        if (args[0] === "reload") {
++        if (args.length === 1 && args[0] === "reload") {
 +            await this.handleReloadCommand();
 +            return;
 +        }

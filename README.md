@@ -38,7 +38,7 @@ the extensions.
 
 ## Development and quality checks
 
-Use Node.js 22.19 or newer. The authored extensions and test suite target Pi `0.84.1`; compatibility with older Pi
+Use Node.js 22.19 or newer. The authored extensions and test suite target Pi `0.84.2`; compatibility with older Pi
 versions is not maintained. Install [ShellCheck](https://www.shellcheck.net/) and the pinned npm dependencies, which
 also installs the repository's Git hooks:
 
