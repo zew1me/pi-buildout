@@ -96,9 +96,10 @@ async function applyPatch(target) {
   });
 }
 
-async function runPatchedCli(target, args, agentDir) {
+async function runPatchedCli(target, args, { agentDir, cwd }) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [join(target, "dist", "cli.js"), ...args], {
+      cwd,
       env: {
         ...process.env,
         PI_CODING_AGENT_DIR: agentDir,
@@ -209,6 +210,7 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
         pi: { skills: ["./declared"] },
       }),
       writeJson(join(agentDir, "settings.json"), {
+        defaultProjectTrust: "always",
         packages: ["./packages/convention", "./packages/global-choice", "./packages/cross-group"],
         skills: ["./settings/global", "./settings/global-choice", "./settings/cross-group"],
       }),
@@ -227,7 +229,7 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       import(moduleUrl("dist/core/skill-management.js")),
       import(moduleUrl("dist/core/resource-loader.js")),
     ]);
-    const invalidCommand = await runPatchedCli(patchedPackage, ["skills", "unknown"], agentDir);
+    const invalidCommand = await runPatchedCli(patchedPackage, ["skills", "unknown"], { agentDir, cwd });
     assert.equal(invalidCommand.code, 1);
     assert.equal(invalidCommand.stdout, "");
     assert.match(invalidCommand.stderr, /Usage: pi skills/);
@@ -261,6 +263,10 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       catalog.map((skill) => `${skill.name}\t${skill.description}`),
       "CLI and interactive command callers share the same catalog output",
     );
+    const cliList = await runPatchedCli(patchedPackage, ["skills", "list"], { agentDir, cwd });
+    assert.equal(cliList.code, 0);
+    assert.equal(cliList.stderr, "");
+    assert.deepEqual(cliList.stdout.trim().split("\n"), listResult.lines);
 
     const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
     assert.equal(await loader.resolveSkillEntry("package-manifest"), catalogByName.get("package-manifest")?.filePath);
