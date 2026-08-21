@@ -64,6 +64,15 @@ async function baselineProblem() {
   return undefined;
 }
 
+async function verifyPatchedManifest(target) {
+  const manifest = await readFile(join(patchDirectory, "patched.sha256"), "utf8");
+  for (const line of manifest.trim().split("\n")) {
+    const [expected, relativePath] = line.trim().split(/\s+/, 2);
+    assert.ok(expected && relativePath, "patched checksum manifest contains a malformed entry");
+    assert.equal(await sha256(join(target, relativePath)), expected, relativePath);
+  }
+}
+
 async function applyPatch(target) {
   const patchContents = await readFile(patchPath);
   await new Promise((resolvePromise, reject) => {
@@ -100,6 +109,7 @@ async function createPatchedPackage(target) {
     process.platform === "win32" ? "junction" : "dir",
   );
   await applyPatch(target);
+  await verifyPatchedManifest(target);
 }
 
 async function writeSkill(skillDirectory, name, description) {
