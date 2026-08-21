@@ -1,5 +1,5 @@
 diff --git a/dist/core/resource-loader.js b/dist/core/resource-loader.js
-index 97af6cd..01c4dcb 100644
+index 97af6cd94931d70ce7d17e02df5b6da8c61ed04c..fe68f579dd97c1a60424ba992da5c995776639c9 100644
 --- a/dist/core/resource-loader.js
 +++ b/dist/core/resource-loader.js
 @@ -10,6 +10,7 @@ import { findGitPaths } from "./footer-data-provider.js";
@@ -45,7 +45,7 @@ index 97af6cd..01c4dcb 100644
 -            : this.mergePaths([...cliEnabledSkills, ...enabledSkills], this.additionalSkillPaths);
 +        // Skills are now opt-in. Package/settings/discovered skills form a catalog, but are not
 +        // active unless explicitly enabled globally, for this repo, or for this session/CLI.
-+        const activeSkills = this.noSkills ? { paths: [], diagnostics: [] } : this.getActiveSkillPaths();
++        const activeSkills = this.noSkills ? { paths: [], diagnostics: [] } : await this.getActiveSkillPaths();
 +        const skillPaths = this.mergePaths([...cliEnabledSkills, ...activeSkills.paths], this.additionalSkillPaths);
          this.lastSkillPaths = skillPaths;
          this.updateSkillsFromPaths(skillPaths, metadataByPath);
@@ -57,7 +57,7 @@ index 97af6cd..01c4dcb 100644
              };
          });
      }
-+    getActiveSkillPaths() {
++    async getActiveSkillPaths() {
 +        const paths = [];
 +        const diagnostics = [];
 +        const entries = getActiveSkillEntries({
@@ -69,7 +69,7 @@ index 97af6cd..01c4dcb 100644
 +            const source = sourceOf(entry);
 +            if (!source)
 +                continue;
-+            const resolved = this.resolveSkillEntry(source);
++            const resolved = await this.resolveSkillEntry(source);
 +            if (resolved) {
 +                paths.push(resolved);
 +            }
@@ -79,7 +79,7 @@ index 97af6cd..01c4dcb 100644
 +        }
 +        return { paths, diagnostics };
 +    }
-+    resolveSkillEntry(entry) {
++    async resolveSkillEntry(entry) {
 +        const source = sourceOf(entry);
 +        if (!source)
 +            return undefined;
@@ -88,8 +88,8 @@ index 97af6cd..01c4dcb 100644
 +        }
 +        return this.findCatalogSkillPath(source);
 +    }
-+    findCatalogSkillPath(name) {
-+        this.catalogPathsByName ??= new Map(getSkillCatalog({ cwd: this.cwd, agentDir: this.agentDir }).map((skill) => [skill.name, skill.filePath]));
++    async findCatalogSkillPath(name) {
++        this.catalogPathsByName ??= new Map((await getSkillCatalog({ cwd: this.cwd, agentDir: this.agentDir, settingsManager: this.settingsManager })).map((skill) => [skill.name, skill.filePath]));
 +        return this.catalogPathsByName.get(name);
 +    }
      updateSkillsFromPaths(skillPaths, metadataByPath) {
@@ -97,16 +97,18 @@ index 97af6cd..01c4dcb 100644
          if (this.noSkills && skillPaths.length === 0) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..1105d40
+index 0000000000000000000000000000000000000000..aac7aa9e6da24a38ab06a14a4e8d4a1c715d731d
 --- /dev/null
 +++ b/dist/core/skill-management.js
-@@ -0,0 +1,232 @@
+@@ -0,0 +1,249 @@
 +import { execFileSync } from "node:child_process";
 +import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 +import { homedir } from "node:os";
 +import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 +import { CONFIG_DIR_NAME } from "../config.js";
-+import { loadSkillsFromDir } from "./skills.js";
++import { DefaultPackageManager } from "./package-manager.js";
++import { SettingsManager } from "./settings-manager.js";
++import { loadSkills, loadSkillsFromDir } from "./skills.js";
 +
 +function readJson(path) {
 +    if (!existsSync(path))
@@ -265,17 +267,32 @@ index 0000000..1105d40
 +    }
 +    return dirs;
 +}
-+export function getSkillCatalogDirs({ cwd, agentDir }) {
-+    return [join(agentDir, "skills"), join(homedir(), ".agents", "skills"), join(cwd, CONFIG_DIR_NAME, "skills"), ...getProjectAgentSkillDirs(cwd)];
++export function getSkillCatalogDirs({ cwd, agentDir, projectTrusted = false }) {
++    const dirs = [join(agentDir, "skills"), join(homedir(), ".agents", "skills")];
++    if (projectTrusted) {
++        dirs.push(join(cwd, CONFIG_DIR_NAME, "skills"), ...getProjectAgentSkillDirs(cwd));
++    }
++    return dirs;
 +}
-+export function getSkillCatalog({ cwd, agentDir }) {
++export async function getSkillCatalog({ cwd, agentDir, settingsManager }) {
++    const manager = settingsManager ?? SettingsManager.create(cwd, agentDir, { projectTrusted: false });
 +    const found = new Map();
-+    for (const dir of getSkillCatalogDirs({ cwd, agentDir })) {
-+        for (const skill of loadSkillsFromDir({ dir, source: "path" }).skills) {
++    const addSkills = (skills) => {
++        for (const skill of skills) {
 +            if (!found.has(skill.name))
 +                found.set(skill.name, skill);
 +        }
++    };
++    for (const dir of getSkillCatalogDirs({ cwd, agentDir, projectTrusted: manager.isProjectTrusted() })) {
++        addSkills(loadSkillsFromDir({ dir, source: "path" }).skills);
 +    }
++    const resolved = await new DefaultPackageManager({ cwd, agentDir, settingsManager: manager }).resolve();
++    const addResolvedSkills = (resources) => {
++        const paths = resources.filter((resource) => resource.enabled).map((resource) => resource.path);
++        addSkills(loadSkills({ cwd, agentDir, skillPaths: paths, includeDefaults: false }).skills);
++    };
++    addResolvedSkills(resolved.skills.filter((resource) => resource.metadata.origin === "package"));
++    addResolvedSkills(resolved.skills.filter((resource) => resource.metadata.origin === "top-level" && resource.metadata.source === "local"));
 +    return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
 +}
 +function usage(allowSession = false) {
@@ -290,7 +307,7 @@ index 0000000..1105d40
 +        `  ${command} remove <skill-or-path> ${scopes}`,
 +    ];
 +}
-+export function runSkillsCommand(args, options) {
++export async function runSkillsCommand(args, options) {
 +    try {
 +        const [command, ...rest] = args;
 +        if (command === "active") {
@@ -309,7 +326,7 @@ index 0000000..1105d40
 +            const query = command === "search" ? rest.join(" ").trim().toLowerCase() : "";
 +            if (command === "search" && !query)
 +                throw new Error("Usage: pi skills search <query>");
-+            const skills = getSkillCatalog(options).filter((skill) => !query || `${skill.name} ${skill.description}`.toLowerCase().includes(query));
++            const skills = (await getSkillCatalog(options)).filter((skill) => !query || `${skill.name} ${skill.description}`.toLowerCase().includes(query));
 +            return { exitCode: 0, lines: skills.length ? skills.map((skill) => `${skill.name}\t${skill.description}`) : [query ? "No matching skills." : "No catalog skills found."] };
 +        }
 +        if (command === "add" || command === "remove") {
@@ -334,7 +351,7 @@ index 0000000..1105d40
 +    }
 +}
 diff --git a/dist/core/slash-commands.js b/dist/core/slash-commands.js
-index 68ca0c3..0456af2 100644
+index 68ca0c37024155e504c769ae0d43c5258181ce17..0456af2622e94d7ce3094c9f8185da257b3812fb 100644
 --- a/dist/core/slash-commands.js
 +++ b/dist/core/slash-commands.js
 @@ -21,6 +21,7 @@ export const BUILTIN_SLASH_COMMANDS = [
@@ -347,7 +364,7 @@ index 68ca0c3..0456af2 100644
  //# sourceMappingURL=slash-commands.js.map
 \ No newline at end of file
 diff --git a/dist/main.js b/dist/main.js
-index d4da288..aa9726e 100644
+index d4da2888a23057233bba75e2d58f3c50393b710a..e30b5a63aa124fbe949ade0e71b9eec5653dc307 100644
 --- a/dist/main.js
 +++ b/dist/main.js
 @@ -28,6 +28,7 @@ import { resolveCliModel, resolveModelScope } from "./core/model-resolver.js";
@@ -358,12 +375,30 @@ index d4da288..aa9726e 100644
  import { formatMissingSessionCwdPrompt, getMissingSessionCwdIssue, MissingSessionCwdError, } from "./core/session-cwd.js";
  import { assertValidSessionId, SessionManager } from "./core/session-manager.js";
  import { SettingsManager } from "./core/settings-manager.js";
-@@ -471,6 +472,18 @@ export async function main(args, options) {
+@@ -471,6 +472,36 @@ export async function main(args, options) {
      if (await handleConfigCommand(args, { extensionFactories })) {
          return;
      }
 +    if (args[0] === "skills" && (args.length === 1 || ["active", "list", "search", "add", "remove"].includes(args[1]))) {
-+        const result = runSkillsCommand(args.slice(1), { cwd, agentDir });
++        if (args[1] === "list" || args[1] === "search") {
++            const projectTrusted = await resolveProjectTrusted({
++                cwd,
++                trustStore: new ProjectTrustStore(agentDir),
++                defaultProjectTrust: bootstrapSettingsManager.getDefaultProjectTrust(),
++                projectTrustContext: createProjectTrustContext({
++                    cwd,
++                    mode: process.stdin.isTTY && process.stdout.isTTY ? "interactive" : "print",
++                    settingsManager: bootstrapSettingsManager,
++                    hasUI: Boolean(process.stdin.isTTY && process.stdout.isTTY),
++                }),
++            });
++            bootstrapSettingsManager.setProjectTrusted(projectTrusted);
++        }
++        const result = await runSkillsCommand(args.slice(1), {
++            cwd,
++            agentDir,
++            settingsManager: bootstrapSettingsManager,
++        });
 +        const output = result.lines.join("\n");
 +        if (result.exitCode === 0) {
 +            console.log(output);
@@ -378,7 +413,7 @@ index d4da288..aa9726e 100644
      if (parsed.diagnostics.length > 0) {
          for (const d of parsed.diagnostics) {
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 6a88679..f29b34a 100644
+index 6a88679e03161d2c048e2abab0041e96d214e67b..cb2919b1d247be904b57e0c558052d338abe95b2 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
 @@ -23,6 +23,7 @@ import { CredentialSynchronizationError } from "../../core/model-runtime.js";
@@ -401,7 +436,7 @@ index 6a88679..f29b34a 100644
              if (text === "/debug") {
                  this.handleDebugCommand();
                  this.editor.setText("");
-@@ -4792,6 +4798,67 @@ export class InteractiveMode {
+@@ -4792,6 +4798,68 @@ export class InteractiveMode {
      // =========================================================================
      // Command handlers
      // =========================================================================
@@ -411,9 +446,10 @@ index 6a88679..f29b34a 100644
 +            await this.handleReloadCommand();
 +            return;
 +        }
-+        const result = runSkillsCommand(args, {
++        const result = await runSkillsCommand(args, {
 +            cwd: this.sessionManager.getCwd(),
 +            agentDir: getAgentDir(),
++            settingsManager: this.settingsManager,
 +            allowSession: true,
 +        });
 +        if (result.exitCode !== 0) {
@@ -422,7 +458,7 @@ index 6a88679..f29b34a 100644
 +        }
 +        if (result.session) {
 +            const loader = this.session.resourceLoader;
-+            const resolved = loader.resolveSkillEntry(result.session.source);
++            const resolved = await loader.resolveSkillEntry(result.session.source);
 +            if (result.session.action === "add") {
 +                if (!resolved) {
 +                    this.showError(`Skill not found in the catalog: ${result.session.source}`);
@@ -470,31 +506,37 @@ index 6a88679..f29b34a 100644
          if (this.session.isStreaming) {
              this.showWarning("Wait for the current response to finish before reloading.");
 diff --git a/docs/skills.md b/docs/skills.md
-index d3ffeea..7861eae 100644
+index d3ffeea8937b821e092c5e650f10a02124c274a8..690bc4a182bfed1eb9f2d827a0e4569071855d9d 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
-@@ -21,7 +21,15 @@ Pi implements the [Agent Skills standard](https://agentskills.io/specification),
+@@ -21,24 +21,59 @@ Pi implements the [Agent Skills standard](https://agentskills.io/specification),
  
  > **Security:** Skills can instruct the model to perform any action and may include executable code the model invokes. Review skill content before use.
  
 -Pi loads skills from:
 +Pi starts with no active skills. Skill directories, packages, and settings form a catalog, but catalog entries are not injected into the system prompt unless explicitly enabled.
-+
+ 
+-- Global:
 +Active skills are loaded from:
 +
 +- Session/CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
 +- Global: `~/.pi/agent/skills.json`
 +- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
 +
-+Catalog sources include:
- 
- - Global:
++Catalog sources are considered in this order; name collisions keep the first skill found:
++
++- Global directories:
    - `~/.pi/agent/skills/`
-@@ -31,14 +39,41 @@ Pi loads skills from:
+   - `~/.agents/skills/`
+-- Project (only after the project is trusted):
++- Project directories (only after the project is trusted):
+   - `.pi/skills/`
    - `.agents/skills/` in `cwd` and ancestor directories (up to git repo root, or filesystem root when not in a repo)
- - Packages: `skills/` directories or `pi.skills` entries in `package.json`
- - Settings: `skills` array with files or directories
+-- Packages: `skills/` directories or `pi.skills` entries in `package.json`
+-- Settings: `skills` array with files or directories
 -- CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
++- Packages: `skills/` directories or `pi.skills` entries in `package.json`; project packages require trust
++- Settings: global `skills` array and, when trusted, project `skills` array; entries may be files or directories and use package-manager precedence within this group
 +
 +Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
 +
