@@ -364,7 +364,7 @@ index 68ca0c37024155e504c769ae0d43c5258181ce17..0456af2622e94d7ce3094c9f8185da25
  //# sourceMappingURL=slash-commands.js.map
 \ No newline at end of file
 diff --git a/dist/main.js b/dist/main.js
-index d4da2888a23057233bba75e2d58f3c50393b710a..e30b5a63aa124fbe949ade0e71b9eec5653dc307 100644
+index d4da2888a23057233bba75e2d58f3c50393b710a..7880b47d2efd747ab422346d955e0478eab9f966 100644
 --- a/dist/main.js
 +++ b/dist/main.js
 @@ -28,6 +28,7 @@ import { resolveCliModel, resolveModelScope } from "./core/model-resolver.js";
@@ -379,7 +379,7 @@ index d4da2888a23057233bba75e2d58f3c50393b710a..e30b5a63aa124fbe949ade0e71b9eec5
      if (await handleConfigCommand(args, { extensionFactories })) {
          return;
      }
-+    if (args[0] === "skills" && (args.length === 1 || ["active", "list", "search", "add", "remove"].includes(args[1]))) {
++    if (args[0] === "skills") {
 +        if (args[1] === "list" || args[1] === "search") {
 +            const projectTrusted = await resolveProjectTrusted({
 +                cwd,

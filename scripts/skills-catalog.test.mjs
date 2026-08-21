@@ -96,6 +96,32 @@ async function applyPatch(target) {
   });
 }
 
+async function runPatchedCli(target, args, agentDir) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, [join(target, "dist", "cli.js"), ...args], {
+      env: {
+        ...process.env,
+        PI_CODING_AGENT_DIR: agentDir,
+        PI_OFFLINE: "1",
+        PI_SKIP_VERSION_CHECK: "1",
+      },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      resolvePromise({ code, stdout, stderr });
+    });
+  });
+}
+
 async function createPatchedPackage(target) {
   await mkdir(target, { recursive: true });
   await Promise.all([
@@ -201,6 +227,11 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       import(moduleUrl("dist/core/skill-management.js")),
       import(moduleUrl("dist/core/resource-loader.js")),
     ]);
+    const invalidCommand = await runPatchedCli(patchedPackage, ["skills", "unknown"], agentDir);
+    assert.equal(invalidCommand.code, 1);
+    assert.equal(invalidCommand.stdout, "");
+    assert.match(invalidCommand.stderr, /Usage: pi skills/);
+
     const settingsManager = SettingsManager.create(cwd, agentDir, { projectTrusted: true });
     const catalog = await getSkillCatalog({ cwd, agentDir, settingsManager });
     const catalogByName = new Map(catalog.map((skill) => [skill.name, skill]));
