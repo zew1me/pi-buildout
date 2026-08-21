@@ -31,6 +31,9 @@ async function baselineProblem() {
   if (!(await exists(packageJsonPath))) {
     return "the installed @earendil-works/pi-coding-agent package is unavailable";
   }
+  if (!(await exists(join(packageRoot, "node_modules")))) {
+    return "the installed pi package dependencies are unavailable";
+  }
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
   if (packageJson.version !== "0.84.2") {
     return `the installed pi package is ${String(packageJson.version)}, not 0.84.2`;
@@ -38,7 +41,14 @@ async function baselineProblem() {
   const manifest = await readFile(join(patchDirectory, "baseline.sha256"), "utf8");
   for (const line of manifest.trim().split("\n")) {
     const [expected, relativePath] = line.trim().split(/\s+/, 2);
-    if (!expected || !relativePath || (await sha256(join(packageRoot, relativePath))) !== expected) {
+    const baselinePath = relativePath ? join(packageRoot, relativePath) : undefined;
+    if (
+      !expected ||
+      !relativePath ||
+      !baselinePath ||
+      !(await exists(baselinePath)) ||
+      (await sha256(baselinePath)) !== expected
+    ) {
       return `the installed pi package does not match the 0.84.2 baseline at ${relativePath ?? "an unknown path"}`;
     }
   }
