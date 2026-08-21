@@ -104,6 +104,11 @@ The command surfaces are deliberately thin wrappers around `dist/core/skill-mana
 Avoid adding separate configuration semantics in the TUI and CLI. Keep parsing, repo-key resolution, persistence, and
 catalog queries in the shared core module.
 
+Catalog resolution is asynchronous. It keeps fixed global and trusted-project directory discovery first, then reuses
+`DefaultPackageManager.resolve()` for package and settings skills rather than approximating manifest, filter, scope, or
+precedence behavior. Both `runSkillsCommand()` callers must await it and pass the active `SettingsManager`; name-based
+activation in `DefaultResourceLoader` awaits that same catalog so package and settings names resolve consistently.
+
 ## Verification Ideas
 
 Create temp skills and temp agent dirs. Exercise these behaviors without network calls:

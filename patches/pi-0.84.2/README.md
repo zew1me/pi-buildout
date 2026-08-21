@@ -1,6 +1,6 @@
 # pi 0.84.2 `/skills` patch
 
-This directory contains a version-specific unified patch that changes pi skills from automatically loaded prompt context to an opt-in catalog with explicit activation. It is derived from the published `@earendil-works/pi-coding-agent@0.84.2` package.
+This directory contains a version-specific unified patch that changes pi skills from automatically loaded prompt context to an opt-in catalog with explicit activation. The asynchronous catalog includes fixed global/project directories plus package `skills/` and `pi.skills` declarations and global/trusted-project `settings.skills` entries. It is derived from the published `@earendil-works/pi-coding-agent@0.84.2` package.
 
 ## Contents
 

@@ -101,6 +101,9 @@ unrelated extension, prompt, theme, package, trust, and provider behavior.
 Ideas and API patterns used:
 
 - Extension tool registration, lifecycle shutdown hooks, resource discovery, and TUI tool rendering.
+- The Pi 0.84.2 skills catalog reuses `DefaultPackageManager.resolve()` and its resolved-resource metadata to discover
+  package and settings skills with upstream manifest, filtering, scope, and precedence behavior. The catalog merge and
+  opt-in activation logic remain original code; Pi's automatic skill loading is intentionally not adopted.
 - SDK `AgentSession.compact()` with custom instructions and in-memory sessions.
 - RPC JSONL framing and the `prompt`, `steer`, `follow_up`, `abort`, state, and event protocols.
 - Model-registry authentication, fuzzy CLI-equivalent model resolution, thinking-level capability maps, and normal child
