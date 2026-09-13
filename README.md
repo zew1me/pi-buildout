@@ -9,7 +9,7 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 | `extensions/effort`                    | `/effort`: select and persist thinking effort                                               | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
 | `extensions/subagents`                 | Natural-language creation and control of isolated, recursively nestable Pi subagents        | [`extensions/subagents/README.md`](extensions/subagents/README.md)                   |
 | `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
-| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-0.80.6/README.md`](patches/pi-0.80.6/README.md)                         |
+| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-0.84.4/README.md`](patches/pi-0.84.4/README.md)                         |
 
 ## Installation
 
@@ -38,7 +38,7 @@ the extensions.
 
 ## Development and quality checks
 
-Use Node.js 22.19 or newer. The authored extensions and test suite target Pi `0.84.2`; compatibility with older Pi
+Use Node.js 22.19 or newer. The authored extensions and test suite target Pi `0.84.4`; compatibility with older Pi
 versions is not maintained. Install [ShellCheck](https://www.shellcheck.net/) and the pinned npm dependencies, which
 also installs the repository's Git hooks:
 

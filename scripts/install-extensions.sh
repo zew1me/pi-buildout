@@ -7,6 +7,8 @@ EXTENSION_DIR="$AGENT_DIR/extensions"
 APPLY_SKILLS_PATCH=1
 EXTENSIONS=(clear effort markdown-backlinks subagents)
 PATCH_FILES=(
+  dist/bundle/cli.js
+  dist/bundle/rpc-entry.js
   dist/core/resource-loader.js
   dist/core/skill-management.js
   dist/core/slash-commands.js
@@ -79,8 +81,18 @@ matches_checksum() {
 }
 
 find_pi_package() {
-  local path
+  local path package_dir
   path=$(realpath "$1" 2> /dev/null) || return 1
+  # Homebrew's wrapper lives in <formula>/bin while the package is nested under
+  # <formula>/libexec/lib/node_modules. Check that layout before walking parents.
+  for package_dir in \
+    "$(dirname "$path")/../libexec/lib/node_modules/@earendil-works/pi-coding-agent" \
+    "$(dirname "$path")/../lib/node_modules/@earendil-works/pi-coding-agent"; do
+    if [[ -f "$package_dir/package.json" ]]; then
+      printf '%s\n' "$(realpath "$package_dir")"
+      return 0
+    fi
+  done
   path=$(dirname "$path")
   while [[ "$path" != / ]]; do
     if [[ -f "$path/package.json" ]]; then

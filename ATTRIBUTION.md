@@ -90,12 +90,33 @@ checksum-guarded installation. It intentionally does not adopt automatic loading
 concurrent-update locking, configured-path confinement, new public resource-loader mutator APIs, or changes to Pi's
 unrelated extension, prompt, theme, package, trust, and provider behavior.
 
+## Pi 0.84.4 `/skills` runtime patch
+
+- Source: `@earendil-works/pi-coding-agent@0.84.4`
+- Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
+- Upstream revision reviewed: `b79e4cc834970cca69daebffab7df1da7d1e52c4`
+- License declared by the package: MIT
+
+[`patches/pi-0.84.4/skills.patch`](patches/pi-0.84.4/skills.patch) is a modified-code patch against Pi's published,
+generated runtime and documentation. It modifies upstream `dist/bundle/cli.js`, `dist/bundle/rpc-entry.js`,
+`dist/core/resource-loader.js`, `dist/core/slash-commands.js`, `dist/main.js`,
+`dist/modes/interactive/interactive-mode.js`, and `docs/skills.md`; their unchanged context and modified lines derive
+from the MIT-licensed Pi package. The bundled entrypoints become thin wrappers so the patched unbundled runtime handles
+CLI and RPC execution. The added `dist/core/skill-management.js` is an original implementation for this repository,
+informed by Pi's resource-loading and command conventions rather than copied from an upstream file.
+
+The patch adopts explicit global, repository, and session skill activation; a discoverable-but-inactive catalog;
+normalized repository identity; shared CLI and interactive command semantics; diagnostics for invalid configuration; and
+checksum-guarded installation. It intentionally does not adopt automatic loading of every discovered skill,
+concurrent-update locking, configured-path confinement, new public resource-loader mutator APIs, or changes to Pi's
+unrelated extension, prompt, theme, package, trust, and provider behavior.
+
 ## Pi documentation and examples
 
 - Source: `@earendil-works/pi-coding-agent`
 - Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
-- Releases reviewed: `0.80.6`, `0.82.0`, `0.82.1`, `0.83.0`, `0.84.0`, `0.84.1`, and `0.84.2`
-- Latest documentation and example revision reviewed: `9d2ec7ffabe927bfad2214c1cee25b6632a78dcf`
+- Releases reviewed: `0.80.6`, `0.82.0`, `0.82.1`, `0.83.0`, `0.84.0`, `0.84.1`, `0.84.2`, and `0.84.4`
+- Latest documentation and example revision reviewed: `b79e4cc834970cca69daebffab7df1da7d1e52c4`
 - License declared by the package: MIT
 
 Ideas and API patterns used:

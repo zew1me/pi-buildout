@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-const patchPath = fileURLToPath(new URL("../patches/pi-0.84.2/skills.patch", import.meta.url));
+const patchPath = fileURLToPath(new URL("../patches/pi-0.84.4/skills.patch", import.meta.url));
 
 function countOccurrences(text, character) {
   return text.split(character).length - 1;
