@@ -8,7 +8,7 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-const patchDirectory = join(repositoryRoot, "patches", "pi-0.84.2");
+const patchDirectory = join(repositoryRoot, "patches", "pi-0.85.1");
 const patchPath = join(patchDirectory, "skills.patch");
 const packageRoot = join(repositoryRoot, "node_modules", "@earendil-works", "pi-coding-agent");
 
@@ -35,8 +35,8 @@ async function baselineProblem() {
     return "the installed pi package dependencies are unavailable";
   }
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
-  if (packageJson.version !== "0.84.2") {
-    return `the installed pi package is ${String(packageJson.version)}, not 0.84.2`;
+  if (packageJson.version !== "0.85.1") {
+    return `the installed pi package is ${String(packageJson.version)}, not 0.85.1`;
   }
   const manifest = await readFile(join(patchDirectory, "baseline.sha256"), "utf8");
   for (const line of manifest.trim().split("\n")) {
@@ -49,7 +49,7 @@ async function baselineProblem() {
       !(await exists(baselinePath)) ||
       (await sha256(baselinePath)) !== expected
     ) {
-      return `the installed pi package does not match the 0.84.2 baseline at ${relativePath ?? "an unknown path"}`;
+      return `the installed pi package does not match the 0.85.1 baseline at ${relativePath ?? "an unknown path"}`;
     }
   }
   const absentManifest = await readFile(join(patchDirectory, "baseline.absent"), "utf8");
@@ -58,7 +58,7 @@ async function baselineProblem() {
     .map((line) => line.trim())
     .filter(Boolean)) {
     if (await exists(join(packageRoot, relativePath))) {
-      return `the installed pi package does not match the 0.84.2 baseline at ${relativePath}`;
+      return `the installed pi package does not match the 0.85.1 baseline at ${relativePath}`;
     }
   }
   return undefined;
@@ -98,7 +98,7 @@ async function applyPatch(target) {
 
 async function runPatchedCli(target, args, { agentDir, cwd }) {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(process.execPath, [join(target, "dist", "cli.js"), ...args], {
+    const child = spawn(process.execPath, [join(target, "dist", "bundle", "cli.js"), ...args], {
       cwd,
       env: {
         ...process.env,

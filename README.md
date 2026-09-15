@@ -9,7 +9,7 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 | `extensions/effort`                    | `/effort`: select and persist thinking effort                                               | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
 | `extensions/subagents`                 | Natural-language creation and control of isolated, recursively nestable Pi subagents        | [`extensions/subagents/README.md`](extensions/subagents/README.md)                   |
 | `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
-| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-0.84.4/README.md`](patches/pi-0.84.4/README.md)                         |
+| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-0.85.1/README.md`](patches/pi-0.85.1/README.md)                         |
 
 ## Installation
 
@@ -32,13 +32,15 @@ containing pi's `package.json`:
 PI_PACKAGE_DIR=/opt/pi/lib/node_modules/@earendil-works/pi-coding-agent ./scripts/install-extensions.sh
 ```
 
-The installer verifies the installed pi package against the versioned `/skills` patch baseline, stages and verifies the
-patch, then replaces its runtime files. It does not modify pi settings. Use `--skip-skill-loading-patch` to install only
-the extensions.
+The installer verifies the installed pi package against the versioned `/skills` patch baseline, derives the complete set
+of runtime files from that patch's checksum manifest, stages and verifies the patch, then replaces those files. For
+bundled pi releases, the versioned patch delegates the published entrypoints to the patched unbundled runtime. The
+installer can also migrate recognized earlier patch states and rejects unknown or mixed states. It does not modify pi
+settings. Use `--skip-skill-loading-patch` to install only the extensions.
 
 ## Development and quality checks
 
-Use Node.js 22.19 or newer. The authored extensions and test suite target Pi `0.84.4`; compatibility with older Pi
+Use Node.js 22.19 or newer. The authored extensions and test suite target Pi `0.85.1`; compatibility with older Pi
 versions is not guaranteed. Install [ShellCheck](https://www.shellcheck.net/) and the pinned npm dependencies, which
 also installs the repository's Git hooks:
 

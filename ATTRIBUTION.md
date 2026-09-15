@@ -111,20 +111,43 @@ checksum-guarded installation. It intentionally does not adopt automatic loading
 concurrent-update locking, configured-path confinement, new public resource-loader mutator APIs, or changes to Pi's
 unrelated extension, prompt, theme, package, trust, and provider behavior.
 
+## Pi 0.85.1 `/skills` runtime patch
+
+- Source: `@earendil-works/pi-coding-agent@0.85.1`
+- Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
+- Upstream revision reviewed: `d981de1229ef899957bbe968bc8dcda02a21f477` (`v0.85.1`)
+- License declared by the package: MIT
+
+[`patches/pi-0.85.1/skills.patch`](patches/pi-0.85.1/skills.patch) is a modified-code patch against Pi's published,
+generated runtime and documentation. It modifies upstream `dist/bundle/cli.js`, `dist/bundle/rpc-entry.js`,
+`dist/core/resource-loader.js`, `dist/core/slash-commands.js`, `dist/main.js`,
+`dist/modes/interactive/interactive-mode.js`, and `docs/skills.md`; their unchanged context and modified lines derive
+from the MIT-licensed Pi package. The bundled entrypoints become thin wrappers so the patched unbundled runtime handles
+CLI and RPC execution. The added `dist/core/skill-management.js` is an original implementation for this repository,
+informed by Pi's resource-loading and command conventions rather than copied from an upstream file.
+
+The patch adopts explicit global, repository, and session skill activation; a discoverable-but-inactive catalog;
+normalized repository identity; shared CLI and interactive command semantics; diagnostics for invalid configuration; and
+checksum-guarded installation. Its catalog reuses Pi's package manager to include enabled package and settings skill
+sources while preserving Pi's precedence and project-trust behavior. It intentionally does not adopt automatic loading
+of every discovered skill, concurrent-update locking, configured-path confinement, new public resource-loader mutator
+APIs, or changes to Pi's unrelated extension, prompt, theme, package, trust, and provider behavior.
+
 ## Pi documentation and examples
 
 - Source: `@earendil-works/pi-coding-agent`
 - Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
-- Releases reviewed: `0.80.6`, `0.82.0`, `0.82.1`, `0.83.0`, `0.84.0`, `0.84.1`, `0.84.2`, and `0.84.4`
-- Latest documentation and example revision reviewed: `b79e4cc834970cca69daebffab7df1da7d1e52c4`
+- Releases reviewed: `0.80.6`, `0.82.0`, `0.82.1`, `0.83.0`, `0.84.0`, `0.84.1`, `0.84.2`, `0.84.4`, and `0.85.1`
+- Latest documentation and example revision reviewed: `d981de1229ef899957bbe968bc8dcda02a21f477`
 - License declared by the package: MIT
 
 Ideas and API patterns used:
 
 - Extension tool registration, lifecycle shutdown hooks, resource discovery, and TUI tool rendering.
-- The Pi 0.84.2 skills catalog reuses `DefaultPackageManager.resolve()` and its resolved-resource metadata to discover
-  package and settings skills with upstream manifest, filtering, scope, and precedence behavior. The catalog merge and
-  opt-in activation logic remain original code; Pi's automatic skill loading is intentionally not adopted.
+- The Pi 0.84.2 and later versioned skills catalogs reuse `DefaultPackageManager.resolve()` and its resolved-resource
+  metadata to discover package and settings skills with upstream manifest, filtering, scope, and precedence behavior.
+  The catalog merge and opt-in activation logic remain original code; Pi's automatic skill loading is intentionally not
+  adopted.
 - SDK `AgentSession.compact()` with custom instructions and in-memory sessions.
 - RPC JSONL framing and the `prompt`, `steer`, `follow_up`, `abort`, state, and event protocols.
 - Model-registry authentication, fuzzy CLI-equivalent model resolution, thinking-level capability maps, and normal child

@@ -47,9 +47,9 @@ docs/skills.md                    # skill docs
 README.md                         # high-level docs and CLI table
 ```
 
-Pi 0.84.4 dispatches the installed `pi` command and RPC entrypoint through `dist/bundle/`; its versioned patch therefore
-also replaces those two bundled entrypoints with wrappers around the patched unbundled runtime. Include any such
-entrypoint files in the patch and checksum manifests when a release switches its package bin layout.
+Pi 0.84.4 and 0.85.1 dispatch the installed `pi` command and RPC entrypoint through `dist/bundle/`; their versioned
+patches therefore also replace those two bundled entrypoints with wrappers around the patched unbundled runtime. Include
+any such entrypoint files in the patch and checksum manifests when a release switches its package bin layout.
 
 Source maps may exist, but the editable runtime is `dist/*.js`. Prefer changing the smallest runtime surface that proves
 the behavior.

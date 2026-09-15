@@ -6,16 +6,7 @@ AGENT_DIR=${PI_AGENT_DIR:-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"}
 EXTENSION_DIR="$AGENT_DIR/extensions"
 APPLY_SKILLS_PATCH=1
 EXTENSIONS=(clear effort markdown-backlinks subagents)
-PATCH_FILES=(
-  dist/bundle/cli.js
-  dist/bundle/rpc-entry.js
-  dist/core/resource-loader.js
-  dist/core/skill-management.js
-  dist/core/slash-commands.js
-  dist/main.js
-  dist/modes/interactive/interactive-mode.js
-  docs/skills.md
-)
+PATCH_FILES=()
 PATCH_STAGE_DIR=
 PATCH_BACKUP_DIR=
 PATCH_COMMIT_IN_PROGRESS=0
@@ -163,19 +154,52 @@ if ((APPLY_SKILLS_PATCH)); then
   BASELINE_SUMS="$PATCH_DIR/baseline.sha256"
   BASELINE_ABSENT="$PATCH_DIR/baseline.absent"
   PATCHED_SUMS="$PATCH_DIR/patched.sha256"
+  LEGACY_PATCHED_SUMS="$PATCH_DIR/legacy-patched.sha256"
+  LEGACY_UPGRADE_PATCH="$PATCH_DIR/legacy-upgrade.patch"
   if [[ ! -f "$PATCH_FILE" || ! -f "$BASELINE_SUMS" || ! -f "$BASELINE_ABSENT" || ! -f "$PATCHED_SUMS" ]]; then
     printf 'No complete /skills patch exists for pi %s. Use --skip-skill-loading-patch.\n' "$PI_VERSION" >&2
     exit 1
   fi
 
+  while read -r checksum file extra; do
+    if [[ ! "$checksum" =~ ^[0-9a-f]{64}$ || -z "$file" || -n "${extra:-}" || "$file" == /* || "$file" == ".." || "$file" == ../* || "$file" == */../* || "$file" == */.. ]]; then
+      printf 'Patched checksum manifest contains an invalid entry.\n' >&2
+      exit 1
+    fi
+    PATCH_FILES+=("$file")
+  done < "$PATCHED_SUMS"
+  if ((${#PATCH_FILES[@]} == 0)); then
+    printf 'Patched checksum manifest is empty.\n' >&2
+    exit 1
+  fi
+
+  if [[ -f "$LEGACY_PATCHED_SUMS" || -f "$LEGACY_UPGRADE_PATCH" ]]; then
+    if [[ ! -f "$LEGACY_PATCHED_SUMS" || ! -f "$LEGACY_UPGRADE_PATCH" ]]; then
+      printf 'The legacy /skills upgrade for pi %s is incomplete.\n' "$PI_VERSION" >&2
+      exit 1
+    fi
+    legacy_upgrade_available=1
+  else
+    legacy_upgrade_available=0
+  fi
+
   package_is_baseline=1
   package_is_patched=1
+  package_is_legacy_patched=$legacy_upgrade_available
   for file in "${PATCH_FILES[@]}"; do
     patched_checksum=$(manifest_checksum "$PATCHED_SUMS" "$file")
     baseline_checksum=$(manifest_checksum "$BASELINE_SUMS" "$file")
     if [[ ! "$patched_checksum" =~ ^[0-9a-f]{64}$ ]]; then
       printf 'Patched checksum manifest is invalid for %s.\n' "$file" >&2
       exit 1
+    fi
+    if ((legacy_upgrade_available)); then
+      legacy_checksum=$(manifest_checksum "$LEGACY_PATCHED_SUMS" "$file")
+      if [[ ! "$legacy_checksum" =~ ^[0-9a-f]{64}$ ]]; then
+        printf 'Legacy patched checksum manifest is invalid for %s.\n' "$file" >&2
+        exit 1
+      fi
+      matches_checksum "$legacy_checksum" "$PI_PACKAGE_DIR/$file" || package_is_legacy_patched=0
     fi
     if grep -Fxq "$file" "$BASELINE_ABSENT"; then
       if [[ -n "$baseline_checksum" ]]; then
@@ -196,10 +220,17 @@ if ((APPLY_SKILLS_PATCH)); then
   if ((package_is_patched)); then
     APPLY_SKILLS_PATCH=0
     printf '/skills patch for pi %s is already applied.\n' "$PI_VERSION"
-  elif ((!package_is_baseline)); then
-    printf 'Installed pi %s does not match this patch baseline; refusing to modify it.\n' "$PI_VERSION" >&2
-    exit 1
   else
+    if ((package_is_legacy_patched)); then
+      PATCH_TO_APPLY="$LEGACY_UPGRADE_PATCH"
+      printf 'Upgrading the previously applied /skills patch for pi %s.\n' "$PI_VERSION"
+    elif ((!package_is_baseline)); then
+      printf 'Installed pi %s does not match this patch baseline; refusing to modify it.\n' "$PI_VERSION" >&2
+      exit 1
+    else
+      PATCH_TO_APPLY="$PATCH_FILE"
+    fi
+
     command -v patch > /dev/null || {
       printf 'The patch utility is required.\n' >&2
       exit 1
@@ -213,7 +244,7 @@ if ((APPLY_SKILLS_PATCH)); then
         cp -p "$PI_PACKAGE_DIR/$file" "$PATCH_BACKUP_DIR/$file"
       fi
     done
-    patch --batch --forward --strip=1 --directory="$PATCH_STAGE_DIR" < "$PATCH_FILE" > /dev/null
+    patch --batch --forward --strip=1 --directory="$PATCH_STAGE_DIR" < "$PATCH_TO_APPLY" > /dev/null
     for file in "${PATCH_FILES[@]}"; do
       patched_checksum=$(manifest_checksum "$PATCHED_SUMS" "$file")
       if ! matches_checksum "$patched_checksum" "$PATCH_STAGE_DIR/$file"; then

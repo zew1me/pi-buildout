@@ -33,9 +33,9 @@
     "audit": "node scripts/check-audit.mjs"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "0.84.4",
-    "@earendil-works/pi-coding-agent": "0.84.4",
-    "@earendil-works/pi-tui": "0.84.4",
+    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-coding-agent": "0.85.1",
+    "@earendil-works/pi-tui": "0.85.1",
     "@eslint/js": "^9.39.5",
     "@secretlint/secretlint-rule-preset-recommend": "^13.0.2",
     "@types/node": "^24.0.0",
