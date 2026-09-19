@@ -8,7 +8,7 @@ import { spawn } from "node:child_process";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const installerPath = join(repositoryRoot, "scripts", "install-extensions.sh");
-const legacyExtensions = ["clear", "effort", "markdown-backlinks"];
+const managedExtensions = ["clear", "effort", "markdown-backlinks", "subagents"];
 
 async function exists(path) {
   try {
@@ -49,7 +49,7 @@ test("installer retires legacy top-level extensions after installing directory r
   await mkdir(extensionDirectory, { recursive: true });
 
   await Promise.all([
-    ...legacyExtensions.flatMap((extension) => [
+    ...managedExtensions.flatMap((extension) => [
       writeFile(join(extensionDirectory, `${extension}.ts`), "legacy entrypoint\n"),
       writeFile(join(extensionDirectory, `${extension}.test.mjs`), "legacy test\n"),
     ]),
@@ -60,7 +60,7 @@ test("installer retires legacy top-level extensions after installing directory r
 
   assert.equal(result.code, 0, result.stderr);
   assert.match(result.stdout, /Installed pi extensions/u);
-  for (const extension of legacyExtensions) {
+  for (const extension of managedExtensions) {
     assert.equal(await exists(join(extensionDirectory, `${extension}.ts`)), false);
     assert.equal(await exists(join(extensionDirectory, `${extension}.test.mjs`)), false);
     assert.equal(await exists(join(extensionDirectory, extension, "index.ts")), true);
