@@ -76,11 +76,14 @@ index c85a0e5..e0153e1 100644
      }
      updateSkillsFromPaths(skillPaths, metadataByPath) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index e040118..9ac670f 100644
+index e040118..00c9a4b 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
-@@ -4,8 +4,9 @@ import { homedir } from "node:os";
+@@ -2,10 +2,12 @@ import { execFileSync } from "node:child_process";
+ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+ import { homedir } from "node:os";
  import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
++import lockfile from "proper-lockfile";
  import { CONFIG_DIR_NAME } from "../config.js";
  import { resolvePath } from "../utils/paths.js";
 +import { DefaultPackageManager } from "./package-manager.js";
@@ -90,7 +93,7 @@ index e040118..9ac670f 100644
  
  function isObjectRecord(value) {
      return value !== null && typeof value === "object" && !Array.isArray(value);
-@@ -15,7 +16,9 @@ function readJson(path) {
+@@ -15,7 +17,9 @@ function readJson(path) {
          return {};
      try {
          const value = JSON.parse(readFileSync(path, "utf-8"));
@@ -101,7 +104,46 @@ index e040118..9ac670f 100644
      }
      catch (error) {
          throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
-@@ -53,7 +56,9 @@ export function normalizeGitRemoteUrl(rawUrl) {
+@@ -27,6 +31,38 @@ function writeJson(path, value) {
+     writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
+     renameSync(tempPath, path);
+ }
++const skillConfigLockWait = new Int32Array(new SharedArrayBuffer(4));
++function acquireSkillConfigLock(path) {
++    const configDir = dirname(path);
++    mkdirSync(configDir, { recursive: true });
++    const maxAttempts = 100;
++    const delayMs = 20;
++    let lastError;
++    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
++        try {
++            return lockfile.lockSync(configDir, { realpath: false, lockfilePath: `${path}.lock` });
++        }
++        catch (error) {
++            const code = typeof error === "object" && error !== null && "code" in error
++                ? String(error.code)
++                : undefined;
++            if (code !== "ELOCKED" || attempt === maxAttempts)
++                throw error;
++            lastError = error;
++            Atomics.wait(skillConfigLockWait, 0, 0, delayMs);
++        }
++    }
++    throw lastError ?? new Error("Failed to acquire skill configuration lock");
++}
++function withSkillConfigLock(path, fn) {
++    const release = acquireSkillConfigLock(path);
++    try {
++        return fn();
++    }
++    finally {
++        release();
++    }
++}
+ function git(cwd, args) {
+     try {
+         return execFileSync("git", ["-C", cwd, ...args], {
+@@ -53,7 +89,9 @@ export function normalizeGitRemoteUrl(rawUrl) {
      try {
          const parsed = new URL(url);
          const repoPath = parsed.pathname.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
@@ -112,7 +154,44 @@ index e040118..9ac670f 100644
      }
      catch {
          return undefined;
-@@ -181,15 +186,25 @@ export function getSkillCatalogDirs({ cwd, agentDir, projectTrusted = false }) {
+@@ -106,20 +144,22 @@ function configLocation(scope, cwd, agentDir) {
+ }
+ function updatePersistedSkill(action, source, scope, options) {
+     const location = configLocation(scope, options.cwd, options.agentDir);
+-    const config = readJson(location.path);
+-    const target = location.key ? (isObjectRecord(config[location.key]) ? config[location.key] : {}) : config;
+-    const enabled = enabledEntries(target);
+-    const matched = enabled.some((entry) => normalizeSkillSource(sourceOf(entry), options) === source);
+-    if (action === "remove" && !matched)
+-        return false;
+-    const next = action === "add"
+-        ? (matched ? enabled : [...enabled, source])
+-        : enabled.filter((entry) => normalizeSkillSource(sourceOf(entry), options) !== source);
+-    target.enabled = next;
+-    if (location.key)
+-        config[location.key] = target;
+-    writeJson(location.path, config);
+-    return true;
++    return withSkillConfigLock(location.path, () => {
++        const config = readJson(location.path);
++        const target = location.key ? (isObjectRecord(config[location.key]) ? config[location.key] : {}) : config;
++        const enabled = enabledEntries(target);
++        const matched = enabled.some((entry) => normalizeSkillSource(sourceOf(entry), options) === source);
++        if (action === "remove" && !matched)
++            return false;
++        const next = action === "add"
++            ? (matched ? enabled : [...enabled, source])
++            : enabled.filter((entry) => normalizeSkillSource(sourceOf(entry), options) !== source);
++        target.enabled = next;
++        if (location.key)
++            config[location.key] = target;
++        writeJson(location.path, config);
++        return true;
++    });
+ }
+ export function getActiveSkillEntries({ cwd, agentDir, strict = false, onWarn }) {
+     const entries = [];
+@@ -181,15 +221,25 @@ export function getSkillCatalogDirs({ cwd, agentDir, projectTrusted = false }) {
      }
      return dirs;
  }
@@ -141,23 +220,28 @@ index e040118..9ac670f 100644
      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
  }
  export function looksLikePath(value) {
-@@ -200,13 +215,13 @@ function normalizeSkillSource(source, options) {
+@@ -198,15 +248,16 @@ export function looksLikePath(value) {
+ function normalizeSkillSource(source, options) {
+     if (!source)
          return undefined;
-     return looksLikePath(source) ? resolvePath(source, options.cwd, { trim: true }) : source;
+-    return looksLikePath(source) ? resolvePath(source, options.cwd, { trim: true }) : source;
++    const resolved = resolvePath(source, options.cwd, { trim: true });
++    return looksLikePath(source) || existsSync(resolved) ? resolved : source;
  }
 -function resolveSkillSource(source, options) {
 +async function resolveSkillSource(source, options) {
      const normalized = normalizeSkillSource(source, options);
      if (!normalized)
          return undefined;
-     if (looksLikePath(source))
+-    if (looksLikePath(source))
++    if (looksLikePath(source) || normalized !== source)
          return existsSync(normalized) ? normalized : undefined;
 -    return getSkillCatalog(options).find((skill) => skill.name === normalized)?.filePath;
 +    return (await getSkillCatalog(options)).find((skill) => skill.name === normalized)?.filePath;
  }
  function commandName(allowSession = false) {
      return allowSession ? "/skills" : "pi skills";
-@@ -224,7 +239,7 @@ function usage(allowSession = false) {
+@@ -224,7 +275,7 @@ function usage(allowSession = false) {
          ...(allowSession ? [`  ${command} reload`] : []),
      ];
  }
@@ -166,7 +250,7 @@ index e040118..9ac670f 100644
      try {
          const surface = commandName(options.allowSession);
          const [command, ...rest] = args;
-@@ -244,7 +259,7 @@ export function runSkillsCommand(args, options) {
+@@ -244,7 +295,7 @@ export function runSkillsCommand(args, options) {
              const query = command === "search" ? rest.join(" ").trim().toLowerCase() : "";
              if (command === "search" && !query)
                  throw new Error(`Usage: ${surface} search <query>`);
@@ -175,7 +259,7 @@ index e040118..9ac670f 100644
              return { exitCode: 0, lines: skills.length ? skills.map((skill) => `${skill.name}\t${skill.description}`) : [query ? "No matching skills." : "No catalog skills found."] };
          }
          if (command === "add" || command === "remove") {
-@@ -257,7 +272,7 @@ export function runSkillsCommand(args, options) {
+@@ -257,7 +308,7 @@ export function runSkillsCommand(args, options) {
              const target = normalizeSkillSource(source, options);
              if (!target)
                  throw new Error(`Skill source is invalid: ${source}`);

@@ -7,6 +7,8 @@ EXTENSION_DIR="$AGENT_DIR/extensions"
 APPLY_SKILLS_PATCH=1
 EXTENSIONS=(clear effort markdown-backlinks subagents)
 PATCH_FILES=()
+UPGRADE_SUMS=()
+UPGRADE_PATCHES=()
 PATCH_STAGE_DIR=
 PATCH_BACKUP_DIR=
 PATCH_COMMIT_IN_PROGRESS=0
@@ -154,8 +156,6 @@ if ((APPLY_SKILLS_PATCH)); then
   BASELINE_SUMS="$PATCH_DIR/baseline.sha256"
   BASELINE_ABSENT="$PATCH_DIR/baseline.absent"
   PATCHED_SUMS="$PATCH_DIR/patched.sha256"
-  LEGACY_PATCHED_SUMS="$PATCH_DIR/legacy-patched.sha256"
-  LEGACY_UPGRADE_PATCH="$PATCH_DIR/legacy-upgrade.patch"
   if [[ ! -f "$PATCH_FILE" || ! -f "$BASELINE_SUMS" || ! -f "$BASELINE_ABSENT" || ! -f "$PATCHED_SUMS" ]]; then
     printf 'No complete /skills patch exists for pi %s. Use --skip-skill-loading-patch.\n' "$PI_VERSION" >&2
     exit 1
@@ -173,33 +173,33 @@ if ((APPLY_SKILLS_PATCH)); then
     exit 1
   fi
 
-  if [[ -f "$LEGACY_PATCHED_SUMS" || -f "$LEGACY_UPGRADE_PATCH" ]]; then
-    if [[ ! -f "$LEGACY_PATCHED_SUMS" || ! -f "$LEGACY_UPGRADE_PATCH" ]]; then
-      printf 'The legacy /skills upgrade for pi %s is incomplete.\n' "$PI_VERSION" >&2
+  for upgrade_sums in "$PATCH_DIR"/*-patched.sha256; do
+    [[ -f "$upgrade_sums" ]] || continue
+    upgrade_patch=${upgrade_sums%-patched.sha256}-upgrade.patch
+    if [[ ! -f "$upgrade_patch" ]]; then
+      printf 'The /skills upgrade state %s for pi %s is incomplete.\n' "$(basename "$upgrade_sums")" "$PI_VERSION" >&2
       exit 1
     fi
-    legacy_upgrade_available=1
-  else
-    legacy_upgrade_available=0
-  fi
+    UPGRADE_SUMS+=("$upgrade_sums")
+    UPGRADE_PATCHES+=("$upgrade_patch")
+  done
+  for upgrade_patch in "$PATCH_DIR"/*-upgrade.patch; do
+    [[ -f "$upgrade_patch" ]] || continue
+    upgrade_sums=${upgrade_patch%-upgrade.patch}-patched.sha256
+    if [[ ! -f "$upgrade_sums" ]]; then
+      printf 'The /skills upgrade state %s for pi %s is incomplete.\n' "$(basename "$upgrade_patch")" "$PI_VERSION" >&2
+      exit 1
+    fi
+  done
 
   package_is_baseline=1
   package_is_patched=1
-  package_is_legacy_patched=$legacy_upgrade_available
   for file in "${PATCH_FILES[@]}"; do
     patched_checksum=$(manifest_checksum "$PATCHED_SUMS" "$file")
     baseline_checksum=$(manifest_checksum "$BASELINE_SUMS" "$file")
     if [[ ! "$patched_checksum" =~ ^[0-9a-f]{64}$ ]]; then
       printf 'Patched checksum manifest is invalid for %s.\n' "$file" >&2
       exit 1
-    fi
-    if ((legacy_upgrade_available)); then
-      legacy_checksum=$(manifest_checksum "$LEGACY_PATCHED_SUMS" "$file")
-      if [[ ! "$legacy_checksum" =~ ^[0-9a-f]{64}$ ]]; then
-        printf 'Legacy patched checksum manifest is invalid for %s.\n' "$file" >&2
-        exit 1
-      fi
-      matches_checksum "$legacy_checksum" "$PI_PACKAGE_DIR/$file" || package_is_legacy_patched=0
     fi
     if grep -Fxq "$file" "$BASELINE_ABSENT"; then
       if [[ -n "$baseline_checksum" ]]; then
@@ -217,13 +217,34 @@ if ((APPLY_SKILLS_PATCH)); then
     matches_checksum "$patched_checksum" "$PI_PACKAGE_DIR/$file" || package_is_patched=0
   done
 
+  MATCHED_UPGRADE_PATCH=
+  for upgrade_index in "${!UPGRADE_SUMS[@]}"; do
+    upgrade_sums=${UPGRADE_SUMS[$upgrade_index]}
+    upgrade_matches=1
+    for file in "${PATCH_FILES[@]}"; do
+      upgrade_checksum=$(manifest_checksum "$upgrade_sums" "$file")
+      if [[ ! "$upgrade_checksum" =~ ^[0-9a-f]{64}$ ]]; then
+        printf 'Upgrade checksum manifest %s is invalid for %s.\n' "$(basename "$upgrade_sums")" "$file" >&2
+        exit 1
+      fi
+      matches_checksum "$upgrade_checksum" "$PI_PACKAGE_DIR/$file" || upgrade_matches=0
+    done
+    if ((upgrade_matches)); then
+      if [[ -n "$MATCHED_UPGRADE_PATCH" ]]; then
+        printf 'Installed pi %s matches multiple /skills upgrade states; refusing to modify it.\n' "$PI_VERSION" >&2
+        exit 1
+      fi
+      MATCHED_UPGRADE_PATCH=${UPGRADE_PATCHES[$upgrade_index]}
+    fi
+  done
+
   if ((package_is_patched)); then
     APPLY_SKILLS_PATCH=0
     printf '/skills patch for pi %s is already applied.\n' "$PI_VERSION"
   else
-    if ((package_is_legacy_patched)); then
-      PATCH_TO_APPLY="$LEGACY_UPGRADE_PATCH"
-      printf 'Upgrading the previously applied /skills patch for pi %s.\n' "$PI_VERSION"
+    if [[ -n "$MATCHED_UPGRADE_PATCH" ]]; then
+      PATCH_TO_APPLY=$MATCHED_UPGRADE_PATCH
+      printf 'Upgrading a previously applied /skills patch for pi %s.\n' "$PI_VERSION"
     elif ((!package_is_baseline)); then
       printf 'Installed pi %s does not match this patch baseline; refusing to modify it.\n' "$PI_VERSION" >&2
       exit 1

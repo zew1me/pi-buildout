@@ -121,6 +121,15 @@ Catalog resolution is asynchronous. It keeps fixed global and trusted-project di
 precedence behavior. Both `runSkillsCommand()` callers must await it and pass the active `SettingsManager`; name-based
 activation in `DefaultResourceLoader` awaits that same catalog so package and settings names resolve consistently.
 
+Starting with the 0.84.2 patch, normalize user-provided local skill sources with Pi's `resolvePath()` before storing or
+adding them to a session, so tilde, explicit relative, and existing bare relative forms become stable absolute paths.
+Keep non-existent bare names available for catalog lookup. Use the same normalization when matching an existing entry
+for removal.
+
+Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
+synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without
+busy-spinning, and release in `finally` so concurrent CLI processes cannot overwrite one another's updates.
+
 ## Verification Ideas
 
 Create temp skills and temp agent dirs. Exercise these behaviors without network calls:
@@ -129,8 +138,10 @@ Create temp skills and temp agent dirs. Exercise these behaviors without network
 - `additionalSkillPaths` loads a session skill
 - `agentDir/skills.json` enables a global skill
 - `agentDir/repo-skills.json` enables a repo skill by normalized upstream URL
+- tilde and relative sources are persisted as absolute paths and can be removed through their original spelling
 - non-default remote ports stay distinct while explicit default ports retain canonical repository keys
 - non-object top-level JSON values fail strict configuration reads
+- concurrent global and repository updates preserve every requested change and clean up their lock files
 - `noSkills: true` ignores global/repo active skills
 
 Example shape:

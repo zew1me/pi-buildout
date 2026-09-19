@@ -8,8 +8,11 @@ This directory contains a version-specific unified patch that changes pi skills 
 - `baseline.sha256` — SHA-256 checksums for files that must match the clean 0.84.4 package.
 - `baseline.absent` — paths that must not exist in the clean package.
 - `patched.sha256` — SHA-256 checksums expected after applying `skills.patch`.
+- `pre-lock-patched.sha256` and `pre-lock-upgrade.patch` — the recognized state and migration for installations patched before path normalization and serialized configuration updates were included.
 
 The installer verifies the package version and baseline before modifying anything. It applies the patch to staged copies, verifies their patched checksums, then replaces each installed file atomically, with rollback on a replacement failure. A package already matching `patched.sha256` is left unchanged. Any unknown or mixed state is rejected rather than overwritten.
+
+User-provided tilde and relative skill sources are resolved to absolute paths before session activation or persistence. Persisted global and repository skill updates lock the applicable JSON file across the complete read-modify-write transaction, preventing concurrent CLI processes from discarding one another's changes.
 
 `scripts/skills-patch-dispatch.test.mjs` extracts the interactive `/skills` dispatch and the shared
 `runSkillsCommand` from `skills.patch` and exercises them directly, so the patched runtime stays the single source

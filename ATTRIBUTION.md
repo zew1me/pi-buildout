@@ -81,14 +81,17 @@ Code-compatible surface.
 [`patches/pi-0.84.2/skills.patch`](patches/pi-0.84.2/skills.patch) is a modified-code patch against Pi's published,
 generated runtime and documentation. It modifies upstream `dist/core/resource-loader.js`, `dist/core/slash-commands.js`,
 `dist/main.js`, `dist/modes/interactive/interactive-mode.js`, and `docs/skills.md`; their unchanged context and modified
-lines derive from the MIT-licensed Pi package. The added `dist/core/skill-management.js` is an original implementation
-for this repository, informed by Pi's resource-loading and command conventions rather than copied from an upstream file.
+lines derive from the MIT-licensed Pi package. The added `dist/core/skill-management.js` is primarily an original
+implementation for this repository, informed by Pi's resource-loading and command conventions.
 
-The patch adopts explicit global, repository, and session skill activation; a discoverable-but-inactive catalog;
-normalized repository identity; shared CLI and interactive command semantics; diagnostics for invalid configuration; and
-checksum-guarded installation. It intentionally does not adopt automatic loading of every discovered skill,
-concurrent-update locking, configured-path confinement, new public resource-loader mutator APIs, or changes to Pi's
-unrelated extension, prompt, theme, package, trust, and provider behavior.
+The persisted-skill locking helpers are modified adaptations of the synchronous `proper-lockfile` retry and guaranteed
+release pattern in Pi's MIT-licensed `dist/core/trust-manager.js`; the integration around the complete skill
+read-modify-write transaction is original to this repository. The patch adopts explicit global, repository, and session
+skill activation; a discoverable-but-inactive catalog; normalized repository identity; shared CLI and interactive
+command semantics; diagnostics for invalid configuration; concurrent-update locking; and checksum-guarded installation.
+It intentionally does not adopt automatic loading of every discovered skill, configured-path confinement, new public
+resource-loader mutator APIs, or changes to Pi's unrelated extension, prompt, theme, package, trust, and provider
+behavior.
 
 ## Pi 0.84.4 `/skills` runtime patch
 
@@ -102,14 +105,17 @@ generated runtime and documentation. It modifies upstream `dist/bundle/cli.js`, 
 `dist/core/resource-loader.js`, `dist/core/slash-commands.js`, `dist/main.js`,
 `dist/modes/interactive/interactive-mode.js`, and `docs/skills.md`; their unchanged context and modified lines derive
 from the MIT-licensed Pi package. The bundled entrypoints become thin wrappers so the patched unbundled runtime handles
-CLI and RPC execution. The added `dist/core/skill-management.js` is an original implementation for this repository,
-informed by Pi's resource-loading and command conventions rather than copied from an upstream file.
+CLI and RPC execution. The added `dist/core/skill-management.js` is primarily an original implementation for this
+repository, informed by Pi's resource-loading and command conventions.
 
-The patch adopts explicit global, repository, and session skill activation; a discoverable-but-inactive catalog;
-normalized repository identity; shared CLI and interactive command semantics; diagnostics for invalid configuration; and
-checksum-guarded installation. It intentionally does not adopt automatic loading of every discovered skill,
-concurrent-update locking, configured-path confinement, new public resource-loader mutator APIs, or changes to Pi's
-unrelated extension, prompt, theme, package, trust, and provider behavior.
+The persisted-skill locking helpers are modified adaptations of the synchronous `proper-lockfile` retry and guaranteed
+release pattern in Pi's MIT-licensed `dist/core/trust-manager.js`; the integration around the complete skill
+read-modify-write transaction is original to this repository. The patch adopts explicit global, repository, and session
+skill activation; a discoverable-but-inactive catalog; normalized repository identity; shared CLI and interactive
+command semantics; diagnostics for invalid configuration; concurrent-update locking; and checksum-guarded installation.
+It intentionally does not adopt automatic loading of every discovered skill, configured-path confinement, new public
+resource-loader mutator APIs, or changes to Pi's unrelated extension, prompt, theme, package, trust, and provider
+behavior.
 
 ## Pi 0.85.1 `/skills` runtime patch
 
@@ -123,15 +129,18 @@ generated runtime and documentation. It modifies upstream `dist/bundle/cli.js`, 
 `dist/core/resource-loader.js`, `dist/core/slash-commands.js`, `dist/main.js`,
 `dist/modes/interactive/interactive-mode.js`, and `docs/skills.md`; their unchanged context and modified lines derive
 from the MIT-licensed Pi package. The bundled entrypoints become thin wrappers so the patched unbundled runtime handles
-CLI and RPC execution. The added `dist/core/skill-management.js` is an original implementation for this repository,
-informed by Pi's resource-loading and command conventions rather than copied from an upstream file.
+CLI and RPC execution. The added `dist/core/skill-management.js` is primarily an original implementation for this
+repository, informed by Pi's resource-loading and command conventions.
 
-The patch adopts explicit global, repository, and session skill activation; a discoverable-but-inactive catalog;
-normalized repository identity; shared CLI and interactive command semantics; diagnostics for invalid configuration; and
-checksum-guarded installation. Its catalog reuses Pi's package manager to include enabled package and settings skill
-sources while preserving Pi's precedence and project-trust behavior. It intentionally does not adopt automatic loading
-of every discovered skill, concurrent-update locking, configured-path confinement, new public resource-loader mutator
-APIs, or changes to Pi's unrelated extension, prompt, theme, package, trust, and provider behavior.
+The persisted-skill locking helpers are modified adaptations of the synchronous `proper-lockfile` retry and guaranteed
+release pattern in Pi's MIT-licensed `dist/core/trust-manager.js`; the integration around the complete skill
+read-modify-write transaction is original to this repository. The patch adopts explicit global, repository, and session
+skill activation; a discoverable-but-inactive catalog; normalized repository identity; shared CLI and interactive
+command semantics; diagnostics for invalid configuration; concurrent-update locking; and checksum-guarded installation.
+Its catalog reuses Pi's package manager to include enabled package and settings skill sources while preserving Pi's
+precedence and project-trust behavior. It intentionally does not adopt automatic loading of every discovered skill,
+configured-path confinement, new public resource-loader mutator APIs, or changes to Pi's unrelated extension, prompt,
+theme, package, trust, and provider behavior.
 
 ## Pi documentation and examples
 
@@ -148,6 +157,8 @@ Ideas and API patterns used:
   metadata to discover package and settings skills with upstream manifest, filtering, scope, and precedence behavior.
   The catalog merge and opt-in activation logic remain original code; Pi's automatic skill loading is intentionally not
   adopted.
+- The Pi 0.84.2 and later patches adapt the synchronous `proper-lockfile` acquisition/retry and `finally` release
+  pattern from Pi's trust manager so skill configuration updates serialize across processes.
 - SDK `AgentSession.compact()` with custom instructions and in-memory sessions.
 - RPC JSONL framing and the `prompt`, `steer`, `follow_up`, `abort`, state, and event protocols.
 - Model-registry authentication, fuzzy CLI-equivalent model resolution, thinking-level capability maps, and normal child
