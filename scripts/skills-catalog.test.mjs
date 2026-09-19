@@ -64,19 +64,19 @@ async function baselineProblem() {
   return undefined;
 }
 
-async function verifyPatchedManifest(target) {
-  const manifest = await readFile(join(patchDirectory, "patched.sha256"), "utf8");
+async function verifyManifest(target, manifestName) {
+  const manifest = await readFile(join(patchDirectory, manifestName), "utf8");
   for (const line of manifest.trim().split("\n")) {
     const [expected, relativePath] = line.trim().split(/\s+/, 2);
-    assert.ok(expected && relativePath, "patched checksum manifest contains a malformed entry");
+    assert.ok(expected && relativePath, `${manifestName} contains a malformed entry`);
     assert.equal(await sha256(join(target, relativePath)), expected, relativePath);
   }
 }
 
-async function applyPatch(target) {
-  const patchContents = await readFile(patchPath);
+async function applyPatch(target, source = patchPath, reverse = false) {
+  const patchContents = await readFile(source);
   await new Promise((resolvePromise, reject) => {
-    const child = spawn("patch", ["--batch", "--forward", "--strip=1"], {
+    const child = spawn("patch", ["--batch", reverse ? "--reverse" : "--forward", "--strip=1"], {
       cwd: target,
       stdio: ["pipe", "ignore", "pipe"],
     });
@@ -136,7 +136,26 @@ async function createPatchedPackage(target) {
     process.platform === "win32" ? "junction" : "dir",
   );
   await applyPatch(target);
-  await verifyPatchedManifest(target);
+  await verifyManifest(target, "patched.sha256");
+}
+
+async function runInstaller(packageDirectory, agentDirectory) {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn("bash", [join(repositoryRoot, "scripts", "install-extensions.sh")], {
+      env: { ...process.env, PI_AGENT_DIR: agentDirectory, PI_PACKAGE_DIR: packageDirectory },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", reject);
+    child.once("close", (code) => resolvePromise({ code, stdout, stderr }));
+  });
 }
 
 async function writeSkill(skillDirectory, name, description) {
@@ -178,6 +197,15 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       }
       throw error;
     }
+
+    const preValidationPackage = join(temporaryRoot, "pre-validation-package");
+    await createPatchedPackage(preValidationPackage);
+    await applyPatch(preValidationPackage, join(patchDirectory, "pre-validation-upgrade.patch"), true);
+    await verifyManifest(preValidationPackage, "pre-validation-patched.sha256");
+    const installerResult = await runInstaller(preValidationPackage, join(temporaryRoot, "installer-agent"));
+    assert.equal(installerResult.code, 0, installerResult.stderr);
+    assert.match(installerResult.stdout, /Upgrading a previously applied \/skills patch/u);
+    await verifyManifest(preValidationPackage, "patched.sha256");
 
     await Promise.all([
       writeSkill(join(agentDir, "skills", "fixed"), "fixed-choice", "global fixed directory"),

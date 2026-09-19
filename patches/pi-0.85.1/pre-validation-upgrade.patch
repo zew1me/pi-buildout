@@ -1,0 +1,26 @@
+diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
+index f8714df..9ac670f 100644
+--- a/dist/core/skill-management.js
++++ b/dist/core/skill-management.js
+@@ -16,7 +16,9 @@ function readJson(path) {
+         return {};
+     try {
+         const value = JSON.parse(readFileSync(path, "utf-8"));
+-        return isObjectRecord(value) ? value : {};
++        if (!isObjectRecord(value))
++            throw new Error("Expected a JSON object");
++        return value;
+     }
+     catch (error) {
+         throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
+@@ -54,7 +56,9 @@ export function normalizeGitRemoteUrl(rawUrl) {
+     try {
+         const parsed = new URL(url);
+         const repoPath = parsed.pathname.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
+-        return parsed.hostname && repoPath ? `${parsed.hostname.toLowerCase()}:${repoPath}` : undefined;
++        const defaultPort = parsed.protocol === "ssh:" ? "22" : parsed.protocol === "git:" ? "9418" : undefined;
++        const host = parsed.port && parsed.port !== defaultPort ? parsed.host : parsed.hostname;
++        return host && repoPath ? `${host.toLowerCase()}:${repoPath}` : undefined;
+     }
+     catch {
+         return undefined;

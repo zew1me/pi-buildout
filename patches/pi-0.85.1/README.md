@@ -9,8 +9,9 @@ This directory contains a version-specific unified patch that changes pi skills 
 - `baseline.absent` — paths that must not exist in the clean package.
 - `patched.sha256` — SHA-256 checksums expected after applying `skills.patch`.
 - `legacy-patched.sha256` and `legacy-upgrade.patch` — the recognized state and migration for installations patched before bundled entrypoints and expanded catalog sources were included.
+- `pre-validation-patched.sha256` and `pre-validation-upgrade.patch` — the exact patched state recorded by repository commit `c8bbfc6` and its migration to the current patch, which adds strict configuration validation and remote-port preservation.
 
-The installer derives its complete replacement set from `patched.sha256`, verifies the package version and baseline before modifying anything, applies the patch to staged copies, verifies their patched checksums, then replaces each installed file atomically, with rollback on a replacement failure. It also recognizes and upgrades the earlier 0.85.1 patch state that changed only the unbundled runtime. A package already matching `patched.sha256` is left unchanged. Any unknown or mixed state is rejected rather than overwritten.
+The installer derives its complete replacement set from `patched.sha256`, verifies the package version and baseline before modifying anything, applies the patch to staged copies, verifies their patched checksums, then replaces each installed file atomically, with rollback on a replacement failure. Upgrade manifests are limited to exact full-file states previously produced by this repository; a matching package version alone never authorizes an upgrade. A package already matching `patched.sha256` is left unchanged. Any unknown or mixed state is rejected and must be restored to the clean package rather than overwritten.
 
 `scripts/skills-patch-dispatch.test.mjs` exercises the interactive `/skills` dispatch,
 `scripts/skills-patch-entrypoint.test.mjs` verifies the bundled CLI delegate and migration manifests, and
