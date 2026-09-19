@@ -6,6 +6,7 @@ AGENT_DIR=${PI_AGENT_DIR:-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"}
 EXTENSION_DIR="$AGENT_DIR/extensions"
 APPLY_SKILLS_PATCH=1
 EXTENSIONS=(clear effort markdown-backlinks subagents)
+LEGACY_EXTENSIONS=(clear effort markdown-backlinks)
 PATCH_FILES=()
 PATCH_STAGE_DIR=
 PATCH_BACKUP_DIR=
@@ -284,6 +285,13 @@ for extension in "${EXTENSIONS[@]}"; do
   EXTENSION_BACKUP=
   EXTENSION_TARGET=
   EXTENSION_COMMIT_IN_PROGRESS=0
+done
+
+# These extensions originally used top-level entrypoints. Pi discovers both
+# extensions/name.ts and extensions/name/index.ts, so retire the old layout only
+# after every directory replacement has completed successfully.
+for extension in "${LEGACY_EXTENSIONS[@]}"; do
+  rm -f "$EXTENSION_DIR/$extension.ts" "$EXTENSION_DIR/$extension.test.mjs"
 done
 
 if [[ -n "$PATCH_STAGE_DIR" ]]; then
