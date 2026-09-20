@@ -296,6 +296,31 @@ export function routingCeiling<T extends ModelLike>(
   return best ? { model: best, effort: clampThinkingLevel("max", best) } : undefined;
 }
 
+export type EscalationGateDecision =
+  { action: "allow"; reason?: string } | { action: "prompt" } | { action: "decline"; reason: string };
+
+/**
+ * Decide how an escalation-class selection must be handled, independently of any UI.
+ *
+ * Kept pure so the trigger's edge cases stay verifiable: a nested child has no
+ * human on its RPC channel and must not burn the approval timeout, a
+ * non-interactive session cannot answer at all, and a scope with no
+ * non-escalation model is itself the authorization because there is nothing to
+ * fall back to.
+ */
+export function escalationGate(options: {
+  escalation: boolean;
+  hasCeiling: boolean;
+  depth: number;
+  hasUI: boolean;
+}): EscalationGateDecision {
+  if (!options.escalation) return { action: "allow" };
+  if (!options.hasCeiling) return { action: "allow", reason: "no non-escalation model is in scope" };
+  if (options.depth > 0) return { action: "decline", reason: "is not available to a nested subagent" };
+  if (!options.hasUI) return { action: "decline", reason: "needs approval and this session has no interactive UI" };
+  return { action: "prompt" };
+}
+
 /** Cost-efficiency guidance appended to the routing classifier prompt. */
 export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort that clears the task's required intelligence; do not buy capability the task does not need. Within the GPT-5.6 family, capability and cost both rise Luna -> Terra -> Sol, and raising effort on a cheaper model is usually a better trade than moving to a pricier one at low effort.
 - Trivial, mechanical, or lookup work: the cheapest family (Luna) at low or medium effort.

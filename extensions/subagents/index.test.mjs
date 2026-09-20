@@ -5,10 +5,18 @@ import {
   boundContextForModel,
   buildChildArgs,
   clampThinkingLevel,
+  escalationGate,
   excludeCurrentDelegationTurn,
   findRequestedModel,
   formatModelCatalog,
+  isEscalationClassModel,
+  modelStrengthRank,
   parseClassifierDecision,
+  parseRouterDecision,
+  readRegisteredRouter,
+  ROUTING_LADDER_GUIDANCE,
+  routingCeiling,
+  SUBAGENT_ROUTER_KEY,
   parseModelRequest,
   resolveCandidateModel,
   resolveRoutedEffort,
@@ -311,4 +319,119 @@ test("Pi's ModelRegistry still exposes the ModelRuntime that compaction reaches 
   const runtime = await ModelRuntime.create({ allowModelNetwork: false });
   const registry = new ModelRegistry(runtime);
   assert.equal(Reflect.get(registry, "runtime"), runtime);
+});
+
+test("escalation-class detection matches the Astra family across every provider that exposes it", () => {
+  for (const model of [
+    { provider: "openai", id: "gpt-6-astra" },
+    { provider: "openrouter", id: "openai/gpt-6-astra" },
+    { provider: "vercel-ai-gateway", id: "astra-fast" },
+    { provider: "openrouter", id: "astra-pro" },
+  ]) {
+    assert.equal(isEscalationClassModel(model), true, `${model.provider}/${model.id} should be escalation class`);
+  }
+  for (const model of [
+    { provider: "openai", id: "gpt-5.6-sol" },
+    { provider: "openai", id: "gpt-5.6-terra" },
+    { provider: "openai", id: "gpt-5.4-mini" },
+    { provider: "meta", id: "muse-spark-1.3" },
+  ]) {
+    assert.equal(isEscalationClassModel(model), false, `${model.provider}/${model.id} should not be escalation class`);
+  }
+});
+
+test("gpt-5.4-mini ranks below Luna because it is dominated head-to-head, not by price", () => {
+  const luna = { provider: "openai", id: "gpt-5.6-luna", cost: { input: 0.2, output: 1.2 } };
+  const mini = { provider: "openai", id: "gpt-5.4-mini", cost: { input: 0.75, output: 4.5 } };
+  // Price alone would order these backwards: mini costs 3.75x more per token.
+  assert.ok(mini.cost.output > luna.cost.output);
+  assert.ok(modelStrengthRank(mini) < modelStrengthRank(luna));
+  const sol = { provider: "openai", id: "gpt-5.6-sol" };
+  const terra = { provider: "openai", id: "gpt-5.6-terra" };
+  const astra = { provider: "openai", id: "gpt-6-astra" };
+  assert.ok(modelStrengthRank(luna) < modelStrengthRank(terra));
+  assert.ok(modelStrengthRank(terra) < modelStrengthRank(sol));
+  assert.ok(modelStrengthRank(sol) < modelStrengthRank(astra));
+  // An unknown expensive model must not outrank the frontier tier.
+  const unknown = { provider: "other", id: "mystery-1", cost: { input: 500, output: 900 } };
+  assert.ok(modelStrengthRank(unknown) < modelStrengthRank(astra));
+});
+
+test("the routing ceiling excludes escalation models and uses the highest effort Sol truly supports", () => {
+  const luna = { provider: "openai", id: "gpt-5.6-luna" };
+  const sol = { provider: "openai", id: "gpt-5.6-sol" };
+  const astra = { provider: "openai", id: "gpt-6-astra" };
+  const ceiling = routingCeiling([luna, astra, sol]);
+  assert.deepEqual(ceiling?.model, sol);
+  // The direct OpenAI GPT-5.6 endpoint rejects `max`, so the ceiling is xhigh.
+  // The escalation trigger and its fallback must agree on this exact value.
+  assert.equal(ceiling?.effort, "xhigh");
+  assert.equal(clampThinkingLevel("max", sol), ceiling?.effort);
+  assert.equal(routingCeiling([astra]), undefined);
+  assert.equal(routingCeiling([]), undefined);
+});
+
+test("routing ladder guidance states the cheapest-sufficient policy and both escalation criteria", () => {
+  assert.match(ROUTING_LADDER_GUIDANCE, /cheapest model and effort/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /gpt-5\.4-mini/);
+  assert.match(ROUTING_LADDER_GUIDANCE, /hallucinat/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /approval/i);
+});
+
+test("a routing plugin is read only when it matches the contract", () => {
+  const key = SUBAGENT_ROUTER_KEY;
+  assert.equal(readRegisteredRouter({}), undefined);
+  assert.equal(readRegisteredRouter({ [key]: "nope" }), undefined);
+  assert.equal(readRegisteredRouter({ [key]: { name: "x" } }), undefined);
+  const router = readRegisteredRouter({ [key]: { name: " tiered ", route: () => undefined } });
+  assert.equal(router?.name, "tiered");
+  assert.equal(typeof router?.route, "function");
+});
+
+test("router decisions are validated and leave effort to the normal precedence chain", () => {
+  assert.deepEqual(parseRouterDecision({ model: " openai/gpt-5.6-luna " }), { model: "openai/gpt-5.6-luna" });
+  assert.deepEqual(parseRouterDecision({ model: "openai/gpt-5.6-sol", effort: "high", rationale: " deep " }), {
+    model: "openai/gpt-5.6-sol",
+    effort: "high",
+    rationale: "deep",
+  });
+  assert.equal(parseRouterDecision({ model: "x/y", effort: "extreme" }), undefined);
+  assert.equal(parseRouterDecision({ model: "" }), undefined);
+  assert.equal(parseRouterDecision(undefined), undefined);
+  assert.equal(parseRouterDecision("openai/gpt-5.6-sol"), undefined);
+});
+
+test("a router cannot widen the session scope because its choice resolves strictly in scope", () => {
+  const scoped = [{ provider: "openai", id: "gpt-5.6-luna" }];
+  const decision = parseRouterDecision({ model: "openai/gpt-6-astra" });
+  assert.equal(decision?.model, "openai/gpt-6-astra");
+  // The same strict path classifier output takes rejects it, so routing falls through.
+  const resolved = resolveCandidateModel(decision.model, scoped, "openai", true);
+  assert.equal(resolved.model, undefined);
+  assert.match(resolved.error ?? "", /outside this session's model scope/);
+});
+
+test("the escalation gate prompts only where a human can actually answer", () => {
+  const base = { escalation: true, hasCeiling: true, depth: 0, hasUI: true };
+  assert.deepEqual(escalationGate(base), { action: "prompt" });
+  // Non-escalation selections pass straight through with no reason attached.
+  assert.deepEqual(escalationGate({ ...base, escalation: false }), { action: "allow" });
+  // A nested child has no human on its RPC channel; it must not burn the 30s timeout.
+  assert.deepEqual(escalationGate({ ...base, depth: 2 }), {
+    action: "decline",
+    reason: "is not available to a nested subagent",
+  });
+  assert.deepEqual(escalationGate({ ...base, hasUI: false }), {
+    action: "decline",
+    reason: "needs approval and this session has no interactive UI",
+  });
+  // A scope holding only escalation models is itself the authorization.
+  assert.deepEqual(escalationGate({ ...base, hasCeiling: false }), {
+    action: "allow",
+    reason: "no non-escalation model is in scope",
+  });
+  // Depth is only consulted for escalation-class selections.
+  assert.deepEqual(escalationGate({ escalation: false, hasCeiling: false, depth: 3, hasUI: false }), {
+    action: "allow",
+  });
 });

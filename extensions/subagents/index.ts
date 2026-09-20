@@ -23,6 +23,7 @@ import {
   clampThinkingLevel,
   excludeCurrentDelegationTurn,
   extractTextContent,
+  escalationGate,
   formatModelCatalog,
   isEscalationClassModel,
   parseClassifierDecision,
@@ -530,19 +531,25 @@ async function approveEscalation(
   scope: RoutingScope,
   signal: AbortSignal | undefined,
 ): Promise<Selection> {
-  if (!isEscalationClassModel(selection.model)) return selection;
   const ceiling = routingCeiling(scope.candidates);
   const escalated = `${selection.model.provider}/${selection.model.id}`;
-  if (!ceiling) {
+  const gate = escalationGate({
+    escalation: isEscalationClassModel(selection.model),
+    hasCeiling: Boolean(ceiling),
+    depth: currentDepth(),
+    hasUI: ctx.hasUI,
+  });
+  if (gate.action === "allow") {
+    if (!gate.reason) return selection;
     return {
       ...selection,
       source: "escalated",
-      rationale: [selection.rationale, `${escalated} is the only non-escalation-free model in scope.`]
-        .filter(Boolean)
-        .join(" "),
+      rationale: [selection.rationale, `Escalated to ${escalated} because ${gate.reason}.`].filter(Boolean).join(" "),
     };
   }
 
+  // escalationGate only returns prompt/decline when a ceiling exists.
+  if (!ceiling) return selection;
   const decline = (reason: string): Selection => ({
     model: ceiling.model,
     effort: ceiling.effort,
@@ -550,8 +557,7 @@ async function approveEscalation(
     rationale: `Escalation to ${escalated} ${reason}; used the ceiling model ${ceiling.model.provider}/${ceiling.model.id} at ${ceiling.effort} instead.`,
   });
 
-  if (currentDepth() > 0) return decline("is not available to a nested subagent");
-  if (!ctx.hasUI) return decline("needs approval and this session has no interactive UI");
+  if (gate.action === "decline") return decline(gate.reason);
 
   let approved = false;
   try {
