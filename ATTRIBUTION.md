@@ -170,3 +170,29 @@ Major pieces intentionally not adopted include Pi's full interactive mode, sessi
 workflows, custom provider implementations, and bundled role-based subagent profiles. No Pi source file or example was
 copied verbatim; the extension is original code using Pi's published APIs and adapting the documented architectural
 patterns.
+
+## Artificial Analysis model benchmarks
+
+- Source: Artificial Analysis, <https://artificialanalysis.ai>
+- Material reviewed: the "Intelligence vs. Cost per Intelligence Index Task" chart for the GPT-5.6 family, the "Coding
+  Agent Index vs. Cost per Task" chart, and the per-model comparison pages for GPT-5.6 Luna (low/high/max) against
+  GPT-5.4 mini (xhigh), as supplied by the project owner in 2026-09.
+- License: not declared to this project; no Artificial Analysis text, data file, or image is redistributed here.
+
+Ideas and data used in `extensions/subagents/helpers.ts` and `extensions/subagents/routing-eval-cases.mjs`:
+
+- The relative capability ordering of the GPT-5.6 family (Luna < Terra < Sol) and GPT-6 Astra above Sol, encoded as
+  `modelStrengthRank` and as the cheapest-sufficient-tier policy in `ROUTING_LADDER_GUIDANCE`.
+- The finding that GPT-5.4 mini is Pareto-dominated by GPT-5.6 Luna on intelligence, cost, and latency simultaneously
+  (index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04 and 98s). This is why the routing ladder ranks it
+  below Luna even though it is the more expensive model per token, and why the eval suite bands it as `substandard`.
+- The escalation criteria for GPT-6 Astra: a Coding Agent Index of roughly 62 against Sol's 55 for $7.08 against $6.24
+  per task, making the agentic premium modest, together with its materially lower hallucination rate.
+
+Intentionally not adopted:
+
+- The absolute Intelligence Index values, benchmark subscores, and cost-per-task figures are not used as thresholds
+  anywhere in routing logic. They inform a documented ordering and the prompt's guidance text only, so routing does not
+  silently depend on numbers that move between Artificial Analysis publication runs.
+- No pricing is hardcoded from these charts. Live pricing is read from Pi's own model catalog at runtime.
+- Placement of models absent from the reviewed charts is deliberately left to the ranking fallback rather than guessed.
