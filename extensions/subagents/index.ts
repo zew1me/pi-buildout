@@ -35,6 +35,7 @@ import {
   resolveCandidateModel,
   resolveRoutedEffort,
   routingCandidates,
+  routingHintsEnabled,
   safeTerminalText,
   scopeFallbackModel,
   scopedThinkingLevel,
@@ -423,6 +424,7 @@ async function routeSelection(
     task,
     contextSummary: truncateMiddle(contextSummary, MAX_CLASSIFIER_CONTEXT_CHARS),
     catalog,
+    includeLadder: routingHintsEnabled(),
     ...(fixedChoice ? { fixedChoice } : {}),
   });
   try {
@@ -529,6 +531,9 @@ async function approveEscalation(
   scope: RoutingScope,
   signal: AbortSignal | undefined,
 ): Promise<Selection> {
+  // With the opinionated layer disabled the extension offers no opinion on
+  // which tier suits the task, so it must not gate the frontier tier either.
+  if (!routingHintsEnabled()) return selection;
   const ceiling = routingCeiling(scope.candidates);
   const escalated = `${selection.model.provider}/${selection.model.id}`;
   const gate = escalationGate({

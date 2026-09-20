@@ -85,6 +85,24 @@ instead of burning the full timeout. A session scope containing no non-escalatio
 since there is no lower tier to fall back to. Escalation never widens the session scope: if Astra is not in scope, it is
 not reachable, and approval cannot conjure it.
 
+## Turning the opinionated layer off
+
+The cost ladder, the model rankings, and the frontier approval gate encode one person's judgment about which model suits
+which task. That opinion is not mandatory. Set `PI_SUBAGENT_ROUTING_HINTS` to `off` (or `0`, `false`, `no`, `disabled`)
+and the extension offers no opinion at all:
+
+```bash
+PI_SUBAGENT_ROUTING_HINTS=off pi
+```
+
+With hints disabled the classifier prompt carries no tier guidance, no `gpt-5.4-mini` advice, and no escalation
+criteria - just the task, the context, the eligible catalog, and the request for a model and effort. The frontier
+approval prompt is also skipped, because an extension that declines to express a tier opinion should not then block a
+model on the basis of one.
+
+The session model scope is a separate, independent boundary and stays enforced either way, as do explicit model and
+effort requests.
+
 ## Pluggable routing
 
 Another extension may take over routing by registering on a well-known global during its own activation:

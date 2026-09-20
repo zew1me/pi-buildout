@@ -12,14 +12,21 @@
  * policy is verified once rather than per caller.
  */
 
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import {
+  buildClassifierPrompt,
   clampThinkingLevel,
   escalationGate,
   isEscalationClassModel,
+  formatModelCatalog,
   modelStrengthRank,
+  parseClassifierDecision,
   resolveCandidateModel,
   THINKING_LEVELS,
 } from "./helpers.ts";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * The model scope these evaluations route within.
@@ -157,4 +164,32 @@ export function formatEvalReport(report) {
     lines.push(`  ${result.ok ? "PASS" : "FAIL"} ${result.id}: ${detail}`);
   }
   return lines.join("\n");
+}
+
+/**
+ * Build a decision function that scores the real classifier through Pi.
+ *
+ * This is what turns the suite from a check on the policy *encoding* into a
+ * measurement of whether the shipped guidance actually steers a model. It runs
+ * the exact prompt `buildClassifierPrompt` produces, with tools disabled and no
+ * session, and parses the result with the same parser the extension uses.
+ *
+ * Network- and credential-bound, so it is opt-in: nothing here runs during the
+ * normal test suite.
+ *
+ * @param {{ model?: string, candidates?: readonly import("./helpers.ts").ModelLike[] }} [options]
+ */
+export function createLiveClassifier(options = {}) {
+  const model = options.model ?? "openai-codex/gpt-5.6-luna";
+  const candidates = options.candidates ?? EVAL_CANDIDATES;
+  const catalog = formatModelCatalog([...candidates]);
+  return async (/** @type {import("./routing-eval-cases.mjs").RoutingEvalCase} */ evalCase) => {
+    const prompt = buildClassifierPrompt({ task: evalCase.task, contextSummary: "", catalog });
+    const { stdout } = await execFileAsync(
+      "pi",
+      ["-ne", "-ns", "-nt", "--no-session", "--model", model, "--thinking", "low", "-p", prompt],
+      { maxBuffer: 8 * 1024 * 1024 },
+    );
+    return parseClassifierDecision(stdout);
+  };
 }

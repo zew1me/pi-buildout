@@ -297,6 +297,27 @@ export function routingCeiling<T extends ModelLike>(
 }
 
 /**
+ * Environment variable that turns the opinionated routing layer off.
+ *
+ * The cost ladder, the model rankings, and the frontier approval gate encode
+ * one person's judgment about which model suits which task. That opinion should
+ * not be mandatory, so setting this to `off`, `0`, `false`, `no`, or `disabled`
+ * reverts routing to plain capability-and-cost classification with no tier
+ * nudges and no escalation prompt. The session model scope is a separate,
+ * independent boundary and stays enforced either way.
+ */
+export const ROUTING_HINTS_ENV = "PI_SUBAGENT_ROUTING_HINTS";
+
+const DISABLED_VALUES = new Set(["off", "0", "false", "no", "disabled"]);
+
+/** Whether the opinionated routing ladder and escalation gate are active. */
+export function routingHintsEnabled(env: Record<string, string | undefined> = process.env): boolean {
+  const value = env[ROUTING_HINTS_ENV]?.trim().toLowerCase();
+  if (!value) return true;
+  return !DISABLED_VALUES.has(value);
+}
+
+/**
  * Build the routing classifier prompt.
  *
  * Extracted so the routing evaluation suite scores the exact instructions the
@@ -307,12 +328,13 @@ export function buildClassifierPrompt(options: {
   contextSummary: string;
   catalog: string;
   fixedChoice?: string;
+  /** Include the opinionated cost ladder. Disabled routing sends no tier nudges. */
+  includeLadder?: boolean;
 }): string {
+  const ladder = options.includeLadder === false ? "" : `${ROUTING_LADDER_GUIDANCE}\n\n`;
   return `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not.
 
-${ROUTING_LADDER_GUIDANCE}
-
-${options.fixedChoice ? `The user fixed ${options.fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
+${ladder}${options.fixedChoice ? `The user fixed ${options.fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
 
 Task:
 ${options.task}

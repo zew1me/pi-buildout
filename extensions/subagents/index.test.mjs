@@ -4,6 +4,7 @@ import {
   appendBoundedTail,
   boundContextForModel,
   buildChildArgs,
+  buildClassifierPrompt,
   clampThinkingLevel,
   escalationGate,
   excludeCurrentDelegationTurn,
@@ -14,8 +15,10 @@ import {
   parseClassifierDecision,
   parseRouterDecision,
   readRegisteredRouter,
+  ROUTING_HINTS_ENV,
   ROUTING_LADDER_GUIDANCE,
   routingCeiling,
+  routingHintsEnabled,
   SUBAGENT_ROUTER_KEY,
   parseModelRequest,
   resolveCandidateModel,
@@ -471,4 +474,29 @@ test("a routing plugin proposal never displaces an explicitly requested model", 
   assert.deepEqual(chosen, scoped[1], "the explicit request must win over the router's model");
   // The router may still contribute the effort for that explicit model.
   assert.equal(resolveRoutedEffort(chosen, [], "medium", proposal.effort, undefined), "low");
+});
+
+test("routing hints can be disabled so the extension offers no tier opinion", () => {
+  assert.equal(routingHintsEnabled({}), true, "hints are on by default");
+  assert.equal(routingHintsEnabled({ [ROUTING_HINTS_ENV]: "" }), true);
+  for (const value of ["off", "OFF", "0", "false", "No", " disabled "]) {
+    assert.equal(routingHintsEnabled({ [ROUTING_HINTS_ENV]: value }), false, `${value} must disable hints`);
+  }
+  for (const value of ["on", "1", "true", "anything-else"]) {
+    assert.equal(routingHintsEnabled({ [ROUTING_HINTS_ENV]: value }), true, `${value} must keep hints`);
+  }
+});
+
+test("a disabled ladder removes the tier nudges but keeps the classification contract", () => {
+  const shared = { task: "Fix the failing test", contextSummary: "", catalog: "- openai/gpt-5.6-luna" };
+  const withLadder = buildClassifierPrompt({ ...shared, includeLadder: true });
+  const without = buildClassifierPrompt({ ...shared, includeLadder: false });
+  assert.match(withLadder, /cheapest model and effort/i);
+  assert.doesNotMatch(without, /cheapest model and effort/i);
+  assert.doesNotMatch(without, /gpt-5\.4-mini/);
+  assert.doesNotMatch(without, /hallucinat/i);
+  // The disabled prompt must still ask for a usable decision.
+  assert.match(without, /Return one JSON object only/);
+  assert.ok(without.includes(shared.task));
+  assert.ok(without.includes(shared.catalog));
 });
