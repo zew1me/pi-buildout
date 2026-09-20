@@ -157,6 +157,12 @@ Ideas and API patterns used:
   `supportedThinkingLevels` additionally narrows OpenAI's direct GPT-5.6 levels beyond what Pi's generated model
   metadata declares, because the live endpoint rejects `minimal` and `max`. Pi's own permissive handling of those two
   levels is intentionally not adopted.
+- Pi 0.85.1's resolved session model scope, initial-model precedence, scoped effort pins, and `--models` pattern grammar
+  informed the scope-aware routing and recursive scope serialization in `extensions/subagents`. The extension uses Pi's
+  published `ctx.scopedModels` API but reimplements routing, strict candidate validation, fallback, and serialization as
+  original code. It intentionally freezes resolved wildcard matches instead of propagating and re-expanding raw
+  patterns, and it rejects explicit out-of-scope subagent model requests even though Pi's own `--model` flag can select
+  outside `--models`.
 - Pi's bundled subagent and custom-compaction examples as reference implementations for process invocation, output
   bounds, and compaction setup.
 

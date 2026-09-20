@@ -27,6 +27,21 @@ export type ModelLike = {
   thinkingLevelMap?: Partial<Record<ThinkingLevel, string | null>>;
 };
 
+export type ScopedModelLike = {
+  model: ModelLike;
+  thinkingLevel?: ThinkingLevel;
+};
+
+export type ChildArgsOptions = {
+  sessionDir: string;
+  name: string;
+  model: ModelLike;
+  effort: ThinkingLevel;
+  modelScope?: string;
+  extensionPaths: readonly string[];
+  approve: boolean;
+};
+
 /** Keep both the beginning and the newest context when a utility prompt needs a hard bound. */
 export function truncateMiddle(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -108,6 +123,41 @@ function modelRef(model: ModelLike): string {
   return `${model.provider}/${model.id}`;
 }
 
+function modelsMatch(left: ModelLike | undefined, right: ModelLike | undefined): boolean {
+  if (!left || !right) return false;
+  return left.provider === right.provider && left.id === right.id;
+}
+
+export function routingCandidates<T extends ModelLike>(
+  scopedModels: readonly (ScopedModelLike & { model: T })[],
+  availableModels: readonly T[],
+): { candidates: T[]; scoped: boolean } {
+  if (scopedModels.length > 0) {
+    return { candidates: scopedModels.map((entry) => entry.model), scoped: true };
+  }
+  return { candidates: [...availableModels], scoped: false };
+}
+
+export function scopedThinkingLevel(
+  model: ModelLike,
+  scopedModels: readonly ScopedModelLike[],
+): ThinkingLevel | undefined {
+  return scopedModels.find((entry) => modelsMatch(entry.model, model))?.thinkingLevel;
+}
+
+export function scopeFallbackModel<T extends ModelLike>(
+  parentModel: T | undefined,
+  scopedModels: readonly (ScopedModelLike & { model: T })[],
+): { model: T; substitutedParent: boolean } | undefined {
+  if (scopedModels.length === 0) {
+    return parentModel ? { model: parentModel, substitutedParent: false } : undefined;
+  }
+  const scopedParent = scopedModels.find((entry) => modelsMatch(entry.model, parentModel));
+  if (scopedParent) return { model: scopedParent.model, substitutedParent: false };
+  const first = scopedModels[0];
+  return first ? { model: first.model, substitutedParent: Boolean(parentModel) } : undefined;
+}
+
 export function findRequestedModel(
   request: string,
   models: ModelLike[],
@@ -133,6 +183,71 @@ export function findRequestedModel(
     };
   }
   return { error: `Model '${reference}' was not found.` };
+}
+
+export function resolveCandidateModel(
+  request: string,
+  models: ModelLike[],
+  preferredProvider: string | undefined,
+  scopeConstrained: boolean,
+): { model?: ModelLike; error?: string } {
+  const result = findRequestedModel(request, models, preferredProvider);
+  if (result.model || !scopeConstrained) return result;
+  const scope = models.length > 0 ? models.map(modelRef).join(", ") : "(none)";
+  return {
+    error: `Model '${request}' is outside this session's model scope. Scoped models: ${scope}.`,
+  };
+}
+
+export function serializeModelScope(
+  scopedModels: readonly ScopedModelLike[],
+  selectedModel: ModelLike,
+): string | undefined {
+  if (scopedModels.length === 0) return undefined;
+  const selectedRef = modelRef(selectedModel);
+  if (selectedRef.includes(",")) {
+    throw new Error(`Selected model '${selectedRef}' cannot be propagated through Pi's comma-delimited --models flag.`);
+  }
+
+  const patterns: string[] = [];
+  const included = new Set<string>();
+  for (const entry of scopedModels) {
+    const reference = modelRef(entry.model);
+    if (reference.includes(",") || included.has(reference)) continue;
+    included.add(reference);
+    patterns.push(entry.thinkingLevel ? `${reference}:${entry.thinkingLevel}` : reference);
+  }
+  if (!included.has(selectedRef)) patterns.push(selectedRef);
+  return patterns.join(",");
+}
+
+export function resolveRoutedEffort(
+  model: ModelLike,
+  scopedModels: readonly ScopedModelLike[],
+  parentEffort: ThinkingLevel,
+  classifierEffort?: ThinkingLevel,
+  explicitEffort?: ThinkingLevel,
+): ThinkingLevel {
+  const requested = explicitEffort ?? scopedThinkingLevel(model, scopedModels) ?? classifierEffort ?? parentEffort;
+  return clampThinkingLevel(requested, model);
+}
+
+export function buildChildArgs(options: ChildArgsOptions): string[] {
+  const args = [
+    "--mode",
+    "rpc",
+    "--session-dir",
+    options.sessionDir,
+    "--name",
+    options.name,
+    "--model",
+    modelRef(options.model),
+  ];
+  if (options.modelScope) args.push("--models", options.modelScope);
+  args.push("--thinking", options.effort);
+  for (const path of options.extensionPaths) args.push("--extension", path);
+  args.push(options.approve ? "--approve" : "--no-approve");
+  return args;
 }
 
 export function supportedThinkingLevels(model: ModelLike): ThinkingLevel[] {
@@ -174,15 +289,16 @@ function cost(value: number | undefined): string {
   return Number.isFinite(value) ? String(value) : "?";
 }
 
-export function formatModelCatalog(models: ModelLike[]): string {
+export function formatModelCatalog(models: ModelLike[], scopedModels: readonly ScopedModelLike[] = []): string {
   return models
     .map((model) => {
       const levels = supportedThinkingLevels(model).join("|");
+      const pin = scopedThinkingLevel(model, scopedModels);
       const prices = model.cost
         ? `input=$${cost(model.cost.input)}/M output=$${cost(model.cost.output)}/M`
         : "pricing=unknown";
       const context = model.contextWindow === undefined ? "?" : String(model.contextWindow);
-      return `- ${model.provider}/${model.id}${model.name && model.name !== model.id ? ` (${model.name})` : ""}; effort=${levels}; context=${context}; ${prices}`;
+      return `- ${model.provider}/${model.id}${model.name && model.name !== model.id ? ` (${model.name})` : ""}; effort=${levels}${pin ? `; effort-pin=${pin}` : ""}; context=${context}; ${prices}`;
     })
     .join("\n");
 }

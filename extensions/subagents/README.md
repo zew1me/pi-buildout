@@ -30,10 +30,22 @@ delegated task are sent into a new child session; the parent session file is nev
 child. Context seeding fails open: if compaction fails, the child launches with only its task and a fresh context—never
 an unreviewed raw parent transcript.
 
-If either model or effort is omitted, a classifier call sees the task, the compacted context, and all authenticated
-models (including capabilities, context size, and pricing). Its choice is validated against Pi's model registry. If
-classification fails, missing values inherit the parent model and effort. Explicit user choices are never silently
-replaced; invalid or unauthenticated explicit models fail creation.
+If either model or effort is omitted, a classifier call sees the task, the compacted context, and the current Pi
+session's resolved model scope, including model capabilities, context size, pricing, and any pinned effort. When the
+session has no configured scope, all authenticated available models remain eligible. Classifier output is resolved
+strictly against that candidate set, so an invented or out-of-scope identifier cannot launch a child.
+
+A nonempty session scope is a hard boundary for explicit requests too: an out-of-scope requested model fails creation
+and reports the eligible models rather than acting as an override. If classification fails, fallback uses the requested
+model when one was valid, then the active parent model when it is in scope, then the first scoped model. A parent model
+outside the scope is therefore never launched silently. Effort precedence is explicit request, scoped effort pin,
+classifier choice, then parent effort; every value is clamped to the selected model's supported levels.
+
+Children receive `--models` containing the parent's resolved canonical model references and effort pins. This preserves
+the effective scope across recursive delegation. Wildcard patterns are intentionally frozen to their resolved models so
+a child with a different catalog cannot widen them. Pi represents both "no scope configured" and a configured scope
+whose patterns matched no models as an empty `ctx.scopedModels`; in either case this extension follows Pi and treats the
+session as unscoped.
 
 ## Isolation and inheritance
 

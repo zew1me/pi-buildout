@@ -19,17 +19,23 @@ import { Type } from "typebox";
 import {
   THINKING_LEVELS,
   boundContextForModel,
+  buildChildArgs,
   clampThinkingLevel,
   excludeCurrentDelegationTurn,
   extractTextContent,
-  findRequestedModel,
   formatModelCatalog,
   parseClassifierDecision,
   parseModelRequest,
+  resolveCandidateModel,
+  resolveRoutedEffort,
+  routingCandidates,
   safeTerminalText,
+  scopeFallbackModel,
+  scopedThinkingLevel,
+  serializeModelScope,
   truncateMiddle,
 } from "./helpers.ts";
-import type { ThinkingLevel } from "./helpers.ts";
+import type { ScopedModelLike, ThinkingLevel } from "./helpers.ts";
 import { ManagedSubagent } from "./rpc.ts";
 import type { ChildSnapshot } from "./rpc.ts";
 
@@ -90,6 +96,15 @@ type Selection = {
   rationale?: string;
 };
 
+type ScopedPiModel = ScopedModelLike & { model: PiModel };
+
+type RoutingScope = {
+  candidates: PiModel[];
+  scopedModels: readonly ScopedPiModel[];
+  constrained: boolean;
+  error?: string;
+};
+
 function currentDepth(): number {
   const value = Number(process.env[DEPTH_ENV] ?? "0");
   return Number.isInteger(value) && value >= 0 ? value : 0;
@@ -114,6 +129,45 @@ function textFromAssistant(response: { content: unknown }): string {
 function parentThinking(pi: ExtensionAPI): ThinkingLevel {
   const value = pi.getThinkingLevel();
   return THINKING_LEVELS.includes(value) ? value : "off";
+}
+
+function errorText(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function readRoutingScope(ctx: ExtensionContext): RoutingScope {
+  let scopedModels: readonly ScopedPiModel[];
+  try {
+    // The live accessor can throw during runtime teardown. Fail closed to the
+    // active model instead of widening routing to the authenticated catalog.
+    scopedModels = ctx.scopedModels;
+  } catch (error) {
+    const parent = ctx.model;
+    return {
+      candidates: parent ? [parent] : [],
+      scopedModels: parent ? [{ model: parent }] : [],
+      constrained: true,
+      error: `Could not read the session model scope; routing was restricted to the active parent model (${errorText(error)}).`,
+    };
+  }
+
+  if (scopedModels.length > 0) {
+    const scoped = routingCandidates(scopedModels, []);
+    return { candidates: scoped.candidates, scopedModels, constrained: true };
+  }
+
+  try {
+    const available = ctx.modelRegistry.getAvailable() as PiModel[];
+    const unscoped = routingCandidates([], available);
+    return { candidates: unscoped.candidates, scopedModels, constrained: false };
+  } catch (error) {
+    return {
+      candidates: ctx.model ? [ctx.model] : [],
+      scopedModels,
+      constrained: false,
+      error: `Could not read the available model catalog; routing used the active parent model (${errorText(error)}).`,
+    };
+  }
 }
 
 async function utilityCompletion(
@@ -237,12 +291,13 @@ async function compactContextForTask(
 function resolveRequestedModel(
   ctx: ExtensionContext,
   request: string,
+  candidates: PiModel[],
+  scopeConstrained: boolean,
 ): { model?: PiModel; effort?: ThinkingLevel; error?: string } {
-  const available = ctx.modelRegistry.getAvailable();
   const parsed = parseModelRequest(request);
-  const result = findRequestedModel(parsed.reference, available, ctx.model?.provider);
+  const result = resolveCandidateModel(parsed.reference, candidates, ctx.model?.provider, scopeConstrained);
   if (!result.model) return { error: result.error ?? `Model '${request}' was not found.` };
-  const resolvedModel = result.model as unknown as Model<Api>;
+  const resolvedModel = result.model as PiModel & Model<Api>;
   if (!ctx.modelRegistry.hasConfiguredAuth(resolvedModel)) {
     return { error: `Model '${resolvedModel.provider}/${resolvedModel.id}' is not authenticated.` };
   }
@@ -255,18 +310,37 @@ function resolveRequestedModel(
 function parentFallback(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
+  scope: RoutingScope,
   explicitRequestedModel?: PiModel,
   explicitRequestedEffort?: ThinkingLevel,
+  reason?: string,
 ): Selection {
-  const fallbackModel = explicitRequestedModel ?? ctx.model;
-  if (!fallbackModel) throw new Error("Cannot create a subagent because the parent has no selected model.");
+  const fallback = explicitRequestedModel
+    ? { model: explicitRequestedModel, substitutedParent: false }
+    : scopeFallbackModel(ctx.model, scope.scopedModels);
+  if (!fallback) throw new Error("Cannot create a subagent because the parent has no selected model.");
 
-  const fallbackEffort = clampThinkingLevel(explicitRequestedEffort ?? parentThinking(pi), fallbackModel);
+  const fallbackEffort = resolveRoutedEffort(
+    fallback.model,
+    scope.scopedModels,
+    parentThinking(pi),
+    undefined,
+    explicitRequestedEffort,
+  );
+  const rationale = [
+    reason,
+    fallback.substitutedParent && ctx.model
+      ? `The active parent model ${ctx.model.provider}/${ctx.model.id} is outside the session scope; used ${fallback.model.provider}/${fallback.model.id} instead.`
+      : undefined,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
 
   return {
-    model: fallbackModel,
+    model: fallback.model,
     effort: fallbackEffort,
     source: "fallback",
+    ...(rationale ? { rationale } : {}),
   };
 }
 
@@ -275,6 +349,7 @@ function parentFallback(
 async function selectModel(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
+  scope: RoutingScope,
   task: string,
   contextSummary: string,
   explicitModel?: string,
@@ -285,38 +360,35 @@ async function selectModel(
   let requestedModel: PiModel | undefined;
   let suffixEffort: ThinkingLevel | undefined;
   if (explicitModel) {
-    const resolved = resolveRequestedModel(ctx, explicitModel);
+    const resolved = resolveRequestedModel(ctx, explicitModel, scope.candidates, scope.constrained);
     if (!resolved.model) throw new Error(resolved.error);
     requestedModel = resolved.model;
     suffixEffort = resolved.effort;
   }
   const requestedEffort = explicitEffort ?? suffixEffort;
-  if (requestedModel && requestedEffort) {
+  const requestedPin = requestedModel ? scopedThinkingLevel(requestedModel, scope.scopedModels) : undefined;
+  if (requestedModel && (requestedEffort || requestedPin)) {
     return {
       model: requestedModel,
-      effort: clampThinkingLevel(requestedEffort, requestedModel),
+      effort: resolveRoutedEffort(requestedModel, scope.scopedModels, parentThinking(pi), undefined, requestedEffort),
       source: "explicit",
     };
   }
 
-  // Classification is optional. A newer pi runtime can expose a registry
-  // facade before its runtime is initialized; do not make delegation fail on
-  // this best-effort lookup.
-  let available: ReturnType<typeof ctx.modelRegistry.getAvailable>;
-  try {
-    available = ctx.modelRegistry.getAvailable();
-  } catch {
-    return parentFallback(pi, ctx, requestedModel, requestedEffort);
+  if (scope.error) {
+    return parentFallback(pi, ctx, scope, requestedModel, requestedEffort, scope.error);
   }
-  if (available.length === 0) return parentFallback(pi, ctx, requestedModel, requestedEffort);
-  const catalog = formatModelCatalog(available);
+  if (scope.candidates.length === 0) {
+    return parentFallback(pi, ctx, scope, requestedModel, requestedEffort, "No routing candidates were available.");
+  }
+  const catalog = formatModelCatalog(scope.candidates, scope.scopedModels);
   const fixedChoice = [
     requestedModel ? `model=${requestedModel.provider}/${requestedModel.id}` : undefined,
     requestedEffort ? `effort=${requestedEffort}` : undefined,
   ]
     .filter(Boolean)
     .join(", ");
-  const classifierPrompt = `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best authenticated model and reasoning effort from the exact catalog below. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not. ${fixedChoice ? `The user fixed ${fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
+  const classifierPrompt = `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not. ${fixedChoice ? `The user fixed ${fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
 
 Task:
 ${task}
@@ -324,7 +396,7 @@ ${task}
 Task-targeted context the child will receive:
 ${truncateMiddle(contextSummary, MAX_CLASSIFIER_CONTEXT_CHARS)}
 
-Available authenticated models:
+Session-eligible models:
 ${catalog}`;
   try {
     const raw = await utilityCompletion(pi, ctx, classifierPrompt, 1_024, signal);
@@ -333,31 +405,29 @@ ${catalog}`;
     if (!decision) throw new Error("Classifier did not return valid JSON.");
     let model = requestedModel;
     if (!model) {
-      const classified = resolveRequestedModel(ctx, decision.model);
+      const classified = resolveRequestedModel(ctx, decision.model, scope.candidates, scope.constrained);
       if (!classified.model) throw new Error(classified.error);
       model = classified.model;
     }
-    const effort = requestedEffort ?? decision.effort;
     return {
       model,
-      effort: clampThinkingLevel(effort, model),
+      effort: resolveRoutedEffort(model, scope.scopedModels, parentThinking(pi), decision.effort, requestedEffort),
       source: "classified",
       ...(decision.rationale ? { rationale: decision.rationale } : {}),
     };
-    // This catch deliberately also covers resolving the classifier's chosen
-    // model: that resolution reads the registry again, which can throw on an
-    // uninitialized facade, and a hallucinated model name is a classifier
-    // failure. The caller's own explicit model resolves earlier and still
-    // propagates. Do not narrow this to the completion call.
+    // This catch deliberately includes strict candidate resolution. A
+    // hallucinated or out-of-scope identifier is a classifier failure and must
+    // take the same deterministic, in-scope fallback path.
   } catch (error) {
     if (signal?.aborted) throw error;
-    const fallback = parentFallback(pi, ctx, requestedModel, requestedEffort);
-    return {
-      model: fallback.model,
-      effort: fallback.effort,
-      source: "fallback",
-      rationale: `Classification failed; used the ${requestedModel ? "requested" : "parent"} model and the ${requestedEffort ? "requested" : "parent"} effort (${error instanceof Error ? error.message : String(error)}).`,
-    };
+    return parentFallback(
+      pi,
+      ctx,
+      scope,
+      requestedModel,
+      requestedEffort,
+      `Classification failed (${errorText(error)}).`,
+    );
   }
 }
 
@@ -524,7 +594,17 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           throwIfAborted(signal);
           assertCreationActive();
           const routingContext = truncateMiddle(compacted.summary, MAX_CLASSIFIER_CONTEXT_CHARS);
-          const selection = await selectModel(pi, ctx, task, routingContext, params.model, params.effort, signal);
+          const scope = readRoutingScope(ctx);
+          const selection = await selectModel(
+            pi,
+            ctx,
+            scope,
+            task,
+            routingContext,
+            params.model,
+            params.effort,
+            signal,
+          );
           throwIfAborted(signal);
           assertCreationActive();
           // ExtensionContext exposes models as Model<any>, while the registry accepts Model<Api>.
@@ -541,23 +621,16 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           await mkdir(sessionDir, { recursive: true, mode: 0o700 });
           throwIfAborted(signal);
           assertCreationActive();
-          const args = [
-            "--mode",
-            "rpc",
-            "--session-dir",
+          const modelScope = serializeModelScope(scope.scopedModels, selection.model);
+          const args = buildChildArgs({
             sessionDir,
-            "--name",
             name,
-            "--model",
-            `${selection.model.provider}/${selection.model.id}`,
-            "--thinking",
-            selection.effort,
-            "--extension",
-            SELF_EXTENSION_PATH,
-            "--extension",
-            AUTH_BRIDGE_PATH,
-            ctx.isProjectTrusted() ? "--approve" : "--no-approve",
-          ];
+            model: selection.model,
+            effort: selection.effort,
+            ...(modelScope ? { modelScope } : {}),
+            extensionPaths: [SELF_EXTENSION_PATH, AUTH_BRIDGE_PATH],
+            approve: ctx.isProjectTrusted(),
+          });
           const invocation = resolvePiInvocation(args);
           throwIfAborted(signal);
           const child = new ManagedSubagent({

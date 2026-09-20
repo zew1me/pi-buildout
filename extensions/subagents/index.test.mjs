@@ -3,13 +3,20 @@ import test from "node:test";
 import {
   appendBoundedTail,
   boundContextForModel,
+  buildChildArgs,
   clampThinkingLevel,
   excludeCurrentDelegationTurn,
   findRequestedModel,
   formatModelCatalog,
   parseClassifierDecision,
   parseModelRequest,
+  resolveCandidateModel,
+  resolveRoutedEffort,
+  routingCandidates,
   safeTerminalText,
+  scopeFallbackModel,
+  scopedThinkingLevel,
+  serializeModelScope,
   supportedThinkingLevels,
   truncateMiddle,
 } from "./helpers.ts";
@@ -47,6 +54,114 @@ test("model request resolution accepts qualified ids and preferred-provider bare
   assert.match(findRequestedModel("gpt-5.5", models).error ?? "", /ambiguous/);
 });
 
+test("routing candidates honor a nonempty session scope and otherwise use available models", () => {
+  const gpt54 = { provider: "openai-codex", id: "gpt-5.4" };
+  const luna = { provider: "openai-codex", id: "gpt-5.6-luna" };
+  const available = [gpt54, luna];
+  /** @type {import("./helpers.ts").ScopedModelLike[]} */
+  const scopedModels = [{ model: luna, thinkingLevel: "high" }];
+
+  assert.deepEqual(routingCandidates(scopedModels, available), {
+    candidates: [luna],
+    scoped: true,
+  });
+  assert.deepEqual(routingCandidates([], available), { candidates: available, scoped: false });
+});
+
+test("strict candidate resolution rejects out-of-scope explicit and classifier model ids", () => {
+  const scoped = [
+    { provider: "openai-codex", id: "gpt-5.6-luna" },
+    { provider: "openai-codex", id: "gpt-5.6-terra" },
+  ];
+
+  assert.equal(resolveCandidateModel("gpt-5.6-luna", scoped, "openai-codex", true).model, scoped[0]);
+  const rejected = resolveCandidateModel("openai-codex/gpt-5.4", scoped, "openai-codex", true);
+  assert.equal(rejected.model, undefined);
+  assert.match(rejected.error ?? "", /outside this session's model scope/);
+  assert.match(rejected.error ?? "", /gpt-5\.6-luna/);
+  assert.equal(resolveCandidateModel("openai-codex/gpt-5.4", scoped, "openai-codex", false).model, undefined);
+  assert.doesNotMatch(
+    resolveCandidateModel("openai-codex/gpt-5.4", scoped, "openai-codex", false).error ?? "",
+    /scope/,
+  );
+});
+
+test("scope fallback keeps the parent when eligible and otherwise chooses the first scoped model", () => {
+  const parent = { provider: "openai-codex", id: "gpt-5.4" };
+  const luna = { provider: "openai-codex", id: "gpt-5.6-luna" };
+  const terra = { provider: "openai-codex", id: "gpt-5.6-terra" };
+  const scope = [{ model: luna }, { model: terra }];
+
+  assert.deepEqual(scopeFallbackModel(luna, scope), { model: luna, substitutedParent: false });
+  assert.deepEqual(scopeFallbackModel(parent, scope), { model: luna, substitutedParent: true });
+  assert.deepEqual(scopeFallbackModel(parent, []), { model: parent, substitutedParent: false });
+});
+
+test("scoped effort pins override classification, yield to explicit effort, and are clamped", () => {
+  const model = {
+    provider: "test",
+    id: "reasoner",
+    reasoning: true,
+    thinkingLevelMap: { minimal: null, xhigh: "xhigh", max: null },
+  };
+  /** @type {import("./helpers.ts").ScopedModelLike[]} */
+  const scoped = [{ model, thinkingLevel: "minimal" }];
+
+  assert.equal(scopedThinkingLevel(model, scoped), "minimal");
+  assert.equal(resolveRoutedEffort(model, scoped, "medium", "high"), "low");
+  assert.equal(resolveRoutedEffort(model, scoped, "medium", "high", "xhigh"), "xhigh");
+  assert.equal(resolveRoutedEffort(model, [], "medium", "high"), "high");
+  assert.equal(resolveRoutedEffort(model, [], "medium"), "medium");
+});
+
+test("serialized model scope preserves pins and child arguments propagate it", () => {
+  const luna = { provider: "openai-codex", id: "gpt-5.6-luna" };
+  const bedrock = { provider: "amazon-bedrock", id: "anthropic.claude-v1:0" };
+  /** @type {import("./helpers.ts").ScopedModelLike[]} */
+  const scope = [
+    { model: luna, thinkingLevel: "high" },
+    { model: bedrock, thinkingLevel: "low" },
+    { model: luna, thinkingLevel: "max" },
+    { model: { provider: "invalid", id: "comma,id" } },
+  ];
+  const serialized = serializeModelScope(scope, luna);
+  assert.equal(serialized, "openai-codex/gpt-5.6-luna:high,amazon-bedrock/anthropic.claude-v1:0:low");
+
+  const args = buildChildArgs({
+    sessionDir: "/tmp/session",
+    name: "reviewer",
+    model: luna,
+    effort: "high",
+    modelScope: serialized,
+    extensionPaths: ["/tmp/subagents.ts", "/tmp/auth-bridge.ts"],
+    approve: false,
+  });
+  assert.deepEqual(args.slice(args.indexOf("--models"), args.indexOf("--models") + 2), ["--models", serialized]);
+  assert.deepEqual(args.slice(-5), [
+    "--extension",
+    "/tmp/subagents.ts",
+    "--extension",
+    "/tmp/auth-bridge.ts",
+    "--no-approve",
+  ]);
+  assert.equal(
+    buildChildArgs({
+      sessionDir: "/tmp/session",
+      name: "reviewer",
+      model: luna,
+      effort: "high",
+      extensionPaths: [],
+      approve: true,
+    }).includes("--models"),
+    false,
+  );
+});
+
+test("selected comma-bearing model ids fail instead of launching an unscoped child", () => {
+  const model = { provider: "invalid", id: "comma,id" };
+  assert.throws(() => serializeModelScope([{ model }], model), /cannot be propagated/);
+});
+
 test("thinking support follows model maps and clamps safely", () => {
   const model = {
     provider: "test",
@@ -70,17 +185,17 @@ test("thinking support follows model maps and clamps safely", () => {
 });
 
 test("model catalog exposes exact ids, effort choices, context and cost", () => {
-  const catalog = formatModelCatalog([
-    {
-      provider: "openai-codex",
-      id: "gpt-5.6-luna",
-      reasoning: true,
-      contextWindow: 272000,
-      cost: { input: 2.5, output: 15 },
-    },
-  ]);
+  const model = {
+    provider: "openai-codex",
+    id: "gpt-5.6-luna",
+    reasoning: true,
+    contextWindow: 272000,
+    cost: { input: 2.5, output: 15 },
+  };
+  const catalog = formatModelCatalog([model], [{ model, thinkingLevel: "high" }]);
   assert.match(catalog, /openai-codex\/gpt-5\.6-luna/);
   assert.match(catalog, /effort=off\|minimal\|low\|medium\|high/);
+  assert.match(catalog, /effort-pin=high/);
   assert.match(catalog, /context=272000/);
   assert.match(catalog, /input=\$2\.5\/M/);
 });
