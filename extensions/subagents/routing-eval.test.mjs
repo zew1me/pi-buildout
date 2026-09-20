@@ -4,8 +4,10 @@ import { buildClassifierPrompt, formatModelCatalog } from "./helpers.ts";
 import { ESCALATION_EVAL_CASES, INTENT_EVAL_CASES, ROUTING_EVAL_CASES } from "./routing-eval-cases.mjs";
 import {
   EVAL_CANDIDATES,
+  createLiveClassifier,
   evaluateIntent,
   evaluateRouting,
+  execFileClosedStdin,
   formatEvalReport,
   scoreDecision,
   scoreIntent,
@@ -13,6 +15,13 @@ import {
 } from "./routing-eval.mjs";
 
 const ALL_CASES = [...ROUTING_EVAL_CASES, ...ESCALATION_EVAL_CASES];
+
+test("the live classifier runner closes child stdin", async () => {
+  assert.equal(typeof createLiveClassifier(), "function");
+  const script = 'process.stdin.resume(); process.stdin.once("end", () => process.stdout.write("stdin closed\\n"));';
+  const { stdout } = await execFileClosedStdin(process.execPath, ["-e", script], { timeout: 2_000 });
+  assert.equal(stdout, "stdin closed\n");
+});
 
 /**
  * Pick the cheapest model in a tier the case permits.

@@ -29,6 +29,23 @@ import {
 const execFileAsync = promisify(execFile);
 
 /**
+ * Run a capture-only child process without leaving its stdin pipe open.
+ *
+ * Pi's print mode accepts its prompt as an argument but still waits for EOF on
+ * a piped stdin. `execFile` creates that pipe and does not close it itself, so
+ * explicitly ending it keeps opt-in live evaluations from hanging forever.
+ *
+ * @param {string} file
+ * @param {readonly string[]} args
+ * @param {import("node:child_process").ExecFileOptions} [options]
+ */
+export function execFileClosedStdin(file, args, options = {}) {
+  const completion = execFileAsync(file, [...args], options);
+  completion.child.stdin?.end();
+  return completion;
+}
+
+/**
  * The model scope these evaluations route within.
  *
  * Mirrors a realistic `openai-codex` scope from the logs. Supported effort is a
@@ -186,12 +203,12 @@ export function createLiveClassifier(options = {}) {
   const catalog = formatModelCatalog([...candidates]);
   return async (/** @type {import("./routing-eval-cases.mjs").RoutingEvalCase} */ evalCase) => {
     const prompt = buildClassifierPrompt({ task: evalCase.task, contextSummary: "", catalog });
-    const { stdout } = await execFileAsync(
+    const { stdout } = await execFileClosedStdin(
       "pi",
       ["-ne", "-ns", "-nt", "--no-session", "--model", model, "--thinking", "low", "-p", prompt],
       { maxBuffer: 8 * 1024 * 1024 },
     );
-    return parseClassifierDecision(stdout);
+    return parseClassifierDecision(stdout.toString());
   };
 }
 
