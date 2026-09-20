@@ -278,6 +278,38 @@ export function modelStrengthRank(model: ModelLike): number {
 }
 
 /**
+ * Pick a cheap model to run the routing classification itself.
+ *
+ * Classification is a short, structured judgment call, so paying the active
+ * model's rate for it is waste when the session is scoped to something cheaper:
+ * a scope whose active model is Sol at max effort should still classify on
+ * Luna at low effort.
+ *
+ * Selection is by output price rather than by `modelStrengthRank`, because the
+ * cheapest *rank* would pick `gpt-5.4-mini`, which is both pricier and weaker
+ * than Luna. Escalation-class models are never used for classification. The
+ * caller falls back to the active model when this returns nothing or when the
+ * chosen model has no configured auth -- letting the active model classify is a
+ * perfectly acceptable outcome, just not the preferred one.
+ */
+export function classifierModel<T extends ModelLike>(
+  candidates: readonly T[],
+): { model: T; effort: ThinkingLevel } | undefined {
+  let best: T | undefined;
+  let bestCost = Number.POSITIVE_INFINITY;
+  for (const candidate of candidates) {
+    if (isEscalationClassModel(candidate)) continue;
+    const output = candidate.cost?.output;
+    const cost = Number.isFinite(output) ? Number(output) : Number.POSITIVE_INFINITY;
+    if (!best || cost < bestCost || (cost === bestCost && modelStrengthRank(candidate) > modelStrengthRank(best))) {
+      best = candidate;
+      bestCost = cost;
+    }
+  }
+  return best ? { model: best, effort: clampThinkingLevel("low", best) } : undefined;
+}
+
+/**
  * The strongest non-escalation candidate and the highest effort it actually supports.
  *
  * This is both the escalation trigger's reference point and its decline/timeout

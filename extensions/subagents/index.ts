@@ -21,6 +21,7 @@ import {
   boundContextForModel,
   buildChildArgs,
   buildClassifierPrompt,
+  classifierModel,
   clampThinkingLevel,
   excludeCurrentDelegationTurn,
   extractTextContent,
@@ -185,14 +186,21 @@ async function utilityCompletion(
   prompt: string,
   maxTokens: number,
   signal: AbortSignal | undefined,
+  preferred?: { model: PiModel; effort: ThinkingLevel },
 ): Promise<string> {
   throwIfAborted(signal);
   if (!ctx.model) throw new Error("The parent session has no selected model.");
-  const parentModel = ctx.model as unknown as Model<Api>;
+  // Prefer a cheap in-scope model for this short structured judgment, but fall
+  // back to the active model whenever that one is unusable.
+  const usePreferred =
+    preferred && ctx.modelRegistry.hasConfiguredAuth(preferred.model as PiModel & Model<Api>) ? preferred : undefined;
+  const parentModel = (usePreferred?.model ?? ctx.model) as unknown as Model<Api>;
   const auth = await ctx.modelRegistry.getApiKeyAndHeaders(parentModel);
   throwIfAborted(signal);
   if (!auth.ok) throw new Error(auth.error);
-  const effort = clampThinkingLevel(parentThinking(pi), parentModel);
+  const effort = usePreferred
+    ? clampThinkingLevel(usePreferred.effort, parentModel)
+    : clampThinkingLevel(parentThinking(pi), parentModel);
   const response = await completeSimple(
     parentModel,
     {
@@ -429,7 +437,7 @@ async function routeSelection(
     ...(fixedChoice ? { fixedChoice } : {}),
   });
   try {
-    const raw = await utilityCompletion(pi, ctx, classifierPrompt, 1_024, signal);
+    const raw = await utilityCompletion(pi, ctx, classifierPrompt, 1_024, signal, classifierModel(scope.candidates));
     throwIfAborted(signal);
     const decision = parseClassifierDecision(raw);
     if (!decision) throw new Error("Classifier did not return valid JSON.");

@@ -6,6 +6,7 @@ import {
   buildChildArgs,
   buildClassifierPrompt,
   clampThinkingLevel,
+  classifierModel,
   escalationGate,
   excludeCurrentDelegationTurn,
   findRequestedModel,
@@ -503,4 +504,21 @@ test("a disabled ladder removes the tier nudges but keeps the classification con
   assert.match(without, /Return one JSON object only/);
   assert.ok(without.includes(shared.task));
   assert.ok(without.includes(shared.catalog));
+});
+
+test("classification runs on the cheapest in-scope model, not the active one", () => {
+  const mini = { provider: "openai-codex", id: "gpt-5.4-mini", cost: { input: 0.75, output: 4.5 } };
+  const luna = { provider: "openai-codex", id: "gpt-5.6-luna", cost: { input: 0.2, output: 1.2 } };
+  const sol = { provider: "openai-codex", id: "gpt-5.6-sol", cost: { input: 4, output: 20 } };
+  const astra = { provider: "openai-codex", id: "gpt-6-astra", cost: { input: 10, output: 50 } };
+  const chosen = classifierModel([sol, mini, luna, astra]);
+  // Cheapest by price, so Luna rather than the cheaper-ranked but pricier mini.
+  assert.deepEqual(chosen?.model, luna);
+  assert.equal(chosen?.effort, "low");
+  // Escalation models are never used to classify.
+  assert.notDeepEqual(classifierModel([astra, sol])?.model, astra);
+  assert.equal(classifierModel([astra]), undefined, "with nothing else in scope the caller falls back");
+  assert.equal(classifierModel([]), undefined);
+  // Unpriced models do not beat a priced one.
+  assert.deepEqual(classifierModel([{ provider: "x", id: "unpriced" }, luna])?.model, luna);
 });

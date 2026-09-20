@@ -62,6 +62,10 @@ is in scope. The eval suite bands it as `substandard` rather than cheap for the 
 Models outside the reviewed benchmarks fall back to output price as a coarse capability proxy, bounded so an expensive
 unknown model cannot outrank the frontier tier.
 
+The classification call itself runs on the cheapest in-scope model at low effort (Luna, in a typical scope) rather than
+the active model, since it is a short structured judgment. It falls back to the active model when nothing cheaper is in
+scope or the cheaper model has no configured auth; the active model classifying is a fine outcome, just not the default.
+
 ## Frontier escalation and approval
 
 The frontier tier (GPT-6 Astra) is gated. Escalation is worth requesting in two cases: the task genuinely needs
