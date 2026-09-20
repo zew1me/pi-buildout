@@ -232,6 +232,144 @@ export function resolveRoutedEffort(
   return clampThinkingLevel(requested, model);
 }
 
+/**
+ * Identifier fragment for the escalation-class frontier family (GPT-6 Astra).
+ *
+ * Matched against the bare model id across every provider, because the shipped
+ * catalog exposes Astra through openai, openrouter, azure-openai-responses,
+ * github-copilot, openai-codex, opencode, and vercel-ai-gateway. Keying the gate
+ * on one provider-qualified id would let an in-scope alias route unapproved.
+ */
+const ESCALATION_ID_PATTERN = /(?:^|[^a-z0-9])astra(?:[^a-z0-9]|$)/i;
+
+/** Whether a model is frontier/escalation class and therefore needs explicit user approval. */
+export function isEscalationClassModel(model: ModelLike): boolean {
+  return ESCALATION_ID_PATTERN.test(model.id);
+}
+
+/**
+ * Relative routing strength of the families this extension routes over.
+ *
+ * Ordering is taken from Artificial Analysis' Intelligence Index for the GPT-5.6
+ * family (Luna < Terra < Sol) with Astra above Sol. `gpt-5.4-mini` is ranked
+ * *below* Luna despite costing ~3.75x more per token: measured head-to-head it is
+ * Pareto-dominated, scoring index 24 at $0.41 and 261s per task against Luna's 32
+ * at $0.04 and 98s. Cost alone would therefore rank it backwards, which is why
+ * this table is explicit rather than derived from `model.cost`.
+ */
+const FAMILY_RANKS: readonly { pattern: RegExp; rank: number }[] = [
+  { pattern: ESCALATION_ID_PATTERN, rank: 90 },
+  { pattern: /(?:^|[^a-z0-9])sol(?:[^a-z0-9]|$)/i, rank: 60 },
+  { pattern: /(?:^|[^a-z0-9])terra(?:[^a-z0-9]|$)/i, rank: 50 },
+  { pattern: /(?:^|[^a-z0-9])luna(?:[^a-z0-9]|$)/i, rank: 40 },
+  { pattern: /gpt-5\.4-mini/i, rank: 30 },
+];
+
+/**
+ * Rank a model for ceiling selection. Known families use the measured ordering
+ * above; anything else falls back to output price as a coarse capability proxy,
+ * bounded so an expensive unknown model cannot outrank the frontier tier.
+ */
+export function modelStrengthRank(model: ModelLike): number {
+  const known = FAMILY_RANKS.find((entry) => entry.pattern.test(model.id));
+  if (known) return known.rank;
+  const output = model.cost?.output;
+  return Number.isFinite(output) ? Math.min(45, Number(output)) : 0;
+}
+
+/**
+ * The strongest non-escalation candidate and the highest effort it actually supports.
+ *
+ * This is both the escalation trigger's reference point and its decline/timeout
+ * fallback, so the two can never disagree. Note that for `gpt-5.6-sol` this
+ * resolves to `xhigh`, not `max`: `supportedThinkingLevels` narrows the direct
+ * OpenAI GPT-5.6 endpoint because it rejects `minimal` and `max` at runtime.
+ */
+export function routingCeiling<T extends ModelLike>(
+  candidates: readonly T[],
+): { model: T; effort: ThinkingLevel } | undefined {
+  let best: T | undefined;
+  for (const candidate of candidates) {
+    if (isEscalationClassModel(candidate)) continue;
+    if (!best || modelStrengthRank(candidate) > modelStrengthRank(best)) best = candidate;
+  }
+  return best ? { model: best, effort: clampThinkingLevel("max", best) } : undefined;
+}
+
+/** Cost-efficiency guidance appended to the routing classifier prompt. */
+export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort that clears the task's required intelligence; do not buy capability the task does not need. Within the GPT-5.6 family, capability and cost both rise Luna -> Terra -> Sol, and raising effort on a cheaper model is usually a better trade than moving to a pricier one at low effort.
+- Trivial, mechanical, or lookup work: the cheapest family (Luna) at low or medium effort.
+- Ordinary implementation, focused debugging, or review: Luna at high or max effort.
+- Broad multi-file implementation, subtle debugging, security, or architecture: Terra, then Sol, raising effort before tier.
+- Prefer Luna over gpt-5.4-mini whenever both are eligible: measured head-to-head, gpt-5.4-mini is dominated on intelligence, cost, and latency (index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04 and 98s). Route to gpt-5.4-mini only when no GPT-5.6 model is eligible.
+- The frontier escalation tier requires separate user approval and must not be chosen for work the ceiling tier can complete.`;
+
+/**
+ * Well-known global key another extension assigns to take over subagent routing.
+ *
+ * Pi 0.85.1 exposes no first-party inter-extension channel (`ExtensionAPI` offers
+ * only event subscription plus register* surfaces), so a routing plugin registers
+ * by assignment during its own activation:
+ *
+ *   globalThis[Symbol.for("pi.subagents.router")] = { name, route };
+ *
+ * A router only *proposes*: its decision is resolved against the session scope
+ * through the same strict path as classifier output, and an out-of-scope or
+ * unknown identifier falls through to the built-in ladder. Registering a router
+ * therefore cannot widen the session's model scope.
+ */
+export const SUBAGENT_ROUTER_KEY = Symbol.for("pi.subagents.router");
+
+export type SubagentRoutingRequest = {
+  task: string;
+  context: string;
+  candidates: readonly ModelLike[];
+  scopeConstrained: boolean;
+  parentModel?: ModelLike;
+  parentEffort: ThinkingLevel;
+  requestedModel?: string;
+  requestedEffort?: ThinkingLevel;
+};
+
+/** A router may pin only the model and leave effort to the normal precedence chain. */
+export type RouterDecision = {
+  model: string;
+  effort?: ThinkingLevel;
+  rationale?: string;
+};
+
+export type SubagentRouter = {
+  name?: string;
+  route: (request: SubagentRoutingRequest) => Promise<RouterDecision | undefined> | RouterDecision | undefined;
+};
+
+/** Read a registered routing plugin, ignoring anything that does not match the contract. */
+export function readRegisteredRouter(scope: object = globalThis): SubagentRouter | undefined {
+  const value = (scope as Record<symbol, unknown>)[SUBAGENT_ROUTER_KEY];
+  if (!value || typeof value !== "object") return undefined;
+  const { route, name } = value as { route?: unknown; name?: unknown };
+  if (typeof route !== "function") return undefined;
+  return {
+    ...(typeof name === "string" && name.trim() ? { name: name.trim() } : {}),
+    route: route as SubagentRouter["route"],
+  };
+}
+
+/** Validate a routing plugin's decision without trusting its shape. */
+export function parseRouterDecision(value: unknown): RouterDecision | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { model, effort, rationale } = value as { model?: unknown; effort?: unknown; rationale?: unknown };
+  if (typeof model !== "string" || !model.trim()) return undefined;
+  if (effort !== undefined && (typeof effort !== "string" || !THINKING_LEVELS.includes(effort as ThinkingLevel))) {
+    return undefined;
+  }
+  return {
+    model: model.trim(),
+    ...(effort ? { effort: effort as ThinkingLevel } : {}),
+    ...(typeof rationale === "string" && rationale.trim() ? { rationale: rationale.trim() } : {}),
+  };
+}
+
 export function buildChildArgs(options: ChildArgsOptions): string[] {
   const args = [
     "--mode",
