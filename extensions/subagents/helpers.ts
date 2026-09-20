@@ -296,6 +296,34 @@ export function routingCeiling<T extends ModelLike>(
   return best ? { model: best, effort: clampThinkingLevel("max", best) } : undefined;
 }
 
+/**
+ * Build the routing classifier prompt.
+ *
+ * Extracted so the routing evaluation suite scores the exact instructions the
+ * extension ships rather than a drifting copy of them.
+ */
+export function buildClassifierPrompt(options: {
+  task: string;
+  contextSummary: string;
+  catalog: string;
+  fixedChoice?: string;
+}): string {
+  return `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not.
+
+${ROUTING_LADDER_GUIDANCE}
+
+${options.fixedChoice ? `The user fixed ${options.fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
+
+Task:
+${options.task}
+
+Task-targeted context the child will receive:
+${options.contextSummary}
+
+Session-eligible models:
+${options.catalog}`;
+}
+
 export type EscalationGateDecision =
   { action: "allow"; reason?: string } | { action: "prompt" } | { action: "decline"; reason: string };
 

@@ -20,6 +20,7 @@ import {
   THINKING_LEVELS,
   boundContextForModel,
   buildChildArgs,
+  buildClassifierPrompt,
   clampThinkingLevel,
   excludeCurrentDelegationTurn,
   extractTextContent,
@@ -29,7 +30,6 @@ import {
   parseClassifierDecision,
   parseRouterDecision,
   readRegisteredRouter,
-  ROUTING_LADDER_GUIDANCE,
   routingCeiling,
   parseModelRequest,
   resolveCandidateModel,
@@ -418,20 +418,12 @@ async function routeSelection(
   ]
     .filter(Boolean)
     .join(", ");
-  const classifierPrompt = `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not.
-
-${ROUTING_LADDER_GUIDANCE}
-
-${fixedChoice ? `The user fixed ${fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
-
-Task:
-${task}
-
-Task-targeted context the child will receive:
-${truncateMiddle(contextSummary, MAX_CLASSIFIER_CONTEXT_CHARS)}
-
-Session-eligible models:
-${catalog}`;
+  const classifierPrompt = buildClassifierPrompt({
+    task,
+    contextSummary: truncateMiddle(contextSummary, MAX_CLASSIFIER_CONTEXT_CHARS),
+    catalog,
+    ...(fixedChoice ? { fixedChoice } : {}),
+  });
   try {
     const raw = await utilityCompletion(pi, ctx, classifierPrompt, 1_024, signal);
     throwIfAborted(signal);
