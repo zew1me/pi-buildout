@@ -24,7 +24,12 @@ import {
   excludeCurrentDelegationTurn,
   extractTextContent,
   formatModelCatalog,
+  isEscalationClassModel,
   parseClassifierDecision,
+  parseRouterDecision,
+  readRegisteredRouter,
+  ROUTING_LADDER_GUIDANCE,
+  routingCeiling,
   parseModelRequest,
   resolveCandidateModel,
   resolveRoutedEffort,
@@ -35,7 +40,7 @@ import {
   serializeModelScope,
   truncateMiddle,
 } from "./helpers.ts";
-import type { ScopedModelLike, ThinkingLevel } from "./helpers.ts";
+import type { ScopedModelLike, SubagentRouter, SubagentRoutingRequest, ThinkingLevel } from "./helpers.ts";
 import { ManagedSubagent } from "./rpc.ts";
 import type { ChildSnapshot } from "./rpc.ts";
 
@@ -45,6 +50,7 @@ const MAX_ROOT_CHILDREN = 8;
 const MAX_NESTED_CHILDREN = 2;
 const MAX_RETAINED_CHILDREN = 32;
 const MAX_DEPTH = 3;
+const ESCALATION_APPROVAL_TIMEOUT_MS = 30_000;
 const DEPTH_ENV = "PI_SIMPLE_SUBAGENT_DEPTH";
 const AUTH_PROVIDER_ENV = "PI_SIMPLE_SUBAGENT_AUTH_PROVIDER";
 const AUTH_KEY_ENV = "PI_SIMPLE_SUBAGENT_API_KEY";
@@ -92,7 +98,7 @@ type PiModel = NonNullable<ExtensionContext["model"]>;
 type Selection = {
   model: PiModel;
   effort: ThinkingLevel;
-  source: "explicit" | "classified" | "fallback";
+  source: "explicit" | "classified" | "routed" | "escalated" | "fallback";
   rationale?: string;
 };
 
@@ -346,7 +352,7 @@ function parentFallback(
 
 // Model routing deliberately keeps explicit, classified, and fallback paths together.
 // eslint-disable-next-line sonarjs/cognitive-complexity
-async function selectModel(
+async function routeSelection(
   pi: ExtensionAPI,
   ctx: ExtensionContext,
   scope: RoutingScope,
@@ -381,6 +387,29 @@ async function selectModel(
   if (scope.candidates.length === 0) {
     return parentFallback(pi, ctx, scope, requestedModel, requestedEffort, "No routing candidates were available.");
   }
+  const router = readRegisteredRouter();
+  if (router) {
+    const routed = await routerSelection(
+      pi,
+      ctx,
+      router,
+      scope,
+      {
+        task,
+        context: contextSummary,
+        candidates: scope.candidates,
+        scopeConstrained: scope.constrained,
+        ...(ctx.model ? { parentModel: ctx.model } : {}),
+        parentEffort: parentThinking(pi),
+        ...(explicitModel ? { requestedModel: explicitModel } : {}),
+        ...(requestedEffort ? { requestedEffort } : {}),
+      },
+      requestedEffort,
+      signal,
+    );
+    if (routed) return routed;
+  }
+
   const catalog = formatModelCatalog(scope.candidates, scope.scopedModels);
   const fixedChoice = [
     requestedModel ? `model=${requestedModel.provider}/${requestedModel.id}` : undefined,
@@ -388,7 +417,11 @@ async function selectModel(
   ]
     .filter(Boolean)
     .join(", ");
-  const classifierPrompt = `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not. ${fixedChoice ? `The user fixed ${fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
+  const classifierPrompt = `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not.
+
+${ROUTING_LADDER_GUIDANCE}
+
+${fixedChoice ? `The user fixed ${fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
 
 Task:
 ${task}
@@ -429,6 +462,129 @@ ${catalog}`;
       `Classification failed (${errorText(error)}).`,
     );
   }
+}
+
+/**
+ * Offer routing to a registered plugin before the built-in classifier runs.
+ *
+ * A plugin only proposes. Its identifier is resolved through the same strict,
+ * scope-constrained path as classifier output, so an unknown or out-of-scope
+ * choice simply falls through to the classifier instead of widening the scope.
+ */
+async function routerSelection(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  router: SubagentRouter,
+  scope: RoutingScope,
+  request: SubagentRoutingRequest,
+  requestedEffort: ThinkingLevel | undefined,
+  signal: AbortSignal | undefined,
+): Promise<Selection | undefined> {
+  let decision;
+  try {
+    decision = parseRouterDecision(await router.route(request));
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    ctx.ui.notify(`Subagent routing plugin failed; using built-in routing (${errorText(error)}).`, "warning");
+    return undefined;
+  }
+  throwIfAborted(signal);
+  if (!decision) return undefined;
+  const resolved = resolveRequestedModel(ctx, decision.model, scope.candidates, scope.constrained);
+  if (!resolved.model) {
+    ctx.ui.notify(`Subagent routing plugin proposed an unusable model; using built-in routing.`, "warning");
+    return undefined;
+  }
+  const routerName = router.name ?? "routing plugin";
+  return {
+    model: resolved.model,
+    effort: resolveRoutedEffort(
+      resolved.model,
+      scope.scopedModels,
+      parentThinking(pi),
+      decision.effort ?? resolved.effort,
+      requestedEffort,
+    ),
+    source: "routed",
+    rationale: decision.rationale ? `${routerName}: ${decision.rationale}` : `Selected by ${routerName}.`,
+  };
+}
+
+/**
+ * Require explicit user approval before launching a frontier escalation-class child.
+ *
+ * The escalation tier is reserved for work the ceiling tier cannot complete. The
+ * prompt auto-dismisses after 30 seconds and a decline, a timeout, or a
+ * non-interactive context all fall back to the same ceiling selection, so the
+ * trigger and its fallback can never disagree.
+ *
+ * Two cases deliberately skip the prompt:
+ * - A nested child (depth > 0) has no human on its RPC channel, so prompting
+ *   would only burn the full timeout before falling back anyway.
+ * - A scope containing no non-escalation model is itself the authorization;
+ *   there is no lower tier to fall back to.
+ */
+async function approveEscalation(
+  ctx: ExtensionContext,
+  selection: Selection,
+  scope: RoutingScope,
+  signal: AbortSignal | undefined,
+): Promise<Selection> {
+  if (!isEscalationClassModel(selection.model)) return selection;
+  const ceiling = routingCeiling(scope.candidates);
+  const escalated = `${selection.model.provider}/${selection.model.id}`;
+  if (!ceiling) {
+    return {
+      ...selection,
+      source: "escalated",
+      rationale: [selection.rationale, `${escalated} is the only non-escalation-free model in scope.`]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }
+
+  const decline = (reason: string): Selection => ({
+    model: ceiling.model,
+    effort: ceiling.effort,
+    source: "fallback",
+    rationale: `Escalation to ${escalated} ${reason}; used the ceiling model ${ceiling.model.provider}/${ceiling.model.id} at ${ceiling.effort} instead.`,
+  });
+
+  if (currentDepth() > 0) return decline("is not available to a nested subagent");
+  if (!ctx.hasUI) return decline("needs approval and this session has no interactive UI");
+
+  let approved = false;
+  try {
+    approved = await ctx.ui.confirm(
+      "Approve frontier model escalation?",
+      `This task was routed above the ceiling tier (${ceiling.model.provider}/${ceiling.model.id} at ${ceiling.effort}).\n\nLaunch this subagent on ${escalated} instead?${selection.rationale ? `\n\nReason: ${selection.rationale}` : ""}\n\nDeclining, or no answer within 30 seconds, uses the ceiling model.`,
+      { timeout: ESCALATION_APPROVAL_TIMEOUT_MS, ...(signal ? { signal } : {}) },
+    );
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return decline(`approval failed (${errorText(error)})`);
+  }
+  throwIfAborted(signal);
+  if (!approved) return decline("was declined or not approved within 30 seconds");
+  return {
+    ...selection,
+    source: "escalated",
+    rationale: [selection.rationale, `User approved escalation to ${escalated}.`].filter(Boolean).join(" "),
+  };
+}
+
+async function selectModel(
+  pi: ExtensionAPI,
+  ctx: ExtensionContext,
+  scope: RoutingScope,
+  task: string,
+  contextSummary: string,
+  explicitModel?: string,
+  explicitEffort?: ThinkingLevel,
+  signal?: AbortSignal,
+): Promise<Selection> {
+  const selection = await routeSelection(pi, ctx, scope, task, contextSummary, explicitModel, explicitEffort, signal);
+  return approveEscalation(ctx, selection, scope, signal);
 }
 
 function resolvePiInvocation(args: string[]): { command: string; args: string[] } {

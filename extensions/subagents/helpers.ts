@@ -302,7 +302,11 @@ export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort tha
 - Ordinary implementation, focused debugging, or review: Luna at high or max effort.
 - Broad multi-file implementation, subtle debugging, security, or architecture: Terra, then Sol, raising effort before tier.
 - Prefer Luna over gpt-5.4-mini whenever both are eligible: measured head-to-head, gpt-5.4-mini is dominated on intelligence, cost, and latency (index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04 and 98s). Route to gpt-5.4-mini only when no GPT-5.6 model is eligible.
-- The frontier escalation tier requires separate user approval and must not be chosen for work the ceiling tier can complete.`;
+
+The frontier escalation tier (GPT-6 Astra) requires separate user approval, so request it only when one of these actually applies:
+- The task needs coding-agent capability above the ceiling tier. On Artificial Analysis' Coding Agent Index, Astra (max) scores ~62 against Sol (max) at ~55 for $7.08 against $6.24 per task, so on agentic coding work the premium is modest even though Astra's per-token price is far higher; the approval gate, not cost, is the reason to be selective.
+- Hallucination or factual reliability is a material risk for this task. Astra hallucinates about half as often as the ceiling tier, which is the clearest reason to prefer it.
+Do not request escalation for work the ceiling tier can complete.`;
 
 /**
  * Well-known global key another extension assigns to take over subagent routing.

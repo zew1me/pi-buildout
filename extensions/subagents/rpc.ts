@@ -116,7 +116,7 @@ export type ChildLaunchOptions = {
   args: string[];
   env: NodeJS.ProcessEnv;
   ownsProcessGroup?: boolean;
-  classification: "explicit" | "classified" | "fallback";
+  classification: "explicit" | "classified" | "routed" | "escalated" | "fallback";
   classificationRationale?: string;
 };
 
