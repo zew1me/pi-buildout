@@ -253,13 +253,22 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       throw error;
     }
 
+    const preValidationPackage = join(temporaryRoot, "pre-validation-package");
+    await createPatchedPackage(preValidationPackage);
+    await applyPatch(preValidationPackage, join(patchDirectory, "pre-validation-upgrade.patch"), true);
+    await verifyManifest(preValidationPackage, "pre-validation-patched.sha256");
+    const preValidationResult = await runInstaller(preValidationPackage, join(temporaryRoot, "pre-validation-agent"));
+    assert.equal(preValidationResult.code, 0, preValidationResult.stderr);
+    assert.match(preValidationResult.stdout, /Upgrading a previously applied \/skills patch/u);
+    await verifyManifest(preValidationPackage, "patched.sha256");
+
     const preLockPackage = join(temporaryRoot, "pre-lock-package");
     await createPatchedPackage(preLockPackage);
     await applyPatch(preLockPackage, join(patchDirectory, "pre-lock-upgrade.patch"), true);
     await verifyManifest(preLockPackage, "pre-lock-patched.sha256");
-    const installerResult = await runInstaller(preLockPackage, join(temporaryRoot, "installer-agent"));
-    assert.equal(installerResult.code, 0, installerResult.stderr);
-    assert.match(installerResult.stdout, /Upgrading a previously applied \/skills patch/u);
+    const preLockResult = await runInstaller(preLockPackage, join(temporaryRoot, "pre-lock-agent"));
+    assert.equal(preLockResult.code, 0, preLockResult.stderr);
+    assert.match(preLockResult.stdout, /Upgrading a previously applied \/skills patch/u);
     await verifyManifest(preLockPackage, "patched.sha256");
 
     await Promise.all([

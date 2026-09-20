@@ -307,6 +307,13 @@ for extension in "${EXTENSIONS[@]}"; do
   EXTENSION_COMMIT_IN_PROGRESS=0
 done
 
+# Pi discovers both extensions/name.ts and extensions/name/index.ts. After every
+# managed directory replacement succeeds, remove any same-name top-level entrypoint
+# left by the legacy layout so each extension loads exactly once.
+for extension in "${EXTENSIONS[@]}"; do
+  rm -f "$EXTENSION_DIR/$extension.ts" "$EXTENSION_DIR/$extension.test.mjs"
+done
+
 if [[ -n "$PATCH_STAGE_DIR" ]]; then
   PATCH_COMMIT_IN_PROGRESS=1
   for file in "${PATCH_FILES[@]}"; do
