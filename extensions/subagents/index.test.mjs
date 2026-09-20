@@ -17,6 +17,7 @@ import {
   readRegisteredRouter,
   ROUTING_HINTS_ENV,
   ROUTING_LADDER_GUIDANCE,
+  routedModelChoice,
   routingCeiling,
   routingHintsEnabled,
   SUBAGENT_ROUTER_KEY,
@@ -469,11 +470,14 @@ test("a routing plugin proposal never displaces an explicitly requested model", 
   const explicit = resolveCandidateModel("gpt-5.6-sol", scoped, "openai-codex", true).model;
   const proposal = parseRouterDecision({ model: "openai-codex/gpt-5.6-luna", effort: "low" });
   assert.ok(proposal, "the router proposal must parse");
-  const chosen = explicit ?? resolveCandidateModel(proposal.model, scoped, "openai-codex", true).model;
-  assert.ok(chosen, "a model must be chosen");
-  assert.deepEqual(chosen, scoped[1], "the explicit request must win over the router's model");
+  const proposed = resolveCandidateModel(proposal.model, scoped, "openai-codex", true).model;
+  assert.ok(proposed && explicit, "both models must resolve");
+  // Exercise the precedence rule the router path actually calls.
+  assert.deepEqual(routedModelChoice(explicit, proposed), scoped[1], "the explicit request must win");
+  // With no explicit request the router's own choice stands.
+  assert.deepEqual(routedModelChoice(undefined, proposed), scoped[0]);
   // The router may still contribute the effort for that explicit model.
-  assert.equal(resolveRoutedEffort(chosen, [], "medium", proposal.effort, undefined), "low");
+  assert.equal(resolveRoutedEffort(explicit, [], "medium", proposal.effort, undefined), "low");
 });
 
 test("routing hints can be disabled so the extension offers no tier opinion", () => {

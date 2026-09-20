@@ -410,6 +410,20 @@ export type SubagentRoutingRequest = {
   requestedEffort?: ThinkingLevel;
 };
 
+/**
+ * Apply model precedence to a routing plugin's proposal.
+ *
+ * An explicitly requested model always wins over a router's choice, matching
+ * both the classifier path and the `subagent` tool schema's promise to preserve
+ * a model the user asked for. A router may still choose the effort for that
+ * model. Without this, registering a plugin would silently override explicit
+ * requests, because `routeSelection` only returns early for an explicit model
+ * when an effort or a scoped pin accompanies it.
+ */
+export function routedModelChoice<T extends ModelLike>(requestedModel: T | undefined, proposedModel: T): T {
+  return requestedModel ?? proposedModel;
+}
+
 /** A router may pin only the model and leave effort to the normal precedence chain. */
 export type RouterDecision = {
   model: string;

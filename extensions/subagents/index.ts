@@ -34,6 +34,7 @@ import {
   parseModelRequest,
   resolveCandidateModel,
   resolveRoutedEffort,
+  routedModelChoice,
   routingCandidates,
   routingHintsEnabled,
   safeTerminalText,
@@ -492,10 +493,7 @@ async function routerSelection(
     ctx.ui.notify(`Subagent routing plugin proposed an unusable model; using built-in routing.`, "warning");
     return undefined;
   }
-  // An explicitly requested model still wins, matching the classifier path and
-  // the tool schema's promise to preserve a user-requested model. A router may
-  // still choose the effort for it.
-  const model = requestedModel ?? resolved.model;
+  const model = routedModelChoice(requestedModel, resolved.model);
   const routerName = router.name ?? "routing plugin";
   return {
     model,

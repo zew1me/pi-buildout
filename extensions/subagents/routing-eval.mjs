@@ -31,10 +31,11 @@ const execFileAsync = promisify(execFile);
 /**
  * The model scope these evaluations route within.
  *
- * Mirrors a realistic `openai-codex` scope from the logs. Note that the GPT-5.6
- * effort narrowing in `supportedThinkingLevels` applies to the direct `openai`
- * provider only, so `max` remains reachable here -- matching the logged
- * `openai-codex/gpt-5.6-sol` runs at `max`.
+ * Mirrors a realistic `openai-codex` scope from the logs. Supported effort is a
+ * property of the model rather than the route to it, so the GPT-5.6 narrowing in
+ * `supportedThinkingLevels` applies here exactly as it does on the direct
+ * `openai` provider: `max` is not reachable for these models, and the ceiling is
+ * `gpt-5.6-sol` at `xhigh`.
  */
 export const EVAL_CANDIDATES = [
   { provider: "openai-codex", id: "gpt-5.4-mini", contextWindow: 400_000, cost: { input: 0.75, output: 4.5 } },
