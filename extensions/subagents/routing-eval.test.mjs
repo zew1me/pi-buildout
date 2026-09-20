@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { buildClassifierPrompt, formatModelCatalog } from "./helpers.ts";
-import { ESCALATION_EVAL_CASES, ROUTING_EVAL_CASES } from "./routing-eval-cases.mjs";
-import { EVAL_CANDIDATES, evaluateRouting, formatEvalReport, scoreDecision, tierOf } from "./routing-eval.mjs";
+import { ESCALATION_EVAL_CASES, INTENT_EVAL_CASES, ROUTING_EVAL_CASES } from "./routing-eval-cases.mjs";
+import {
+  EVAL_CANDIDATES,
+  evaluateIntent,
+  evaluateRouting,
+  formatEvalReport,
+  scoreDecision,
+  scoreIntent,
+  tierOf,
+} from "./routing-eval.mjs";
 
 const ALL_CASES = [...ROUTING_EVAL_CASES, ...ESCALATION_EVAL_CASES];
 
@@ -100,4 +108,72 @@ test("the evaluated prompt is the prompt the extension actually ships", () => {
   assert.match(prompt, /openai-codex\/gpt-6-astra/);
   assert.match(prompt, /Return one JSON object only/);
   assert.ok(prompt.includes(shipped.task));
+});
+
+test("the intent corpus covers named models, delegated effort, and an incidental mention", () => {
+  const ids = INTENT_EVAL_CASES.map((evalCase) => evalCase.id);
+  assert.equal(new Set(ids).size, ids.length);
+  // Every named model must be one the eval scope can actually resolve.
+  for (const evalCase of INTENT_EVAL_CASES) {
+    const named = evalCase.expectModel ?? evalCase.forbidModel;
+    assert.ok(
+      EVAL_CANDIDATES.some((candidate) => candidate.id === named),
+      `${evalCase.id} names ${named}, which is not in the eval scope`,
+    );
+  }
+  assert.ok(INTENT_EVAL_CASES.some((evalCase) => evalCase.expectEffort));
+  assert.ok(INTENT_EVAL_CASES.some((evalCase) => evalCase.expectModel && !evalCase.expectEffort));
+  assert.ok(INTENT_EVAL_CASES.some((evalCase) => evalCase.forbidModel));
+});
+
+test("honoring the named model and effort passes the intent eval", async () => {
+  const report = await evaluateIntent(
+    (evalCase) =>
+      evalCase.expectModel
+        ? { model: `openai-codex/${evalCase.expectModel}`, effort: evalCase.expectEffort ?? "high" }
+        : // The incidental-mention case delegates the choice; the ladder should pick cheap.
+          { model: "openai-codex/gpt-5.6-luna", effort: "low" },
+    INTENT_EVAL_CASES,
+  );
+  assert.equal(report.passed, report.total, formatEvalReport(report));
+});
+
+test("delegated effort is not asserted, so any supported effort passes", async () => {
+  const delegated = INTENT_EVAL_CASES.find((evalCase) => evalCase.id === "intent-luna-effort-delegated");
+  assert.ok(delegated);
+  for (const effort of /** @type {import("./helpers.ts").ThinkingLevel[]} */ (["low", "medium", "high", "xhigh"])) {
+    const result = scoreIntent(delegated, { model: "openai-codex/gpt-5.6-luna", effort });
+    assert.equal(result.ok, true, `effort ${effort} should be acceptable: ${result.failures.join("; ")}`);
+  }
+  // The model itself is still pinned.
+  assert.equal(scoreIntent(delegated, { model: "openai-codex/gpt-5.6-sol", effort: "low" }).ok, false);
+});
+
+test("ignoring an explicitly named model fails the intent eval", async () => {
+  // A router that always applies the ladder would override explicit requests.
+  const report = await evaluateIntent(() => ({ model: "openai-codex/gpt-5.6-luna", effort: "low" }), INTENT_EVAL_CASES);
+  const named = INTENT_EVAL_CASES.filter((evalCase) => evalCase.expectModel && evalCase.expectModel !== "gpt-5.6-luna");
+  assert.ok(named.length > 0);
+  for (const evalCase of named) {
+    const result = report.results.find((entry) => entry.id === evalCase.id);
+    assert.equal(result?.ok, false, `${evalCase.id} must fail when its named model is ignored`);
+  }
+});
+
+test("echoing a model name mentioned in the task text fails the intent eval", async () => {
+  const trap = INTENT_EVAL_CASES.find((evalCase) => evalCase.id === "intent-incidental-sol-mention");
+  assert.ok(trap);
+  const echoed = scoreIntent(trap, { model: "openai-codex/gpt-5.6-sol", effort: "high" });
+  assert.equal(echoed.ok, false);
+  assert.ok(echoed.failures.some((message) => message.includes("mentions")));
+  // Classifying on difficulty instead lands on the cheapest tier and passes.
+  assert.equal(scoreIntent(trap, { model: "openai-codex/gpt-5.6-luna", effort: "low" }).ok, true);
+});
+
+test("an explicit request for the dominated gpt-5.4-mini is honored over the ladder", () => {
+  // The ladder prefers Luna, but an explicit request is not a tier suggestion.
+  const mini = INTENT_EVAL_CASES.find((evalCase) => evalCase.id === "intent-54-mini-spaced");
+  assert.ok(mini);
+  assert.equal(scoreIntent(mini, { model: "openai-codex/gpt-5.4-mini", effort: "medium" }).ok, true);
+  assert.equal(scoreIntent(mini, { model: "openai-codex/gpt-5.6-luna", effort: "medium" }).ok, false);
 });

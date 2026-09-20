@@ -117,3 +117,75 @@ export const ESCALATION_EVAL_CASES = [
     why: "Broad architecture work is the one shape where escalation is defensible, and only behind approval.",
   },
 ];
+
+/**
+ * Intent cases: does a model named in the request actually get selected, and
+ * does a model name merely *mentioned* in the work avoid hijacking routing?
+ *
+ * These exercise a different failure mode from the tier corpus above. There the
+ * question is whether routing spends appropriately; here it is whether routing
+ * honors what was asked for, and whether it can tell a request ("use luna")
+ * from subject matter ("a 'sol' implementation for the sun"). Short forms,
+ * bare family names, and spaced variants all appear because that is how the
+ * request arrives in practice.
+ *
+ * @typedef {object} IntentEvalCase
+ * @property {string} id
+ * @property {string} request The natural-language request as a user phrases it.
+ * @property {string} [expectModel] Model id that must be selected.
+ * @property {import("./helpers.ts").ThinkingLevel} [expectEffort] Effort that must be selected; omitted means any effort is acceptable.
+ * @property {string} [forbidModel] Model id that must NOT be selected just because the text names it.
+ * @property {RoutingTier[]} [allow] Tiers a defensible decision may land in.
+ * @property {string} why
+ */
+
+/** @type {IntentEvalCase[]} */
+export const INTENT_EVAL_CASES = [
+  {
+    id: "intent-luna-medium",
+    request: "use a subagent with luna medium",
+    expectModel: "gpt-5.6-luna",
+    expectEffort: "medium",
+    why: "A bare family name plus an effort word names both values explicitly.",
+  },
+  {
+    id: "intent-luna-effort-delegated",
+    request: "use a subagent with luna using whatever reasoning effort is appropriate",
+    expectModel: "gpt-5.6-luna",
+    why: "The model is fixed but effort is explicitly delegated, so effort must not be asserted.",
+  },
+  {
+    id: "intent-astra",
+    request: "use astra",
+    expectModel: "gpt-6-astra",
+    why: "An explicitly named frontier model is still an explicit request; the approval gate, not routing, decides whether it launches.",
+  },
+  {
+    id: "intent-sol-high-qualified",
+    request: "use gpt-5.6-sol with high effort",
+    expectModel: "gpt-5.6-sol",
+    expectEffort: "high",
+    why: "A fully qualified id with an effort word.",
+  },
+  {
+    id: "intent-terra",
+    request: "spin up a subagent on terra for this",
+    expectModel: "gpt-5.6-terra",
+    why: "Bare family name in a normal sentence.",
+  },
+  {
+    id: "intent-54-mini-spaced",
+    request: "use 5.4 mini for this one",
+    expectModel: "gpt-5.4-mini",
+    why: "A spaced short form must still resolve; an explicit request overrides the ladder's preference for Luna.",
+  },
+  {
+    id: "intent-incidental-sol-mention",
+    request:
+      "Let's make a 'sol' implementation for the sun in the sprites, choosing whatever model and reasoning effort " +
+      "for the subagent as appropriate, it's a super simple flip of some bits",
+    forbidModel: "gpt-5.6-sol",
+    allow: ["economy"],
+    why: "Here 'sol' is subject matter, not a model request, and the work is trivial. Routing must classify on difficulty and land on the cheapest tier rather than echoing the word.",
+  },
+];
