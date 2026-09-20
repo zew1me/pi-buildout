@@ -52,6 +52,13 @@ export const ROUTING_EVAL_CASES = [
     why: "A single-file mechanical lookup is the canonical cheapest-tier task.",
   },
   {
+    id: "classify-task-difficulty",
+    task: "Classify this task as easy, medium, or hard: add a null check to the settings loader. Answer with one word.",
+    allow: ["economy", "substandard"],
+    maxEffort: "medium",
+    why: "A one-word classification is the cheapest shape of work there is. Luna at low effort is the target; no effort, medium effort, or gpt-5.4-mini are all acceptable, but Terra or Sol would be paying for reasoning the task cannot use.",
+  },
+  {
     id: "review-integration-checklist",
     task:
       "Review the repository's Intervals.icu integration and the official Strava docs plus GitHub issue #340. " +

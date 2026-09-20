@@ -71,8 +71,15 @@ test("a router that always reaches for the frontier tier fails the eval", async 
 
 test("a router that always picks the dominated gpt-5.4-mini fails the eval", async () => {
   const report = await evaluateRouting(() => ({ model: "openai-codex/gpt-5.4-mini", effort: "medium" }), ALL_CASES);
-  assert.equal(report.passed, 0, formatEvalReport(report));
-  assert.ok(report.failures.every((failure) => failure.failures.some((message) => message.includes("substandard"))));
+  // Every case except the ones that explicitly tolerate the substandard tier
+  // must reject it, and each rejection must name that tier.
+  const shouldFail = ALL_CASES.filter((evalCase) => !evalCase.allow.includes("substandard"));
+  assert.ok(shouldFail.length > 0);
+  for (const evalCase of shouldFail) {
+    const result = report.results.find((entry) => entry.id === evalCase.id);
+    assert.equal(result?.ok, false, `${evalCase.id} must reject gpt-5.4-mini`);
+    assert.ok(result?.failures.some((message) => message.includes("substandard")));
+  }
 });
 
 test("overspending effort on a trivial handshake fails the eval", async () => {
