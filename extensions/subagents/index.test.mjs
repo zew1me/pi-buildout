@@ -202,7 +202,9 @@ test("model catalog exposes exact ids, effort choices, context and cost", () => 
   };
   const catalog = formatModelCatalog([model], [{ model, thinkingLevel: "high" }]);
   assert.match(catalog, /openai-codex\/gpt-5\.6-luna/);
-  assert.match(catalog, /effort=off\|minimal\|low\|medium\|high/);
+  // Providers exposing the same model string are equivalent, so the GPT-5.6
+  // narrowing applies to openai-codex exactly as it does to openai.
+  assert.match(catalog, /effort=off\|low\|medium\|high\|xhigh/);
   assert.match(catalog, /effort-pin=high/);
   assert.match(catalog, /context=272000/);
   assert.match(catalog, /input=\$2\.5\/M/);
@@ -434,4 +436,39 @@ test("the escalation gate prompts only where a human can actually answer", () =>
   assert.deepEqual(escalationGate({ escalation: false, hasCeiling: false, depth: 3, hasUI: false }), {
     action: "allow",
   });
+});
+
+test("equivalent providers of the same model string get the same effort narrowing", () => {
+  // openai, openai-codex, and gateway providers expose the same underlying
+  // models, so supported effort is a property of the model, not the route.
+  const ids = ["gpt-5.6-luna", "gpt-5.6-sol", "gpt-5.6-terra"];
+  for (const id of ids) {
+    const direct = supportedThinkingLevels({ provider: "openai", id });
+    for (const provider of ["openai-codex", "vercel-ai-gateway", "github-copilot"]) {
+      assert.deepEqual(supportedThinkingLevels({ provider, id }), direct, `${provider}/${id} must match openai/${id}`);
+    }
+    assert.ok(!direct.includes("max"), `${id} must not offer max`);
+    assert.ok(!direct.includes("minimal"), `${id} must not offer minimal`);
+  }
+  // The ceiling is therefore xhigh on every provider, not just the direct one.
+  for (const provider of ["openai", "openai-codex"]) {
+    assert.equal(routingCeiling([{ provider, id: "gpt-5.6-sol" }])?.effort, "xhigh");
+  }
+});
+
+test("a routing plugin proposal never displaces an explicitly requested model", () => {
+  // The classifier path preserves an explicit model request, so the router path
+  // must too; otherwise registering a plugin silently overrides the user.
+  const scoped = [
+    { provider: "openai-codex", id: "gpt-5.6-luna" },
+    { provider: "openai-codex", id: "gpt-5.6-sol" },
+  ];
+  const explicit = resolveCandidateModel("gpt-5.6-sol", scoped, "openai-codex", true).model;
+  const proposal = parseRouterDecision({ model: "openai-codex/gpt-5.6-luna", effort: "low" });
+  assert.ok(proposal, "the router proposal must parse");
+  const chosen = explicit ?? resolveCandidateModel(proposal.model, scoped, "openai-codex", true).model;
+  assert.ok(chosen, "a model must be chosen");
+  assert.deepEqual(chosen, scoped[1], "the explicit request must win over the router's model");
+  // The router may still contribute the effort for that explicit model.
+  assert.equal(resolveRoutedEffort(chosen, [], "medium", proposal.effort, undefined), "low");
 });

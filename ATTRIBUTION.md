@@ -187,7 +187,8 @@ Ideas and data used in `extensions/subagents/helpers.ts` and `extensions/subagen
   (index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04 and 98s). This is why the routing ladder ranks it
   below Luna even though it is the more expensive model per token, and why the eval suite bands it as `substandard`.
 - The escalation criteria for GPT-6 Astra: a Coding Agent Index of roughly 62 against Sol's 55 for $7.08 against $6.24
-  per task, making the agentic premium modest, together with its materially lower hallucination rate.
+  per task, making the agentic premium modest. The accompanying claim that Astra hallucinates roughly half as often was
+  supplied directly by the project owner and is not drawn from the charts listed above.
 
 Intentionally not adopted:
 

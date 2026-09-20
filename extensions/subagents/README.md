@@ -75,9 +75,10 @@ bare model id across every provider that aliases it, not one provider-qualified 
 
 Approval uses Pi's dialog timeout. Declining, answering nothing within 30 seconds, or running without interactive UI all
 fall back to the _ceiling selection_: the strongest non-escalation scoped model at the highest effort it actually
-supports. Trigger and fallback share that one reference point, so they cannot disagree. Note that on the direct `openai`
-provider the ceiling is `gpt-5.6-sol` at `xhigh` rather than `max`, because that endpoint rejects `max`; on
-`openai-codex` the same model reaches `max`.
+supports. Trigger and fallback share that one reference point, so they cannot disagree. Note that the ceiling is
+`gpt-5.6-sol` at `xhigh` rather than `max`, because the GPT-5.6 endpoints reject `max`. Supported effort is treated as a
+property of the model rather than the route to it: providers exposing the same model string (`openai`, `openai-codex`,
+and gateways) are equivalent and get the same narrowing.
 
 Two cases skip the prompt deliberately. A nested subagent has no human on its RPC channel, so it declines immediately
 instead of burning the full timeout. A session scope containing no non-escalation model is itself the authorization,

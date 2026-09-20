@@ -447,10 +447,12 @@ export function buildChildArgs(options: ChildArgsOptions): string[] {
 
 export function supportedThinkingLevels(model: ModelLike): ThinkingLevel[] {
   if (model.reasoning === false) return ["off"];
-  // OpenAI's direct GPT-5.6 endpoint currently rejects `minimal` and `max`
-  // even though pi 0.80.6's generated metadata leaves minimal implicit and
-  // maps max. Keep routing from selecting values the live API rejects.
-  if (model.provider.toLowerCase() === "openai" && /^gpt-5\.6(?:[-.]|$)/i.test(model.id)) {
+  // The GPT-5.6 endpoints currently reject `minimal` and `max` even though
+  // pi's generated metadata leaves minimal implicit and maps max. This is a
+  // property of the model, not of the route to it: providers exposing the same
+  // model string (openai, openai-codex, and gateways) are equivalent, so the
+  // narrowing is keyed on the model id alone rather than one provider.
+  if (/(?:^|\/)gpt-5\.6(?:[-.]|$)/i.test(model.id)) {
     return ["off", "low", "medium", "high", "xhigh"];
   }
   const map = model.thinkingLevelMap;
