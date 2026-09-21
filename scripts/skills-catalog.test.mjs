@@ -187,7 +187,10 @@ async function writeJson(path, value) {
 
 async function runGit(cwd, args) {
   await new Promise((resolvePromise, reject) => {
-    const child = spawn("git", args, { cwd, stdio: ["ignore", "ignore", "pipe"] });
+    const env = { ...process.env };
+    delete env.GIT_DIR;
+    delete env.GIT_WORK_TREE;
+    const child = spawn("git", args, { cwd, env, stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
