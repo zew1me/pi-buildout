@@ -109,17 +109,23 @@ async function applyPatch(target, source = patchPath, reverse = false) {
   });
 }
 
+function testEnvironment(overrides = {}) {
+  const env = { ...process.env, ...overrides };
+  delete env.GIT_DIR;
+  delete env.GIT_WORK_TREE;
+  return env;
+}
+
 async function runPatchedCli(target, args, { agentDir, cwd, home = process.env.HOME }) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [join(target, "dist", "bundle", "cli.js"), ...args], {
       cwd,
-      env: {
-        ...process.env,
+      env: testEnvironment({
         ...(home === undefined ? {} : { HOME: home }),
         PI_CODING_AGENT_DIR: agentDir,
         PI_OFFLINE: "1",
         PI_SKIP_VERSION_CHECK: "1",
-      },
+      }),
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -187,10 +193,7 @@ async function writeJson(path, value) {
 
 async function runGit(cwd, args) {
   await new Promise((resolvePromise, reject) => {
-    const env = { ...process.env };
-    delete env.GIT_DIR;
-    delete env.GIT_WORK_TREE;
-    const child = spawn("git", args, { cwd, env, stdio: ["ignore", "ignore", "pipe"] });
+    const child = spawn("git", args, { cwd, env: testEnvironment(), stdio: ["ignore", "ignore", "pipe"] });
     let stderr = "";
     child.stderr.on("data", (chunk) => {
       stderr += chunk.toString();
