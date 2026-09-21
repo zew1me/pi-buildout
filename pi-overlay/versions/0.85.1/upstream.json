@@ -42,5 +42,5 @@
     { "path": "dist/bundle/cli.js", "source": "replacement" },
     { "path": "dist/bundle/rpc-entry.js", "source": "replacement" }
   ],
-  "maxUpstreamEditedLines": 42
+  "maxUpstreamEditedLines": 47
 }

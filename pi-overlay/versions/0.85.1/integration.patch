@@ -78,7 +78,19 @@
  import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
  import type { SourceInfo } from "../../core/source-info.ts";
  import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
-@@ -5939,6 +5941,25 @@
+@@ -3076,6 +3078,11 @@
+ 				await this.handleReloadCommand();
+ 				return;
+ 			}
++			if (text === "/skills" || text.startsWith("/skills ")) {
++				this.editor.setText("");
++				await this.handleSkillsCommand(text);
++				return;
++			}
+ 			if (text === "/debug") {
+ 				this.handleDebugCommand();
+ 				this.editor.setText("");
+@@ -5939,6 +5946,25 @@
  	// Command handlers
  	// =========================================================================
  

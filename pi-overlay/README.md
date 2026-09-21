@@ -44,8 +44,8 @@ Measured against the clean 0.85.1 package, edits to pre-existing upstream files:
 | `dist/core/resource-loader.js`               | 55                      | 16                          |
 | `dist/core/slash-commands.js`                | 1                       | 1                           |
 | `dist/main.js`                               | 32                      | 5                           |
-| `dist/modes/interactive/interactive-mode.js` | 82                      | 20                          |
-| **Total**                                    | **170**                 | **42**                      |
+| `dist/modes/interactive/interactive-mode.js` | 82                      | 25                          |
+| **Total**                                    | **170**                 | **47**                      |
 
 The budget counts only files where upstream code is edited in place. Files the patch _adds_ are ours; `docs/skills.md`
 and the two bundled entrypoints are replaced wholesale rather than surgically edited, so none of them belong in a number

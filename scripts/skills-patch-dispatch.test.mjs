@@ -41,6 +41,11 @@ test("interactive mode delegates /skills to the shared module", () => {
   assert.match(added, /import \{ handleSkillsInteractive \} from "\.\.\/\.\.\/core\/skill-management\.js"/u);
   assert.match(added, /async handleSkillsCommand\(text\)/u);
   assert.match(added, /await handleSkillsInteractive\(text, \{/u);
+  // Defining the handler is not enough: pi dispatches slash commands through an explicit `if (text === ...)`
+  // chain, and BUILTIN_SLASH_COMMANDS carries only metadata. Without this branch the method is dead code and
+  // `/skills` is submitted to the model as an ordinary message.
+  assert.match(added, /if \(text === "\/skills" \|\| text\.startsWith\("\/skills "\)\) \{/u);
+  assert.match(added, /await this\.handleSkillsCommand\(text\);/u);
   assert.doesNotMatch(added, /runSkillsCommand\(/u, "interactive mode must not re-implement the dispatch");
 });
 

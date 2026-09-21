@@ -1031,7 +1031,7 @@ index 9ac8d30..b90c9d6 100644
      }
      const parsed = parseArgs(args);
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 09913d0..f131946 100644
+index 09913d0..4ea73ab 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
 @@ -24,7 +24,8 @@ import { CredentialSynchronizationError } from "../../core/model-runtime.js";
@@ -1044,19 +1044,7 @@ index 09913d0..f131946 100644
  import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
  import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
  import { withBuiltInRenderers } from "../../core/tools/renderers/index.js";
-@@ -2474,11 +2475,6 @@ export class InteractiveMode {
-                 await this.handleReloadCommand();
-                 return;
-             }
--            if (text === "/skills" || text.startsWith("/skills ")) {
--                this.editor.setText("");
--                await this.handleSkillsCommand(text);
--                return;
--            }
-             if (text === "/debug") {
-                 this.handleDebugCommand();
-                 this.editor.setText("");
-@@ -4978,80 +4974,22 @@ export class InteractiveMode {
+@@ -4978,80 +4979,22 @@ export class InteractiveMode {
      // Command handlers
      // =========================================================================
      async handleSkillsCommand(text) {
