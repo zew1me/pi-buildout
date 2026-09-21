@@ -42,8 +42,11 @@ Measured against the clean 0.85.1 package, edits to pre-existing upstream files:
 | `dist/modes/interactive/interactive-mode.js` | 82                      | 20                          |
 | **Total**                                    | **170**                 | **42**                      |
 
-Files the patch _adds_ are ours and are not counted against that budget. The generation pipeline enforces the total as
-`maxUpstreamEditedLines`, so the policy is a build failure rather than a review convention.
+The budget counts only files where upstream code is edited in place. Files the patch _adds_ are ours; `docs/skills.md`
+and the two bundled entrypoints are replaced wholesale rather than surgically edited, so none of them belong in a number
+meant to track how much upstream code we reach into. The generation pipeline enforces the total as
+`maxUpstreamEditedLines` in `versions/<version>/upstream.json`, so the policy is a build failure rather than a review
+convention.
 
 Two consequences worth knowing:
 

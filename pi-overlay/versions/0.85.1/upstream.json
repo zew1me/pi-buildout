@@ -1,0 +1,46 @@
+{
+  "package": "@earendil-works/pi-coding-agent",
+  "version": "0.85.1",
+  "repository": "https://github.com/earendil-works/pi",
+  "packageSubpath": "packages/coding-agent",
+  "gitHead": "d981de1229ef899957bbe968bc8dcda02a21f477",
+  "sourceArchive": {
+    "url": "https://github.com/earendil-works/pi/releases/download/v0.85.1/pi-0.85.1-source.tar.gz",
+    "sha256": "f7ec92ed4f7b75369198398a3421732eae405183971450bc74cb8544f42d02ca",
+    "rootDirectory": "pi-0.85.1",
+    "checksumsUrl": "https://github.com/earendil-works/pi/releases/download/v0.85.1/SHA256SUMS"
+  },
+  "npmTarball": {
+    "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-0.85.1.tgz",
+    "sha256": "1f498729649bdce647d1160993b4d92bf3c614cc819213bee2f91dd34f2a7af4",
+    "integrity": "sha512-FGRN+OHbWaefBPGaTggAdLjrIHW+s2PzLyglz/5dfLzb9of7uuXMXYC0fJIeZTw+shS32o2cuQ9jF7YSDuL/oQ==",
+    "rootDirectory": "package"
+  },
+  "toolchain": {
+    "node": ">=22.19.0",
+    "typescriptNativePreview": "7.0.0-dev.20260120.1"
+  },
+  "workspaceBuildOrder": [
+    "packages/chord",
+    "packages/tui",
+    "packages/telemetry",
+    "packages/ai",
+    "packages/agent",
+    "packages/session-backends/sqlite-node",
+    "packages/protocol",
+    "packages/client",
+    "packages/server"
+  ],
+  "trackedFiles": [
+    { "path": "dist/core/resource-loader.js", "source": "built" },
+    { "path": "dist/core/slash-commands.js", "source": "built" },
+    { "path": "dist/main.js", "source": "built" },
+    { "path": "dist/modes/interactive/interactive-mode.js", "source": "built" },
+    { "path": "dist/core/skill-management.js", "source": "built", "added": true },
+    { "path": "dist/core/skill-management-core.js", "source": "built", "added": true },
+    { "path": "docs/skills.md", "source": "patched-source" },
+    { "path": "dist/bundle/cli.js", "source": "replacement" },
+    { "path": "dist/bundle/rpc-entry.js", "source": "replacement" }
+  ],
+  "maxUpstreamEditedLines": 42
+}
