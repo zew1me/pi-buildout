@@ -18,6 +18,8 @@
     "target": "ES2022",
     "types": ["node"]
   },
-  "include": ["extensions/**/*.ts", "extensions/**/*.mjs"],
-  "exclude": ["node_modules", "patches"]
+  "include": ["extensions/**/*.ts", "extensions/**/*.mjs", "pi-overlay/**/*.ts", "pi-overlay/**/*.mjs"],
+  // pi-overlay/skill-management.ts imports Pi's own modules, which only resolve inside a Pi source tree.
+  // The generation pipeline type-checks it there with upstream's tsgo; see pi-overlay/README.md.
+  "exclude": ["node_modules", "patches", "pi-overlay/skill-management.ts", "pi-overlay/versions"]
 }

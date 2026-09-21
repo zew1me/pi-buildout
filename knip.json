@@ -1,7 +1,14 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "entry": ["extensions/*/index.ts", "extensions/*/*.test.mjs", "extensions/subagents/auth-bridge.ts"],
-  "project": ["extensions/**/*.{ts,mjs}"],
+  "entry": [
+    "extensions/*/index.ts",
+    "extensions/*/*.test.mjs",
+    "extensions/subagents/auth-bridge.ts",
+    "pi-overlay/skill-management.ts",
+    "pi-overlay/*.test.mjs"
+  ],
+  "project": ["extensions/**/*.{ts,mjs}", "pi-overlay/*.{ts,mjs}"],
+  "ignoreUnresolved": ["^\\.{1,2}/.*\\.ts$"],
   "ignoreBinaries": ["patch", "shellcheck", "taskkill"],
-  "ignoreDependencies": ["@secretlint/secretlint-rule-preset-recommend"]
+  "ignoreDependencies": ["@secretlint/secretlint-rule-preset-recommend", "chalk"]
 }

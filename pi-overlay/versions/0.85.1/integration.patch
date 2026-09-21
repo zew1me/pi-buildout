@@ -1,0 +1,222 @@
+--- a/src/core/resource-loader.ts
++++ b/src/core/resource-loader.ts
+@@ -23,6 +23,7 @@
+ import { loadPromptTemplates } from "./prompt-templates.ts";
+ import { SettingsManager } from "./settings-manager.ts";
+ import type { Skill } from "./skills.ts";
++import { resolveActiveSkillPaths } from "./skill-management.ts";
+ import { loadSkills } from "./skills.ts";
+ import { createSourceInfo, type SourceInfo } from "./source-info.ts";
+ import { resetTimings } from "./timings.ts";
+@@ -465,12 +466,24 @@
+ 		this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
+ 		this.applyExtensionSourceInfo(this.extensionsResult.extensions, metadataByPath);
+ 
+-		const skillPaths = this.noSkills
+-			? this.mergePaths(cliEnabledSkills, this.additionalSkillPaths)
+-			: this.mergePaths([...cliEnabledSkills, ...enabledSkills], this.additionalSkillPaths);
++		// Skills are opt-in: discovered, package and settings skills form a catalog but are not active
++		// unless explicitly enabled globally, for this repository, or for this session/CLI.
++		const activeSkills = this.noSkills
++			? { paths: [], diagnostics: [] }
++			: await resolveActiveSkillPaths({
++					cwd: this.cwd,
++					agentDir: this.agentDir,
++					settingsManager: this.settingsManager,
++					resolveResourcePath: (p) => this.resolveResourcePath(p),
++				});
++		const skillPaths = this.mergePaths(
++			[...cliEnabledSkills, ...activeSkills.paths],
++			this.additionalSkillPaths,
++		);
+ 
+ 		this.lastSkillPaths = skillPaths;
+ 		this.updateSkillsFromPaths(skillPaths, metadataByPath);
++		this.skillDiagnostics.push(...activeSkills.diagnostics);
+ 		for (const p of this.additionalSkillPaths) {
+ 			if (isLocalPath(p)) {
+ 				const resolved = this.resolveResourcePath(p);
+--- a/src/core/slash-commands.ts
++++ b/src/core/slash-commands.ts
+@@ -39,5 +39,6 @@
+ 	{ name: "compact", description: "Manually compact the session context" },
+ 	{ name: "resume", description: "Resume a different session" },
+ 	{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, themes, and context files" },
++	{ name: "skills", description: "List and manage active skills", argumentHint: "<active|list|search|add|remove|reload>" },
+ 	{ name: "quit", description: `Quit ${APP_NAME}` },
+ ];
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -46,6 +46,7 @@
+ import type { InlineExtension } from "./core/extensions/types.ts";
+ import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
+ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
++import { handleSkillsCli } from "./core/skill-management.ts";
+ import { ModelRuntime } from "./core/model-runtime.ts";
+ import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
+ import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
+@@ -597,6 +598,11 @@
+ 	}
+ 
+ 	if (await handleConfigCommand(args, { extensionFactories })) {
++		return;
++	}
++
++	if (args[0] === "skills") {
++		await handleSkillsCli({ args: args.slice(1), cwd, agentDir, settingsManager: bootstrapSettingsManager });
+ 		return;
+ 	}
+ 
+--- a/src/modes/interactive/interactive-mode.ts
++++ b/src/modes/interactive/interactive-mode.ts
+@@ -93,6 +93,8 @@
+ import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.ts";
+ import { type SessionEntry, SessionManager, sessionEntryToContextMessages } from "../../core/session-manager.ts";
+ import type { FullscreenExitOutput, TuiMode } from "../../core/settings-manager.ts";
++import { resolvePath } from "../../utils/paths.ts";
++import { handleSkillsInteractive } from "../../core/skill-management.ts";
+ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
+ import type { SourceInfo } from "../../core/source-info.ts";
+ import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
+@@ -5939,6 +5941,25 @@
+ 	// Command handlers
+ 	// =========================================================================
+ 
++	private async handleSkillsCommand(text: string): Promise<void> {
++		await handleSkillsInteractive(text, {
++			cwd: this.sessionManager.getCwd(),
++			agentDir: getAgentDir(),
++			settingsManager: this.settingsManager,
++			additionalSkillPaths: (this.session.resourceLoader as { additionalSkillPaths?: string[] }).additionalSkillPaths,
++			resolveResourcePath: (p) => resolvePath(p, this.sessionManager.getCwd()),
++			isBusy: () => this.session.isStreaming || this.session.isCompacting,
++			reload: () => this.handleReloadCommand(),
++			showWarning: (message) => this.showWarning(message),
++			showError: (message) => this.showError(message),
++			showOutput: (message) => {
++				this.chatContainer.addChild(new Spacer(1));
++				this.chatContainer.addChild(new Text(message, 1, 0));
++				this.ui.requestRender();
++			},
++		});
++	}
++
+ 	private async handleReloadCommand(): Promise<void> {
+ 		if (this.session.isStreaming) {
+ 			this.showWarning("Wait for the current response to finish before reloading.");
+--- a/docs/skills.md
++++ b/docs/skills.md
+@@ -21,25 +21,60 @@
+ 
+ > **Security:** Skills can instruct the model to perform any action and may include executable code the model invokes. Review skill content before use.
+ 
+-Pi loads skills from:
++Pi starts with no active skills. Skill directories, packages, and settings form a catalog, but catalog entries are not injected into the system prompt unless explicitly enabled.
+ 
+-- Global:
++Active skills are loaded from:
++
++- Session/CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
++- Global: `~/.pi/agent/skills.json`
++- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
++
++Catalog sources are considered in this order; name collisions keep the first skill found:
++
++- Global directories:
+   - `~/.pi/agent/skills/`
+   - `~/.agents/skills/`
+-- Project (only after the project is trusted):
++- Project directories (only after the project is trusted):
+   - `.pi/skills/`
+   - `.agents/skills/` in `cwd` and ancestor directories (up to git repo root, or filesystem root when not in a repo)
+-- Packages: `skills/` directories or `pi.skills` entries in `package.json`
+-- Settings: `skills` array with files or directories
+-- CLI: `--skill <path>` (repeatable, additive even with `--no-skills`)
++- Packages: `skills/` directories or `pi.skills` entries in `package.json`; project packages require trust
++- Settings: global `skills` array and, when trusted, project `skills` array; entries may be files or directories and use package-manager precedence within this group
++
++Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
++
++Enable global skills with `~/.pi/agent/skills.json`:
++
++```json
++{
++  "enabled": [
++    "~/.agents/skills/code-review-and-quality",
++    { "source": "~/.agents/skills/browser-testing-with-devtools" }
++  ]
++}
++```
++
++Enable repository-scoped skills with `~/.pi/agent/repo-skills.json`:
++
++```json
++{
++  "github.com:earendil-works/pi-mono": {
++    "enabled": ["~/.agents/skills/pi-development"]
++  },
++  "local:~/Documents/repos/private-tool": {
++    "enabled": ["~/.agents/skills/private-tool"]
++  }
++}
++```
+ 
++Repository keys are resolved from git remotes in this order: `upstream`, then `origin`, then the first configured remote. Remote URLs are normalized so `git@github.com:earendil-works/pi-mono.git`, `https://github.com/earendil-works/pi-mono`, and `ssh://git@github.com/earendil-works/pi-mono.git` all become `github.com:earendil-works/pi-mono`. If no remote exists, pi falls back to `local:<repo-root-relative-to-$HOME>`, such as `local:~/Documents/repos/private-tool`.
++
+ Discovery rules:
+ - In `~/.pi/agent/skills/` and `.pi/skills/`, direct root `.md` files are discovered as individual skills when they have valid skill frontmatter with a non-empty `description`
+ - In all skill locations, directories containing `SKILL.md` are discovered recursively
+ - In `~/.agents/skills/` and project `.agents/skills/`, root `.md` files are ignored, but nested `.md` files in grouping folders are discovered when they declare skill frontmatter
+ - Root Markdown files other than `SKILL.md` that do not look like skills are ignored silently
+ 
+-Disable discovery with `--no-skills` (explicit `--skill` paths still load).
++Use `--no-skills` to suppress global/repository active skills; explicit `--skill` paths still load.
+ 
+ ### Using Skills from Other Harnesses
+ 
+@@ -64,18 +99,39 @@
+ 
+ ## How Skills Work
+ 
+-1. At startup, pi scans skill locations and extracts names and descriptions
+-2. The system prompt includes available skills in XML format per the [specification](https://agentskills.io/integrate-skills)
+-3. When a task matches, the agent uses `read`, or `bash` when `read` is unavailable, to load the full SKILL.md (models don't always do this; use prompting or `/skill:name` to force it)
+-4. The agent follows the instructions, using relative paths to reference scripts and assets
++1. At startup, pi resolves active skills from session/CLI, global, and repository-scoped configuration.
++2. The system prompt includes only active skills in XML format per the [specification](https://agentskills.io/integrate-skills).
++3. When a task matches, the agent uses `read`, or `bash` when `read` is unavailable, to load the full SKILL.md (models don't always do this; use prompting or `/skill:name` to force it).
++4. The agent follows the instructions, using relative paths to reference scripts and assets.
+ 
+-This is progressive disclosure: only descriptions are always in context, full instructions load on-demand.
++This is progressive disclosure: only active skill descriptions are in context, full instructions load on-demand.
+ 
+ ## Skill Commands
+ 
+-Skills register as `/skill:name` commands:
++Manage activation with either the interactive `/skills` command or the one-shot CLI:
+ 
+ ```bash
++/skills active
++/skills list
++/skills search browser
++/skills add browser-testing-with-devtools --session
++/skills add browser-testing-with-devtools --repo
++/skills remove browser-testing-with-devtools --global
++/skills reload
++
++pi skills active
++pi skills list
++pi skills search browser
++pi skills add browser-testing-with-devtools --global
++pi skills add browser-testing-with-devtools --repo
++pi skills remove browser-testing-with-devtools --repo
++```
++
++`--session` is interactive-only and lasts until the session ends. `--global` and `--repo` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global and repository entries; `/skills active` also shows session entries.
++
++Active skills also register as `/skill:name` commands:
++
++```bash
+ /skill:brave-search           # Load and execute the skill
+ /skill:pdf-tools extract      # Load skill with arguments
+ ```

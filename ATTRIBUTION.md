@@ -133,6 +133,35 @@ sources while preserving Pi's precedence and project-trust behavior. It intentio
 of every discovered skill, concurrent-update locking, configured-path confinement, new public resource-loader mutator
 APIs, or changes to Pi's unrelated extension, prompt, theme, package, trust, and provider behavior.
 
+## Pi `/skills` TypeScript overlay
+
+- Source: `@earendil-works/pi-coding-agent@0.85.1`
+- Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
+- Upstream revision reviewed: `d981de1229ef899957bbe968bc8dcda02a21f477` (`v0.85.1`), taken from the npm registry's
+  `gitHead` for that release
+- Source acquired from the release asset `pi-0.85.1-source.tar.gz`, verified against upstream's published `SHA256SUMS`
+- License declared by the package: MIT
+
+[`pi-overlay`](pi-overlay) is the authored form of the `/skills` runtime patch; the artifacts under `patches/pi-0.85.1/`
+are generated from it.
+
+`pi-overlay/skill-management-core.ts` and `pi-overlay/skill-management.ts` are original code for this repository. They
+are a TypeScript reimplementation of the `dist/core/skill-management.js` previously authored here as JavaScript,
+informed by Pi's resource-loading and command conventions rather than copied from an upstream file. They additionally
+absorb logic that earlier versions of the patch inlined into upstream files, so those files now receive only imports and
+call sites.
+
+`pi-overlay/versions/0.85.1/integration.patch` is a modified-code patch against Pi's MIT-licensed TypeScript sources:
+`src/core/resource-loader.ts`, `src/core/slash-commands.ts`, `src/main.ts`, `src/modes/interactive/interactive-mode.ts`,
+and `docs/skills.md`. Its unchanged context and modified lines derive from the MIT-licensed Pi package.
+
+`pi-overlay/versions/0.85.1/replacements/dist/bundle/cli.js` and `rpc-entry.js` are original hand-written wrappers, not
+derived from upstream's generated bundle output. They replace Pi's esbuild-produced bundled entrypoints so the patched
+unbundled runtime handles CLI and RPC execution.
+
+This repository vendors no upstream source and maintains no fork. Upstream source is fetched per generation run against
+pinned, checksum-verified inputs, and is not committed here.
+
 ## Pi documentation and examples
 
 - Source: `@earendil-works/pi-coding-agent`
