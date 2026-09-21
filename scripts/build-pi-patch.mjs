@@ -313,8 +313,15 @@ function assertPatchApplies(workDir, baselineRoot, patchText, patchedManifest) {
  *
  * Reverse-applying a migration must reconstruct exactly the state it claims to come from, so this catches an
  * upgrade patch left behind by a regeneration without needing the original package anywhere.
+ *
+ * Each state must also describe every path the installer will ask it about. The installer iterates
+ * `patched.sha256` and hard-exits when a state manifest has neither a checksum nor an absent entry for a
+ * path, so an incomplete state artifact breaks installation for everyone, not only for upgraders.
  */
 function assertUpgradeStatesRoundTrip(workDir, patchedRoot, outputDir) {
+  const installerPaths = parseChecksumManifest(readFileSync(join(outputDir, "patched.sha256"), "utf-8")).map(
+    (entry) => entry.path,
+  );
   const states = readdirSync(outputDir)
     .filter((name) => name.endsWith("-patched.sha256"))
     .map((name) => name.slice(0, -"-patched.sha256".length));
@@ -342,13 +349,24 @@ function assertUpgradeStatesRoundTrip(workDir, patchedRoot, outputDir) {
       .map((entry) => entry.path);
 
     const absentFile = join(outputDir, `${state}-absent`);
-    if (existsSync(absentFile)) {
-      for (const path of readFileSync(absentFile, "utf-8")
-        .split("\n")
-        .map((line) => line.trim())
-        .filter(Boolean)) {
-        if (existsSync(join(stage, path))) problems.push(`${path} should be absent`);
-      }
+    const absentPaths = existsSync(absentFile)
+      ? readFileSync(absentFile, "utf-8")
+          .split("\n")
+          .map((line) => line.trim())
+          .filter(Boolean)
+      : [];
+    for (const path of absentPaths) {
+      if (existsSync(join(stage, path))) problems.push(`${path} should be absent`);
+    }
+
+    const described = new Set([
+      ...parseChecksumManifest(readFileSync(join(outputDir, `${state}-patched.sha256`), "utf-8")).map(
+        (entry) => entry.path,
+      ),
+      ...absentPaths,
+    ]);
+    for (const path of installerPaths) {
+      if (!described.has(path)) problems.push(`${path} is in neither ${state}-patched.sha256 nor ${state}-absent`);
     }
     if (problems.length > 0) {
       throw new Error(
