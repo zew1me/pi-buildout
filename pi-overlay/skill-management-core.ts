@@ -579,3 +579,125 @@ export async function resolveSkillEntryPath(
   });
   return { normalized: source, resolved: catalog.find((skill) => skill.name === source)?.filePath };
 }
+
+/** What {@link handleSkillsInteractive} needs from `InteractiveMode`. */
+export type InteractiveSkillsContext = {
+  cwd: string;
+  agentDir: string;
+  settingsManager: SettingsManagerLike;
+  /**
+   * The resource loader's session skill list, mutated in place so the loader sees the change.
+   *
+   * Optional because `ResourceLoader` implementations other than `DefaultResourceLoader` need not expose it;
+   * session scope reports that it is unavailable rather than failing.
+   */
+  additionalSkillPaths: string[] | undefined;
+  resolveResourcePath: (path: string) => string;
+  /** True while the agent is streaming or compacting, when a reload must be deferred. */
+  isBusy: () => boolean;
+  reload: () => Promise<void>;
+  showWarning: (message: string) => void;
+  showError: (message: string) => void;
+  showOutput: (message: string) => void;
+};
+
+/**
+ * Applies a session-scope activation to the resource loader's own skill list.
+ *
+ * Returns the line to show, or `undefined` when it has already reported an error. The list is mutated in
+ * place because the loader holds the same array.
+ */
+async function applySessionSkillChange(
+  env: SkillEnvironment,
+  session: { action: "add" | "remove"; source: string },
+  context: InteractiveSkillsContext,
+): Promise<string | undefined> {
+  const { cwd, agentDir, settingsManager, additionalSkillPaths, resolveResourcePath } = context;
+  if (!additionalSkillPaths) {
+    context.showError("Session skill activation is unavailable for this resource loader.");
+    return undefined;
+  }
+
+  const pathContext = { cwd, agentDir, settingsManager, resolveResourcePath };
+  const { normalized, resolved } = await resolveSkillEntryPath(env, pathContext, session.source);
+
+  if (session.action === "add") {
+    if (!resolved) {
+      context.showError(`Skill not found in the catalog: ${session.source}`);
+      return undefined;
+    }
+    if (!additionalSkillPaths.includes(resolved)) additionalSkillPaths.push(resolved);
+    return `Enabled ${resolved} for this session.`;
+  }
+
+  const matches = (path: string): boolean =>
+    path === session.source || path === normalized || (resolved !== undefined && path === resolved);
+  if (!additionalSkillPaths.some(matches)) {
+    context.showError(`Skill is not enabled for this session: ${session.source}`);
+    return undefined;
+  }
+  const retained = additionalSkillPaths.filter((path) => !matches(path));
+  additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
+  return `Disabled ${session.source} for this session.`;
+}
+
+/** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */
+function formatActiveSkillLines(
+  activeEntries: ActiveSkillEntry[] | undefined,
+  additionalSkillPaths: string[] | undefined,
+): string[] {
+  const entries: { scope: string; source: string }[] = [
+    ...(activeEntries ?? []),
+    ...(additionalSkillPaths ?? []).map((source) => ({ scope: "session", source })),
+  ];
+  return entries.length
+    ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
+    : ["Skills: none"];
+}
+
+/**
+ * Runs the interactive `/skills` command.
+ *
+ * This holds the whole command body so `InteractiveMode` only needs to forward its context. Session scope
+ * resolves entries here rather than through resource-loader methods, so the loader keeps no skill-specific
+ * API of its own.
+ */
+export async function handleSkillsInteractive(
+  env: SkillEnvironment,
+  text: string,
+  context: InteractiveSkillsContext,
+): Promise<void> {
+  const args = text.slice("/skills".length).trim().split(/\s+/).filter(Boolean);
+  if (args.length === 1 && args[0] === "reload") {
+    await context.reload();
+    return;
+  }
+
+  const { cwd, agentDir, settingsManager } = context;
+  const result = await runSkillsCommand(env, args, { cwd, agentDir, settingsManager, allowSession: true });
+  if (result.exitCode !== 0) {
+    context.showWarning(result.lines.join("\n"));
+    return;
+  }
+
+  let lines = result.lines;
+  if (result.session) {
+    const line = await applySessionSkillChange(env, result.session, context);
+    if (line === undefined) return;
+    lines = [line];
+  }
+
+  if (args[0] === "active") {
+    lines = formatActiveSkillLines(result.activeEntries, context.additionalSkillPaths);
+  }
+
+  if (args[0] === "add" || args[0] === "remove") {
+    if (context.isBusy()) {
+      lines = [...lines, "Change will apply after `/skills reload` when the current operation finishes."];
+    } else {
+      await context.reload();
+    }
+  }
+
+  if (lines.length > 0) context.showOutput(lines.join("\n"));
+}

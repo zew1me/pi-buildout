@@ -9,6 +9,7 @@ import {
   looksLikePath,
   normalizeGitRemoteUrl,
   resolveRepoKey,
+  handleSkillsInteractive,
   runSkillsCommand,
   scopeFromArgs,
   sourceOf,
@@ -459,4 +460,124 @@ test("path sources resolve against the working directory before being persisted"
 
   assert.equal(result.exitCode, 0);
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/skills/alpha"]);
+});
+
+/**
+ * Builds an interactive context that records what the command did.
+ *
+ * @param {import("./skill-management-core.ts").SkillEnvironment} env
+ * @param {{ additionalSkillPaths?: string[] | undefined }} [options]
+ */
+function createInteractiveContext(env, options = {}) {
+  // Read the key rather than defaulting the parameter, so a test can pass `undefined` deliberately to model
+  // a resource loader that exposes no session list.
+  const additionalSkillPaths = "additionalSkillPaths" in options ? options.additionalSkillPaths : [];
+  /** @type {{ reloads: number; warnings: string[]; errors: string[]; output: string[] }} */
+  const calls = { reloads: 0, warnings: [], errors: [], output: [] };
+  /** @type {import("./skill-management-core.ts").InteractiveSkillsContext} */
+  const context = {
+    cwd: "/work",
+    agentDir: "/agent",
+    settingsManager: env.createSettingsManager("/work", "/agent"),
+    additionalSkillPaths,
+    resolveResourcePath: (path) => (path.startsWith("/") ? path : `/work/${path.replace(/^\.\//, "")}`),
+    isBusy: () => false,
+    reload: () => {
+      calls.reloads += 1;
+      return Promise.resolve();
+    },
+    showWarning: (message) => calls.warnings.push(message),
+    showError: (message) => calls.errors.push(message),
+    showOutput: (message) => calls.output.push(message),
+  };
+  return { context, calls };
+}
+
+test("/skills reload reloads and produces no other output", async () => {
+  const { env } = createEnvironment();
+  const { context, calls } = createInteractiveContext(env);
+  await handleSkillsInteractive(env, "/skills reload", context);
+  assert.equal(calls.reloads, 1);
+  assert.deepEqual(calls.output, []);
+  assert.deepEqual(calls.warnings, []);
+});
+
+test("/skills reload tolerates surrounding whitespace", async () => {
+  const { env } = createEnvironment();
+  const { context, calls } = createInteractiveContext(env);
+  await handleSkillsInteractive(env, "/skills   reload  ", context);
+  assert.equal(calls.reloads, 1);
+});
+
+test("/skills reload with an extra argument shows usage instead of reloading", async () => {
+  const { env } = createEnvironment();
+  const { context, calls } = createInteractiveContext(env);
+  await handleSkillsInteractive(env, "/skills reload now", context);
+  assert.equal(calls.reloads, 0, "an unrecognized invocation must not reload");
+  assert.equal(calls.warnings.length, 1);
+  assert.match(calls.warnings[0] ?? "", /^Usage: \/skills/);
+});
+
+test("/skills without a subcommand shows usage instead of reloading", async () => {
+  const { env } = createEnvironment();
+  const { context, calls } = createInteractiveContext(env);
+  await handleSkillsInteractive(env, "/skills", context);
+  assert.equal(calls.reloads, 0);
+  assert.equal(calls.warnings.length, 1);
+  assert.match(calls.warnings[0] ?? "", /^Usage: \/skills/);
+});
+
+test("/skills active includes session paths alongside persisted scopes", async () => {
+  const { env } = createEnvironment({
+    files: { "/agent/skills.json": JSON.stringify({ enabled: ["global-skill"] }) },
+  });
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: ["/tmp/session-skill"] });
+  await handleSkillsInteractive(env, "/skills active", context);
+  assert.deepEqual(calls.output, [
+    ["Active skills:", "  global: global-skill", "  session: /tmp/session-skill"].join("\n"),
+  ]);
+});
+
+test("/skills add --session activates for the session and reloads", async () => {
+  const { env } = withCatalog([{ name: "alpha", description: "First", filePath: "/pkg/alpha/SKILL.md" }]);
+  /** @type {string[]} */
+  const paths = [];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+  await handleSkillsInteractive(env, "/skills add alpha --session", context);
+  assert.deepEqual(paths, ["/pkg/alpha/SKILL.md"], "the loader's list is mutated in place");
+  assert.deepEqual(calls.output, ["Enabled /pkg/alpha/SKILL.md for this session."]);
+  assert.equal(calls.reloads, 1);
+});
+
+test("/skills remove --session deactivates a session skill", async () => {
+  const { env } = withCatalog([{ name: "alpha", description: "First", filePath: "/pkg/alpha/SKILL.md" }]);
+  const paths = ["/pkg/alpha/SKILL.md"];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+  await handleSkillsInteractive(env, "/skills remove alpha --session", context);
+  assert.deepEqual(paths, [], "the loader's list is mutated in place");
+  assert.deepEqual(calls.output, ["Disabled alpha for this session."]);
+});
+
+test("/skills remove --session reports a skill that is not active", async () => {
+  const { env } = withCatalog([{ name: "alpha", description: "First", filePath: "/pkg/alpha/SKILL.md" }]);
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: [] });
+  await handleSkillsInteractive(env, "/skills remove alpha --session", context);
+  assert.equal(calls.errors.length, 1);
+  assert.match(calls.errors[0] ?? "", /not enabled for this session/);
+});
+
+test("/skills session scope reports unavailability when the loader exposes no session list", async () => {
+  const { env } = withCatalog([{ name: "alpha", description: "First", filePath: "/pkg/alpha/SKILL.md" }]);
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: undefined });
+  await handleSkillsInteractive(env, "/skills add alpha --session", context);
+  assert.deepEqual(calls.errors, ["Session skill activation is unavailable for this resource loader."]);
+});
+
+test("/skills add defers the reload while the agent is busy", async () => {
+  const { env } = withCatalog([{ name: "alpha", description: "First", filePath: "/pkg/alpha/SKILL.md" }]);
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: [] });
+  context.isBusy = () => true;
+  await handleSkillsInteractive(env, "/skills add alpha --session", context);
+  assert.equal(calls.reloads, 0);
+  assert.match(calls.output[0] ?? "", /Change will apply after `\/skills reload`/);
 });

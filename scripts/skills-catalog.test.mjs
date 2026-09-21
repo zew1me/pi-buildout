@@ -254,7 +254,7 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
     const moduleUrl = (relativePath) => pathToFileURL(join(patchedPackage, relativePath)).href;
     const [
       { SettingsManager },
-      { getSkillCatalog, normalizeGitRemoteUrl, runSkillsCommand },
+      { getSkillCatalog, normalizeGitRemoteUrl, resolveSkillEntryPath, runSkillsCommand },
       { DefaultResourceLoader },
     ] = await Promise.all([
       import(moduleUrl("dist/core/settings-manager.js")),
@@ -318,9 +318,14 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
     assert.equal(cliList.stderr, "");
     assert.deepEqual(cliList.stdout.trim().split("\n"), listResult.lines);
 
+    // Entry resolution lives in the skill-management module, so DefaultResourceLoader keeps no skill API.
+    const entryContext = { cwd, agentDir, settingsManager, resolveResourcePath: (path) => path };
+    for (const name of ["package-manifest", "setting-project"]) {
+      const { resolved } = await resolveSkillEntryPath(entryContext, name);
+      assert.equal(resolved, catalogByName.get(name)?.filePath, name);
+    }
+
     const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
-    assert.equal(await loader.resolveSkillEntry("package-manifest"), catalogByName.get("package-manifest")?.filePath);
-    assert.equal(await loader.resolveSkillEntry("setting-project"), catalogByName.get("setting-project")?.filePath);
     await loader.reload();
     assert.deepEqual(
       loader.getSkills().skills.map((skill) => skill.name),

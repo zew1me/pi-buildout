@@ -1,0 +1,52 @@
+name: patch drift
+
+# Regenerating a patch fetches upstream sources and builds pi's workspace packages, which is far too slow to
+# run on every pull request. It runs when the authored overlay or the pipeline changes, on a weekly schedule
+# so upstream-side breakage (a withdrawn toolchain version, a re-published artifact) surfaces on its own, and
+# on demand. The fast offline gates in check.yml keep running on every pull request.
+
+on:
+  pull_request:
+    paths:
+      - "pi-overlay/**"
+      - "patches/**"
+      - "scripts/build-pi-patch.mjs"
+      - "scripts/build-pi-upgrade.mjs"
+      - ".github/workflows/patch-drift.yml"
+  push:
+    branches: [main]
+    paths:
+      - "pi-overlay/**"
+      - "patches/**"
+      - "scripts/build-pi-patch.mjs"
+      - "scripts/build-pi-upgrade.mjs"
+  schedule:
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: patch-drift-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - name: Install pinned dependencies
+        run: npm ci --ignore-scripts --registry=https://registry.npmjs.org/
+      # Regeneration needs npm and github.com. If either is unreachable the pipeline throws, which fails the
+      # job: an unverifiable patch must never look the same as a verified one.
+      - name: Regenerate the patch and compare against the committed artifacts
+        run: npm run patches:check

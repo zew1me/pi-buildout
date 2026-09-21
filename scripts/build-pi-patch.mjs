@@ -15,7 +15,7 @@
 
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { cp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, posix, relative, resolve } from "node:path";
@@ -130,7 +130,7 @@ export function diffChecksumManifests(expected, actual) {
 // I/O helpers
 // ---------------------------------------------------------------------------
 
-function sha256File(path) {
+export function sha256File(path) {
   return createHash("sha256").update(readFileSync(path)).digest("hex");
 }
 
@@ -257,7 +257,7 @@ async function assemblePatchedTree(target, baselineRoot, builtRoot, patchedSourc
  * the baseline is committed in a throwaway repository at package-relative paths and the patched tree is
  * diffed against it.
  */
-function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
+export function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
   const repo = join(workDir, "diff-repo");
   rmSync(repo, { recursive: true, force: true });
   mkdirSync(repo, { recursive: true });
@@ -306,6 +306,59 @@ function assertPatchApplies(workDir, baselineRoot, patchText, patchedManifest) {
     throw new Error(`Applying the generated patch did not reproduce: ${problems.join(", ")}`);
   }
   console.log("  generated patch applies to a clean baseline and matches patched.sha256");
+}
+
+/**
+ * Round-trips every recognized upgrade state against the freshly generated patched tree.
+ *
+ * Reverse-applying a migration must reconstruct exactly the state it claims to come from, so this catches an
+ * upgrade patch left behind by a regeneration without needing the original package anywhere.
+ */
+function assertUpgradeStatesRoundTrip(workDir, patchedRoot, outputDir) {
+  const states = readdirSync(outputDir)
+    .filter((name) => name.endsWith("-patched.sha256"))
+    .map((name) => name.slice(0, -"-patched.sha256".length));
+  if (states.length === 0) return;
+
+  for (const state of states) {
+    const upgradePatch = join(outputDir, `${state}-upgrade.patch`);
+    if (!existsSync(upgradePatch)) throw new Error(`Upgrade state ${state} has no upgrade patch.`);
+
+    const stage = join(workDir, `upgrade-check-${state}`);
+    rmSync(stage, { recursive: true, force: true });
+    execFileSync("cp", ["-R", patchedRoot, stage]);
+    const reverted = run("sh", ["-c", `patch --batch --reverse --strip=1 --directory="${stage}" < "${upgradePatch}"`], {
+      stdio: "ignore",
+    });
+    if (reverted !== 0) {
+      throw new Error(
+        `Upgrade state ${state} no longer applies to the generated patch; regenerate it:\n` +
+          `  node scripts/build-pi-upgrade.mjs --version <version> --label ${state} --from <old tree> --patched ${patchedRoot}`,
+      );
+    }
+
+    const problems = parseChecksumManifest(readFileSync(join(outputDir, `${state}-patched.sha256`), "utf-8"))
+      .filter((entry) => !existsSync(join(stage, entry.path)) || sha256File(join(stage, entry.path)) !== entry.sha256)
+      .map((entry) => entry.path);
+
+    const absentFile = join(outputDir, `${state}-absent`);
+    if (existsSync(absentFile)) {
+      for (const path of readFileSync(absentFile, "utf-8")
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)) {
+        if (existsSync(join(stage, path))) problems.push(`${path} should be absent`);
+      }
+    }
+    if (problems.length > 0) {
+      throw new Error(
+        `Upgrade state ${state} does not round-trip: ${problems.join(", ")}\n` +
+          `Regenerate it against the tree this run produced:\n` +
+          `  node scripts/build-pi-upgrade.mjs --version <version> --label ${state} --from <old tree> --patched ${patchedRoot}`,
+      );
+    }
+    console.log(`  upgrade state ${state} round-trips`);
+  }
 }
 
 async function main() {
@@ -439,6 +492,10 @@ async function main() {
       }
       console.log(`\nWrote ${Object.keys(artifacts).length} artifacts to ${relative(repositoryRoot, outputDir)}`);
     }
+
+    // Last, because a rebuild invalidates every migration and they are regenerated from the tree this run
+    // just produced. Checking earlier would block the write that regenerating them depends on.
+    assertUpgradeStatesRoundTrip(workDir, patchedRoot, outputDir);
   } finally {
     if (!keep && workDirFlag === -1) rmSync(workDir, { recursive: true, force: true });
     else console.log(`\nKept work directory: ${workDir}`);

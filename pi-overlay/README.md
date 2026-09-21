@@ -5,13 +5,13 @@ The authored form of the `/skills` runtime patch. Reviewed TypeScript here is th
 
 ## Layout
 
-| Path                                   | What it is                                                                                                                                                           |
-| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `skill-management-core.ts`             | All original logic. Imports nothing — Node built-ins and Pi's own helpers arrive through the injected `SkillEnvironment` seam.                                       |
-| `skill-management.ts`                  | The Pi-facing shell. The only file that names Pi modules; it binds the real implementations and keeps each export's signature identical to what Pi's call sites use. |
-| `skill-management-core.test.mjs`       | Focused unit tests over the core, using a fake environment. No real filesystem, no real git.                                                                         |
-| `versions/<version>/integration.patch` | The seam edits against upstream `packages/coding-agent` TypeScript source.                                                                                           |
-| `versions/<version>/replacements/`     | Files copied verbatim over the published package, not built from source.                                                                                             |
+| Path                                   | What it is                                                                                                                                                                       |
+| -------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `skill-management-core.ts`             | All original logic, including the interactive `/skills` command body. Imports nothing — Node built-ins and Pi's own helpers arrive through the injected `SkillEnvironment` seam. |
+| `skill-management.ts`                  | The Pi-facing shell. The only file that names Pi modules; it binds the real implementations and keeps each export's signature identical to what Pi's call sites use.             |
+| `skill-management-core.test.mjs`       | Focused unit tests over the core, using a fake environment. No real filesystem, no real git.                                                                                     |
+| `versions/<version>/integration.patch` | The seam edits against upstream `packages/coding-agent` TypeScript source.                                                                                                       |
+| `versions/<version>/replacements/`     | Files copied verbatim over the published package, not built from source.                                                                                                         |
 
 ## Why the core/shell split
 
@@ -27,6 +27,11 @@ reference in one thin shell means:
 
 Hand-written `.d.ts` stubs were considered and rejected: they drift from upstream and prove less than compiling against
 the real thing.
+
+Keep the shell as thin as it can be. Because it is outside this repository's ESLint and `tsc` runs, anything that lives
+there is checked only by upstream's compiler — no strict lint rules, no complexity limit. Logic put there and later
+moved into the core has arrived carrying lint errors more than once. New logic belongs in `skill-management-core.ts`;
+the shell should only bind and forward.
 
 ## Minimal seam policy
 

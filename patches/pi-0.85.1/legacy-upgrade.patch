@@ -25,200 +25,1144 @@ index c1d99e7..1ccec33 100755
 +process.title = `${APP_NAME}-rpc`;
 +main(["--mode", "rpc", ...process.argv.slice(2)]);
 diff --git a/dist/core/resource-loader.js b/dist/core/resource-loader.js
-index c85a0e5..e0153e1 100644
+index c85a0e5..26254a8 100644
 --- a/dist/core/resource-loader.js
 +++ b/dist/core/resource-loader.js
-@@ -332,7 +332,7 @@ export class DefaultResourceLoader {
+@@ -11,7 +11,7 @@ import { findGitPaths } from "./footer-data-provider.js";
+ import { DefaultPackageManager } from "./package-manager.js";
+ import { loadPromptTemplates } from "./prompt-templates.js";
+ import { SettingsManager } from "./settings-manager.js";
+-import { getActiveSkillEntries, getSkillCatalog, looksLikePath, sourceOf } from "./skill-management.js";
++import { resolveActiveSkillPaths } from "./skill-management.js";
+ import { loadSkills } from "./skills.js";
+ import { createSourceInfo } from "./source-info.js";
+ import { resetTimings } from "./timings.js";
+@@ -146,7 +146,6 @@ export class DefaultResourceLoader {
+     appendSystemPrompt;
+     appendSystemPromptSourcePaths;
+     lastSkillPaths;
+-    catalogPathsByName;
+     extensionSkillSourceInfos;
+     extensionPromptSourceInfos;
+     extensionThemeSourceInfos;
+@@ -264,7 +263,6 @@ export class DefaultResourceLoader {
+     }
+     async reload(options) {
+         resetTimings("extensions");
+-        this.invalidateSkillCatalogCache();
+         if (this.loaded) {
+             clearExtensionCache();
+         }
+@@ -330,9 +328,16 @@ export class DefaultResourceLoader {
+         }
+         this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
          this.applyExtensionSourceInfo(this.extensionsResult.extensions, metadataByPath);
-         // Skills are now opt-in. Package/settings/discovered skills form a catalog, but are not
-         // active unless explicitly enabled globally, for this repo, or for this session/CLI.
+-        // Skills are now opt-in. Package/settings/discovered skills form a catalog, but are not
+-        // active unless explicitly enabled globally, for this repo, or for this session/CLI.
 -        const activeSkills = this.noSkills ? { paths: [], diagnostics: [] } : this.getActiveSkillPaths();
-+        const activeSkills = this.noSkills ? { paths: [], diagnostics: [] } : await this.getActiveSkillPaths();
++        // Skills are opt-in: discovered, package and settings skills form a catalog but are not active
++        // unless explicitly enabled globally, for this repository, or for this session/CLI.
++        const activeSkills = this.noSkills
++            ? { paths: [], diagnostics: [] }
++            : await resolveActiveSkillPaths({
++                cwd: this.cwd,
++                agentDir: this.agentDir,
++                settingsManager: this.settingsManager,
++                resolveResourcePath: (p) => this.resolveResourcePath(p),
++            });
          const skillPaths = this.mergePaths([...cliEnabledSkills, ...activeSkills.paths], this.additionalSkillPaths);
          this.lastSkillPaths = skillPaths;
          this.updateSkillsFromPaths(skillPaths, metadataByPath);
-@@ -502,7 +502,7 @@ export class DefaultResourceLoader {
+@@ -502,50 +507,6 @@ export class DefaultResourceLoader {
              };
          });
      }
 -    getActiveSkillPaths() {
-+    async getActiveSkillPaths() {
-         const paths = [];
-         const diagnostics = [];
-         const entries = getActiveSkillEntries({
-@@ -514,7 +514,7 @@ export class DefaultResourceLoader {
-             const source = sourceOf(entry);
-             if (!source)
-                 continue;
+-        const paths = [];
+-        const diagnostics = [];
+-        const entries = getActiveSkillEntries({
+-            cwd: this.cwd,
+-            agentDir: this.agentDir,
+-            onWarn: (message) => diagnostics.push({ type: "warning", message }),
+-        });
+-        for (const entry of entries) {
+-            const source = sourceOf(entry);
+-            if (!source)
+-                continue;
 -            const resolved = this.resolveSkillEntry(source);
-+            const resolved = await this.resolveSkillEntry(source);
-             if (resolved) {
-                 paths.push(resolved);
-             }
-@@ -533,7 +533,7 @@ export class DefaultResourceLoader {
-             return undefined;
-         return looksLikePath(source) ? this.resolveResourcePath(source) : source;
-     }
+-            if (resolved) {
+-                paths.push(resolved);
+-            }
+-            else {
+-                diagnostics.push({ type: "warning", message: "Active skill could not be resolved", path: source });
+-            }
+-        }
+-        return { paths, diagnostics };
+-    }
+-    invalidateSkillCatalogCache() {
+-        this.catalogPathsByName = undefined;
+-    }
+-    normalizeSkillEntry(entry) {
+-        const source = sourceOf(entry);
+-        if (!source)
+-            return undefined;
+-        return looksLikePath(source) ? this.resolveResourcePath(source) : source;
+-    }
 -    resolveSkillEntry(entry) {
-+    async resolveSkillEntry(entry) {
-         const source = sourceOf(entry);
-         const normalized = this.normalizeSkillEntry(entry);
-         if (!source || !normalized)
-@@ -542,8 +542,8 @@ export class DefaultResourceLoader {
-             return existsSync(normalized) ? normalized : undefined;
-         return this.findCatalogSkillPath(normalized);
-     }
+-        const source = sourceOf(entry);
+-        const normalized = this.normalizeSkillEntry(entry);
+-        if (!source || !normalized)
+-            return undefined;
+-        if (looksLikePath(source))
+-            return existsSync(normalized) ? normalized : undefined;
+-        return this.findCatalogSkillPath(normalized);
+-    }
 -    findCatalogSkillPath(name) {
 -        this.catalogPathsByName ??= new Map(getSkillCatalog({ cwd: this.cwd, agentDir: this.agentDir, settingsManager: this.settingsManager }).map((skill) => [skill.name, skill.filePath]));
-+    async findCatalogSkillPath(name) {
-+        this.catalogPathsByName ??= new Map((await getSkillCatalog({ cwd: this.cwd, agentDir: this.agentDir, settingsManager: this.settingsManager })).map((skill) => [skill.name, skill.filePath]));
-         return this.catalogPathsByName.get(name);
-     }
+-        return this.catalogPathsByName.get(name);
+-    }
      updateSkillsFromPaths(skillPaths, metadataByPath) {
+         let skillsResult;
+         if (this.noSkills && skillPaths.length === 0) {
+diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
+new file mode 100644
+index 0000000..915d49d
+--- /dev/null
++++ b/dist/core/skill-management-core.js
+@@ -0,0 +1,469 @@
++/**
++ * Opt-in skill management for the patched Pi runtime.
++ *
++ * This module holds every piece of original logic in the `/skills` patch. It deliberately imports nothing:
++ * both Node built-ins and Pi's own helpers arrive through the injected {@link SkillEnvironment} seam. That
++ * keeps the module type-checkable and unit-testable inside this repository, while `skill-management.ts`
++ * binds the real implementations when the file is compiled inside a Pi source tree.
++ */
++function isObjectRecord(value) {
++    return value !== null && typeof value === "object" && !Array.isArray(value);
++}
++function readJson(env, path) {
++    if (!env.fs.existsSync(path))
++        return {};
++    try {
++        const value = JSON.parse(env.fs.readFileSync(path, "utf-8"));
++        if (!isObjectRecord(value))
++            throw new Error("Expected a JSON object");
++        return value;
++    }
++    catch (error) {
++        throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
++    }
++}
++function writeJson(env, path, value) {
++    env.fs.mkdirSync(env.path.dirname(path), { recursive: true });
++    const tempPath = `${path}.${String(env.processId())}.tmp`;
++    env.fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
++    env.fs.renameSync(tempPath, path);
++}
++function git(env, cwd, args) {
++    try {
++        return env
++            .execFileSync("git", ["-C", cwd, ...args], {
++            encoding: "utf-8",
++            stdio: ["ignore", "pipe", "ignore"],
++            timeout: 2000,
++        })
++            .trim();
++    }
++    catch {
++        return undefined;
++    }
++}
++export function normalizeGitRemoteUrl(rawUrl) {
++    if (!rawUrl)
++        return undefined;
++    const url = rawUrl.trim().replace(/^git\+/, "");
++    if (!url)
++        return undefined;
++    const scpLike = /^(?:[^@]+@)?([^:]+):(.+)$/.exec(url);
++    const scpHost = scpLike?.[1];
++    const scpPath = scpLike?.[2];
++    if (scpHost && scpPath !== undefined && !url.includes("://")) {
++        const repoPath = scpPath.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
++        return repoPath ? `${scpHost.toLowerCase()}:${repoPath}` : undefined;
++    }
++    try {
++        const parsed = new URL(url);
++        const repoPath = parsed.pathname.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
++        const defaultPort = parsed.protocol === "ssh:" ? "22" : parsed.protocol === "git:" ? "9418" : undefined;
++        const host = parsed.port && parsed.port !== defaultPort ? parsed.host : parsed.hostname;
++        return host && repoPath ? `${host.toLowerCase()}:${repoPath}` : undefined;
++    }
++    catch {
++        return undefined;
++    }
++}
++export function resolveRepoKey(env, cwd) {
++    for (const remote of ["upstream", "origin"]) {
++        const key = normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", remote]));
++        if (key)
++            return key;
++    }
++    const firstRemote = git(env, cwd, ["remote"])
++        ?.split(/\r?\n/)
++        .map((name) => name.trim())
++        .find(Boolean);
++    const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
++    if (firstKey)
++        return firstKey;
++    const root = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++    if (!root)
++        return undefined;
++    const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
++    return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
++}
++export function sourceOf(entry) {
++    if (typeof entry === "string")
++        return entry;
++    if (!entry || typeof entry !== "object")
++        return undefined;
++    const record = entry;
++    const source = record.source ?? record.path ?? record.name;
++    return typeof source === "string" ? source : undefined;
++}
++export function enabledEntries(value) {
++    if (!isObjectRecord(value))
++        return [];
++    const enabled = value.enabled;
++    return Array.isArray(enabled) ? enabled : [];
++}
++export function scopeFromArgs(args, allowSession = false) {
++    const allowed = allowSession ? ["--global", "--repo", "--session"] : ["--global", "--repo"];
++    const scopes = args.filter((arg) => allowed.includes(arg));
++    const scope = scopes[0];
++    if (scopes.length !== 1 || scope === undefined) {
++        throw new Error(`Specify exactly one scope: ${allowSession ? "--global, --repo, or --session" : "--global or --repo"}.`);
++    }
++    return scope.slice(2);
++}
++export function configLocation(env, scope, cwd, agentDir) {
++    if (scope === "global")
++        return { path: env.path.join(agentDir, "skills.json") };
++    if (scope === "repo") {
++        const key = resolveRepoKey(env, cwd);
++        if (!key)
++            throw new Error("Repository scope requires a git repository.");
++        return { path: env.path.join(agentDir, "repo-skills.json"), key };
++    }
++    return {};
++}
++export function looksLikePath(value) {
++    return value.includes("/") || value.includes("\\") || value.startsWith(".") || value.startsWith("~");
++}
++function normalizeSkillSource(env, source, options) {
++    if (!source)
++        return undefined;
++    return looksLikePath(source) ? env.resolvePath(source, options.cwd, { trim: true }) : source;
++}
++export function updatePersistedSkill(env, action, source, scope, options) {
++    const location = configLocation(env, scope, options.cwd, options.agentDir);
++    if (location.path === undefined)
++        throw new Error(`Scope ${scope} has no persisted configuration.`);
++    const config = readJson(env, location.path);
++    const existing = location.key === undefined ? config : config[location.key];
++    const target = location.key === undefined ? config : isObjectRecord(existing) ? existing : {};
++    const enabled = enabledEntries(target);
++    const matched = enabled.some((entry) => normalizeSkillSource(env, sourceOf(entry), options) === source);
++    if (action === "remove" && !matched)
++        return false;
++    target.enabled =
++        action === "add"
++            ? matched
++                ? enabled
++                : [...enabled, source]
++            : enabled.filter((entry) => normalizeSkillSource(env, sourceOf(entry), options) !== source);
++    if (location.key !== undefined)
++        config[location.key] = target;
++    writeJson(env, location.path, config);
++    return true;
++}
++export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
++    const entries = [];
++    const safeRead = (path) => {
++        try {
++            return readJson(env, path);
++        }
++        catch (error) {
++            if (strict)
++                throw error;
++            onWarn?.(`Ignoring skill configuration: ${error instanceof Error ? error.message : String(error)}`);
++            return {};
++        }
++    };
++    for (const source of enabledEntries(safeRead(env.path.join(agentDir, "skills.json")))) {
++        const value = sourceOf(source);
++        if (value)
++            entries.push({ scope: "global", source: value });
++    }
++    const key = resolveRepoKey(env, cwd);
++    if (key) {
++        const config = safeRead(env.path.join(agentDir, "repo-skills.json"));
++        for (const source of enabledEntries(config[key])) {
++            const value = sourceOf(source);
++            if (value)
++                entries.push({ scope: "repo", source: value });
++        }
++    }
++    return entries;
++}
++function getProjectAgentSkillDirs(env, cwd) {
++    const dirs = [];
++    const repoRoot = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++    const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
++    const resolvedCwd = env.path.resolve(cwd);
++    if (!env.fs.existsSync(resolvedCwd))
++        return dirs;
++    let current = env.fs.realpathSync(resolvedCwd);
++    for (;;) {
++        if (stopAt !== undefined) {
++            const fromRoot = env.path.relative(stopAt, current);
++            if (fromRoot === ".." || fromRoot.startsWith(`..${env.path.sep}`) || env.path.isAbsolute(fromRoot))
++                break;
++        }
++        dirs.push(env.path.join(current, ".agents", "skills"));
++        if (current === stopAt)
++            break;
++        const parent = env.path.dirname(current);
++        if (parent === current)
++            break;
++        current = parent;
++    }
++    return dirs;
++}
++export function getSkillCatalogDirs(env, { cwd, agentDir, projectTrusted = false }) {
++    const dirs = [env.path.join(agentDir, "skills"), env.path.join(env.homedir(), ".agents", "skills")];
++    if (projectTrusted) {
++        dirs.push(env.path.join(cwd, env.configDirName, "skills"), ...getProjectAgentSkillDirs(env, cwd));
++    }
++    return dirs;
++}
++export async function getSkillCatalog(env, { cwd, agentDir, settingsManager }) {
++    const manager = settingsManager ?? env.createSettingsManager(cwd, agentDir);
++    const found = new Map();
++    const addSkills = (skills) => {
++        for (const skill of skills) {
++            if (!found.has(skill.name))
++                found.set(skill.name, skill);
++        }
++    };
++    for (const dir of getSkillCatalogDirs(env, { cwd, agentDir, projectTrusted: manager.isProjectTrusted() })) {
++        addSkills(env.loadSkillsFromDir({ dir, source: "path" }).skills);
++    }
++    const resolved = await env.resolvePackageResources({ cwd, agentDir, settingsManager: manager });
++    const addResolvedSkills = (resources) => {
++        const paths = resources.filter((resource) => resource.enabled).map((resource) => resource.path);
++        addSkills(env.loadSkills({ cwd, agentDir, skillPaths: paths, includeDefaults: false }).skills);
++    };
++    addResolvedSkills(resolved.skills.filter((resource) => resource.metadata.origin === "package"));
++    addResolvedSkills(resolved.skills.filter((resource) => resource.metadata.origin === "top-level" && resource.metadata.source === "local"));
++    return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
++}
++async function resolveSkillSource(env, source, options) {
++    const normalized = normalizeSkillSource(env, source, options);
++    if (!normalized)
++        return undefined;
++    if (looksLikePath(source))
++        return env.fs.existsSync(normalized) ? normalized : undefined;
++    return (await getSkillCatalog(env, options)).find((skill) => skill.name === normalized)?.filePath;
++}
++function commandName(allowSession = false) {
++    return allowSession ? "/skills" : "pi skills";
++}
++export function usage(allowSession = false) {
++    const command = commandName(allowSession);
++    const scopes = `--global|--repo${allowSession ? "|--session" : ""}`;
++    return [
++        `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
++        `  ${command} active`,
++        `  ${command} list`,
++        `  ${command} search <query>`,
++        `  ${command} add <skill-or-path> ${scopes}`,
++        `  ${command} remove <skill-or-path> ${scopes}`,
++        ...(allowSession ? [`  ${command} reload`] : []),
++    ];
++}
++function runActiveCommand(env, rest, surface, options) {
++    if (rest.length !== 0)
++        throw new Error(`Usage: ${surface} active`);
++    const entries = getActiveSkillEntries(env, { ...options, strict: true });
++    return {
++        exitCode: 0,
++        lines: entries.length
++            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
++            : ["Skills: none"],
++        activeEntries: entries,
++    };
++}
++async function runCatalogCommand(env, command, rest, surface, options) {
++    if (command === "list" && rest.length !== 0)
++        throw new Error(`Usage: ${surface} list`);
++    const query = command === "search" ? rest.join(" ").trim().toLowerCase() : "";
++    if (command === "search" && !query)
++        throw new Error(`Usage: ${surface} search <query>`);
++    const skills = (await getSkillCatalog(env, options)).filter((skill) => !query || `${skill.name} ${skill.description}`.toLowerCase().includes(query));
++    return {
++        exitCode: 0,
++        lines: skills.length
++            ? skills.map((skill) => `${skill.name}\t${skill.description}`)
++            : [query ? "No matching skills." : "No catalog skills found."],
++    };
++}
++async function runMutationCommand(env, command, rest, surface, options) {
++    const scopeList = `--global|--repo${options.allowSession ? "|--session" : ""}`;
++    const source = rest.find((arg) => !arg.startsWith("--"));
++    if (!source)
++        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
++    const scope = scopeFromArgs(rest, options.allowSession);
++    if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
++        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
++    }
++    const target = normalizeSkillSource(env, source, options);
++    if (!target)
++        throw new Error(`Skill source is invalid: ${source}`);
++    if (command === "add" && !(await resolveSkillSource(env, source, options))) {
++        throw new Error(`Skill not found in the catalog or at an existing path: ${source}`);
++    }
++    if (scope === "session")
++        return { exitCode: 0, lines: [], session: { action: command, source: target } };
++    if (!updatePersistedSkill(env, command, target, scope, options)) {
++        throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
++    }
++    return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
++}
++export async function runSkillsCommand(env, args, options) {
++    try {
++        const surface = commandName(options.allowSession);
++        const [command, ...rest] = args;
++        if (command === "active")
++            return runActiveCommand(env, rest, surface, options);
++        if (command === "list" || command === "search") {
++            return await runCatalogCommand(env, command, rest, surface, options);
++        }
++        if (command === "add" || command === "remove") {
++            return await runMutationCommand(env, command, rest, surface, options);
++        }
++        return { exitCode: 1, lines: usage(options.allowSession) };
++    }
++    catch (error) {
++        return { exitCode: 1, lines: [error instanceof Error ? error.message : String(error)] };
++    }
++}
++/**
++ * Resolves the skills that are explicitly active for this session into concrete paths.
++ *
++ * Entries are either paths, which must exist, or catalog names, which are looked up by name. The catalog is
++ * built at most once per call: every caller resolves a whole entry list in one pass, so a longer-lived cache
++ * would only need invalidating without ever being reused.
++ */
++export async function resolveActiveSkillPaths(env, context) {
++    const { cwd, agentDir, settingsManager, resolveResourcePath } = context;
++    const paths = [];
++    const diagnostics = [];
++    const entries = getActiveSkillEntries(env, {
++        cwd,
++        agentDir,
++        onWarn: (message) => diagnostics.push({ type: "warning", message }),
++    });
++    let catalogPathsByName;
++    const findCatalogSkillPath = async (name) => {
++        catalogPathsByName ??= new Map((await getSkillCatalog(env, { cwd, agentDir, ...(settingsManager ? { settingsManager } : {}) })).map((skill) => [
++            skill.name,
++            skill.filePath,
++        ]));
++        return catalogPathsByName.get(name);
++    };
++    for (const entry of entries) {
++        const source = sourceOf(entry);
++        if (!source)
++            continue;
++        const normalized = looksLikePath(source) ? resolveResourcePath(source) : source;
++        const resolved = looksLikePath(source)
++            ? env.fs.existsSync(normalized)
++                ? normalized
++                : undefined
++            : await findCatalogSkillPath(normalized);
++        if (resolved) {
++            paths.push(resolved);
++        }
++        else {
++            diagnostics.push({ type: "warning", message: "Active skill could not be resolved", path: source });
++        }
++    }
++    return { paths, diagnostics };
++}
++/**
++ * Resolves a single skill entry for session scope.
++ *
++ * Returns both the normalized form (an expanded path, or the catalog name unchanged) and the concrete file
++ * path when one exists. Session activation needs both: the normalized form to match entries already in the
++ * session list, and the resolved path to add.
++ */
++export async function resolveSkillEntryPath(env, context, source) {
++    const { cwd, agentDir, settingsManager, resolveResourcePath } = context;
++    if (looksLikePath(source)) {
++        const normalized = resolveResourcePath(source);
++        return { normalized, resolved: env.fs.existsSync(normalized) ? normalized : undefined };
++    }
++    const catalog = await getSkillCatalog(env, {
++        cwd,
++        agentDir,
++        ...(settingsManager ? { settingsManager } : {}),
++    });
++    return { normalized: source, resolved: catalog.find((skill) => skill.name === source)?.filePath };
++}
++/**
++ * Applies a session-scope activation to the resource loader's own skill list.
++ *
++ * Returns the line to show, or `undefined` when it has already reported an error. The list is mutated in
++ * place because the loader holds the same array.
++ */
++async function applySessionSkillChange(env, session, context) {
++    const { cwd, agentDir, settingsManager, additionalSkillPaths, resolveResourcePath } = context;
++    if (!additionalSkillPaths) {
++        context.showError("Session skill activation is unavailable for this resource loader.");
++        return undefined;
++    }
++    const pathContext = { cwd, agentDir, settingsManager, resolveResourcePath };
++    const { normalized, resolved } = await resolveSkillEntryPath(env, pathContext, session.source);
++    if (session.action === "add") {
++        if (!resolved) {
++            context.showError(`Skill not found in the catalog: ${session.source}`);
++            return undefined;
++        }
++        if (!additionalSkillPaths.includes(resolved))
++            additionalSkillPaths.push(resolved);
++        return `Enabled ${resolved} for this session.`;
++    }
++    const matches = (path) => path === session.source || path === normalized || (resolved !== undefined && path === resolved);
++    if (!additionalSkillPaths.some(matches)) {
++        context.showError(`Skill is not enabled for this session: ${session.source}`);
++        return undefined;
++    }
++    const retained = additionalSkillPaths.filter((path) => !matches(path));
++    additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
++    return `Disabled ${session.source} for this session.`;
++}
++/** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */
++function formatActiveSkillLines(activeEntries, additionalSkillPaths) {
++    const entries = [
++        ...(activeEntries ?? []),
++        ...(additionalSkillPaths ?? []).map((source) => ({ scope: "session", source })),
++    ];
++    return entries.length
++        ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
++        : ["Skills: none"];
++}
++/**
++ * Runs the interactive `/skills` command.
++ *
++ * This holds the whole command body so `InteractiveMode` only needs to forward its context. Session scope
++ * resolves entries here rather than through resource-loader methods, so the loader keeps no skill-specific
++ * API of its own.
++ */
++export async function handleSkillsInteractive(env, text, context) {
++    const args = text.slice("/skills".length).trim().split(/\s+/).filter(Boolean);
++    if (args.length === 1 && args[0] === "reload") {
++        await context.reload();
++        return;
++    }
++    const { cwd, agentDir, settingsManager } = context;
++    const result = await runSkillsCommand(env, args, { cwd, agentDir, settingsManager, allowSession: true });
++    if (result.exitCode !== 0) {
++        context.showWarning(result.lines.join("\n"));
++        return;
++    }
++    let lines = result.lines;
++    if (result.session) {
++        const line = await applySessionSkillChange(env, result.session, context);
++        if (line === undefined)
++            return;
++        lines = [line];
++    }
++    if (args[0] === "active") {
++        lines = formatActiveSkillLines(result.activeEntries, context.additionalSkillPaths);
++    }
++    if (args[0] === "add" || args[0] === "remove") {
++        if (context.isBusy()) {
++            lines = [...lines, "Change will apply after `/skills reload` when the current operation finishes."];
++        }
++        else {
++            await context.reload();
++        }
++    }
++    if (lines.length > 0)
++        context.showOutput(lines.join("\n"));
++}
++//# sourceMappingURL=skill-management-core.js.map
+\ No newline at end of file
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index e040118..9ac670f 100644
+index e040118..72a6d09 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
-@@ -4,8 +4,9 @@ import { homedir } from "node:os";
+@@ -1,275 +1,122 @@
++/**
++ * Pi-facing entry point for opt-in skill management.
++ *
++ * This file is copied into `packages/coding-agent/src/core/` when the runtime patch is built. It is the only
++ * place that names Pi's own modules and Node's built-ins; all logic lives in `skill-management-core.ts`,
++ * which this module binds to the real implementations.
++ *
++ * Every export keeps the signature Pi's call sites use, so the integration patch against upstream files
++ * stays a handful of lines.
++ */
+ import { execFileSync } from "node:child_process";
++import chalk from "chalk";
+ import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+ import { homedir } from "node:os";
  import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
++import { createProjectTrustContext } from "../cli/project-trust.js";
  import { CONFIG_DIR_NAME } from "../config.js";
++import { resolveProjectTrusted } from "./project-trust.js";
++import { ProjectTrustStore } from "./trust-manager.js";
  import { resolvePath } from "../utils/paths.js";
 +import { DefaultPackageManager } from "./package-manager.js";
  import { SettingsManager } from "./settings-manager.js";
 -import { loadSkillsFromDir } from "./skills.js";
-+import { loadSkills, loadSkillsFromDir } from "./skills.js";
- 
- function isObjectRecord(value) {
-     return value !== null && typeof value === "object" && !Array.isArray(value);
-@@ -15,7 +16,9 @@ function readJson(path) {
-         return {};
-     try {
-         const value = JSON.parse(readFileSync(path, "utf-8"));
+-
+-function isObjectRecord(value) {
+-    return value !== null && typeof value === "object" && !Array.isArray(value);
+-}
+-function readJson(path) {
+-    if (!existsSync(path))
+-        return {};
+-    try {
+-        const value = JSON.parse(readFileSync(path, "utf-8"));
 -        return isObjectRecord(value) ? value : {};
-+        if (!isObjectRecord(value))
-+            throw new Error("Expected a JSON object");
-+        return value;
-     }
-     catch (error) {
-         throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
-@@ -53,7 +56,9 @@ export function normalizeGitRemoteUrl(rawUrl) {
-     try {
-         const parsed = new URL(url);
-         const repoPath = parsed.pathname.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
+-    }
+-    catch (error) {
+-        throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
+-    }
+-}
+-function writeJson(path, value) {
+-    mkdirSync(dirname(path), { recursive: true });
+-    const tempPath = `${path}.${process.pid}.tmp`;
+-    writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
+-    renameSync(tempPath, path);
+-}
+-function git(cwd, args) {
+-    try {
+-        return execFileSync("git", ["-C", cwd, ...args], {
+-            encoding: "utf-8",
+-            stdio: ["ignore", "pipe", "ignore"],
+-            timeout: 2000,
+-        }).trim();
+-    }
+-    catch {
+-        return undefined;
+-    }
+-}
+-export function normalizeGitRemoteUrl(rawUrl) {
+-    if (!rawUrl)
+-        return undefined;
+-    let url = rawUrl.trim().replace(/^git\+/, "");
+-    if (!url)
+-        return undefined;
+-    const scpLike = url.match(/^(?:[^@]+@)?([^:]+):(.+)$/);
+-    if (scpLike && !url.includes("://")) {
+-        const repoPath = scpLike[2].replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
+-        return repoPath ? `${scpLike[1].toLowerCase()}:${repoPath}` : undefined;
+-    }
+-    try {
+-        const parsed = new URL(url);
+-        const repoPath = parsed.pathname.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
 -        return parsed.hostname && repoPath ? `${parsed.hostname.toLowerCase()}:${repoPath}` : undefined;
-+        const defaultPort = parsed.protocol === "ssh:" ? "22" : parsed.protocol === "git:" ? "9418" : undefined;
-+        const host = parsed.port && parsed.port !== defaultPort ? parsed.host : parsed.hostname;
-+        return host && repoPath ? `${host.toLowerCase()}:${repoPath}` : undefined;
-     }
-     catch {
-         return undefined;
-@@ -181,15 +186,25 @@ export function getSkillCatalogDirs({ cwd, agentDir, projectTrusted = false }) {
-     }
-     return dirs;
+-    }
+-    catch {
+-        return undefined;
+-    }
+-}
++import { loadSkills, loadSkillsFromDir } from "./skills.js";
++import * as core from "./skill-management-core.js";
++const env = {
++    fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
++    path: { dirname, isAbsolute, join, relative, resolve, sep },
++    homedir,
++    execFileSync,
++    processId: () => process.pid,
++    configDirName: CONFIG_DIR_NAME,
++    resolvePath,
++    loadSkillsFromDir,
++    loadSkills,
++    createSettingsManager: (cwd, agentDir) => SettingsManager.create(cwd, agentDir, { projectTrusted: false }),
++    // The core declares only the narrow `SettingsManagerLike` it calls, but every caller supplies a real
++    // SettingsManager: either pi's own, or the one `createSettingsManager` builds just above.
++    resolvePackageResources: async ({ cwd, agentDir, settingsManager }) => new DefaultPackageManager({
++        cwd,
++        agentDir,
++        settingsManager: settingsManager,
++    }).resolve(),
++};
++/** Re-exported unchanged: a pure string predicate with no environment dependency. */
++export const looksLikePath = core.looksLikePath;
++/** Re-exported unchanged: reads a configured entry's source with no environment dependency. */
++export const sourceOf = core.sourceOf;
++export function getActiveSkillEntries(options) {
++    return core.getActiveSkillEntries(env, options);
++}
++export async function getSkillCatalog(options) {
++    return core.getSkillCatalog(env, options);
++}
++export async function runSkillsCommand(args, options) {
++    return core.runSkillsCommand(env, args, options);
++}
++/**
++ * Resolves the explicitly active skills for a resource loader.
++ *
++ * `DefaultResourceLoader` calls this instead of carrying the resolution logic itself, which keeps the
++ * upstream diff to a single call site.
++ */
++export async function resolveActiveSkillPaths(context) {
++    return core.resolveActiveSkillPaths(env, context);
++}
++/**
++ * Runs the one-shot `pi skills ...` command and prints its result.
++ *
++ * Trust resolution lives here rather than in `main.ts` so the upstream entry point only needs to route the
++ * subcommand. Catalog-reading subcommands may surface project-local skills, so they resolve project trust
++ * first; mutations and `active` do not.
++ */
++export async function handleSkillsCli(options) {
++    const { args, cwd, agentDir, settingsManager } = options;
++    const hasUI = Boolean(process.stdin.isTTY && process.stdout.isTTY);
++    if (args[0] !== undefined && ["list", "search", "add"].includes(args[0])) {
++        settingsManager.setProjectTrusted(await resolveProjectTrusted({
++            cwd,
++            trustStore: new ProjectTrustStore(agentDir),
++            defaultProjectTrust: settingsManager.getDefaultProjectTrust(),
++            projectTrustContext: createProjectTrustContext({
++                cwd,
++                mode: hasUI ? "interactive" : "print",
++                settingsManager,
++                hasUI,
++            }),
++        }));
++    }
++    const result = await runSkillsCommand(args, { cwd, agentDir, settingsManager });
++    const output = result.lines.join("\n");
++    if (result.exitCode === 0) {
++        if (output)
++            console.log(output);
++    }
++    else {
++        console.error(chalk.red(output));
++        process.exitCode = result.exitCode;
++    }
++}
++/** Runs the interactive `/skills` command. See `skill-management-core.ts` for the behaviour. */
++export async function handleSkillsInteractive(text, context) {
++    return core.handleSkillsInteractive(env, text, context);
++}
++// The runtime module keeps the full public surface the previous hand-written patch exposed, so repository
++// tests and any other consumer can reach the pure helpers directly.
++export const normalizeGitRemoteUrl = core.normalizeGitRemoteUrl;
++export const scopeFromArgs = core.scopeFromArgs;
++export const usage = core.usage;
+ export function resolveRepoKey(cwd) {
+-    for (const remote of ["upstream", "origin"]) {
+-        const key = normalizeGitRemoteUrl(git(cwd, ["remote", "get-url", remote]));
+-        if (key)
+-            return key;
+-    }
+-    const firstRemote = git(cwd, ["remote"])?.split(/\r?\n/).map((name) => name.trim()).find(Boolean);
+-    const firstKey = firstRemote && normalizeGitRemoteUrl(git(cwd, ["remote", "get-url", firstRemote]));
+-    if (firstKey)
+-        return firstKey;
+-    const root = git(cwd, ["rev-parse", "--show-toplevel"]);
+-    if (!root)
+-        return undefined;
+-    const rel = relative(homedir(), root).split(sep).join("/");
+-    return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
+-}
+-export function sourceOf(entry) {
+-    if (typeof entry === "string")
+-        return entry;
+-    if (!entry || typeof entry !== "object")
+-        return undefined;
+-    const source = entry.source ?? entry.path ?? entry.name;
+-    return typeof source === "string" ? source : undefined;
+-}
+-function enabledEntries(value) {
+-    return Array.isArray(value?.enabled) ? value.enabled : [];
+-}
+-function scopeFromArgs(args, allowSession = false) {
+-    const allowed = allowSession ? ["--global", "--repo", "--session"] : ["--global", "--repo"];
+-    const scopes = args.filter((arg) => allowed.includes(arg));
+-    if (scopes.length !== 1)
+-        throw new Error(`Specify exactly one scope: ${allowSession ? "--global, --repo, or --session" : "--global or --repo"}.`);
+-    return scopes[0].slice(2);
+-}
+-function configLocation(scope, cwd, agentDir) {
+-    if (scope === "global")
+-        return { path: join(agentDir, "skills.json") };
+-    if (scope === "repo") {
+-        const key = resolveRepoKey(cwd);
+-        if (!key)
+-            throw new Error("Repository scope requires a git repository.");
+-        return { path: join(agentDir, "repo-skills.json"), key };
+-    }
+-    return {};
++    return core.resolveRepoKey(env, cwd);
  }
+-function updatePersistedSkill(action, source, scope, options) {
+-    const location = configLocation(scope, options.cwd, options.agentDir);
+-    const config = readJson(location.path);
+-    const target = location.key ? (isObjectRecord(config[location.key]) ? config[location.key] : {}) : config;
+-    const enabled = enabledEntries(target);
+-    const matched = enabled.some((entry) => normalizeSkillSource(sourceOf(entry), options) === source);
+-    if (action === "remove" && !matched)
+-        return false;
+-    const next = action === "add"
+-        ? (matched ? enabled : [...enabled, source])
+-        : enabled.filter((entry) => normalizeSkillSource(sourceOf(entry), options) !== source);
+-    target.enabled = next;
+-    if (location.key)
+-        config[location.key] = target;
+-    writeJson(location.path, config);
+-    return true;
++export function getSkillCatalogDirs(options) {
++    return core.getSkillCatalogDirs(env, options);
+ }
+-export function getActiveSkillEntries({ cwd, agentDir, strict = false, onWarn }) {
+-    const entries = [];
+-    const safeRead = (path) => {
+-        try {
+-            return readJson(path);
+-        }
+-        catch (error) {
+-            if (strict)
+-                throw error;
+-            onWarn?.(`Ignoring skill configuration: ${error instanceof Error ? error.message : String(error)}`);
+-            return {};
+-        }
+-    };
+-    for (const source of enabledEntries(safeRead(join(agentDir, "skills.json")))) {
+-        const value = sourceOf(source);
+-        if (value)
+-            entries.push({ scope: "global", source: value });
+-    }
+-    const key = resolveRepoKey(cwd);
+-    if (key) {
+-        const config = safeRead(join(agentDir, "repo-skills.json"));
+-        for (const source of enabledEntries(config[key])) {
+-            const value = sourceOf(source);
+-            if (value)
+-                entries.push({ scope: "repo", source: value });
+-        }
+-    }
+-    return entries;
+-}
+-export function getProjectAgentSkillDirs(cwd) {
+-    const dirs = [];
+-    const repoRoot = git(cwd, ["rev-parse", "--show-toplevel"]);
+-    const stopAt = repoRoot ? realpathSync(resolve(repoRoot)) : undefined;
+-    const resolvedCwd = resolve(cwd);
+-    if (!existsSync(resolvedCwd))
+-        return dirs;
+-    let current = realpathSync(resolvedCwd);
+-    while (true) {
+-        if (stopAt) {
+-            const fromRoot = relative(stopAt, current);
+-            if (fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot))
+-                break;
+-        }
+-        dirs.push(join(current, ".agents", "skills"));
+-        if (current === stopAt)
+-            break;
+-        const parent = dirname(current);
+-        if (parent === current)
+-            break;
+-        current = parent;
+-    }
+-    return dirs;
+-}
+-export function getSkillCatalogDirs({ cwd, agentDir, projectTrusted = false }) {
+-    const dirs = [join(agentDir, "skills"), join(homedir(), ".agents", "skills")];
+-    if (projectTrusted) {
+-        dirs.push(join(cwd, CONFIG_DIR_NAME, "skills"), ...getProjectAgentSkillDirs(cwd));
+-    }
+-    return dirs;
+-}
 -export function getSkillCatalog({ cwd, agentDir, settingsManager }) {
-+export async function getSkillCatalog({ cwd, agentDir, settingsManager }) {
-     const manager = settingsManager ?? SettingsManager.create(cwd, agentDir, { projectTrusted: false });
-     const found = new Map();
+-    const manager = settingsManager ?? SettingsManager.create(cwd, agentDir, { projectTrusted: false });
+-    const found = new Map();
 -    for (const dir of getSkillCatalogDirs({ cwd, agentDir, projectTrusted: manager.isProjectTrusted() })) {
 -        for (const skill of loadSkillsFromDir({ dir, source: "path" }).skills) {
-+    const addSkills = (skills) => {
-+        for (const skill of skills) {
-             if (!found.has(skill.name))
-                 found.set(skill.name, skill);
-         }
-+    };
-+    for (const dir of getSkillCatalogDirs({ cwd, agentDir, projectTrusted: manager.isProjectTrusted() })) {
-+        addSkills(loadSkillsFromDir({ dir, source: "path" }).skills);
-     }
-+    const resolved = await new DefaultPackageManager({ cwd, agentDir, settingsManager: manager }).resolve();
-+    const addResolvedSkills = (resources) => {
-+        const paths = resources.filter((resource) => resource.enabled).map((resource) => resource.path);
-+        addSkills(loadSkills({ cwd, agentDir, skillPaths: paths, includeDefaults: false }).skills);
-+    };
-+    addResolvedSkills(resolved.skills.filter((resource) => resource.metadata.origin === "package"));
-+    addResolvedSkills(resolved.skills.filter((resource) => resource.metadata.origin === "top-level" && resource.metadata.source === "local"));
-     return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
- }
- export function looksLikePath(value) {
-@@ -200,13 +215,13 @@ function normalizeSkillSource(source, options) {
-         return undefined;
-     return looksLikePath(source) ? resolvePath(source, options.cwd, { trim: true }) : source;
- }
+-            if (!found.has(skill.name))
+-                found.set(skill.name, skill);
+-        }
+-    }
+-    return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+-}
+-export function looksLikePath(value) {
+-    return value.includes("/") || value.includes("\\") || value.startsWith(".") || value.startsWith("~");
+-}
+-function normalizeSkillSource(source, options) {
+-    if (!source)
+-        return undefined;
+-    return looksLikePath(source) ? resolvePath(source, options.cwd, { trim: true }) : source;
+-}
 -function resolveSkillSource(source, options) {
-+async function resolveSkillSource(source, options) {
-     const normalized = normalizeSkillSource(source, options);
-     if (!normalized)
-         return undefined;
-     if (looksLikePath(source))
-         return existsSync(normalized) ? normalized : undefined;
+-    const normalized = normalizeSkillSource(source, options);
+-    if (!normalized)
+-        return undefined;
+-    if (looksLikePath(source))
+-        return existsSync(normalized) ? normalized : undefined;
 -    return getSkillCatalog(options).find((skill) => skill.name === normalized)?.filePath;
-+    return (await getSkillCatalog(options)).find((skill) => skill.name === normalized)?.filePath;
- }
- function commandName(allowSession = false) {
-     return allowSession ? "/skills" : "pi skills";
-@@ -224,7 +239,7 @@ function usage(allowSession = false) {
-         ...(allowSession ? [`  ${command} reload`] : []),
-     ];
- }
+-}
+-function commandName(allowSession = false) {
+-    return allowSession ? "/skills" : "pi skills";
+-}
+-function usage(allowSession = false) {
+-    const command = commandName(allowSession);
+-    const scopes = `--global|--repo${allowSession ? "|--session" : ""}`;
+-    return [
+-        `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
+-        `  ${command} active`,
+-        `  ${command} list`,
+-        `  ${command} search <query>`,
+-        `  ${command} add <skill-or-path> ${scopes}`,
+-        `  ${command} remove <skill-or-path> ${scopes}`,
+-        ...(allowSession ? [`  ${command} reload`] : []),
+-    ];
+-}
 -export function runSkillsCommand(args, options) {
-+export async function runSkillsCommand(args, options) {
-     try {
-         const surface = commandName(options.allowSession);
-         const [command, ...rest] = args;
-@@ -244,7 +259,7 @@ export function runSkillsCommand(args, options) {
-             const query = command === "search" ? rest.join(" ").trim().toLowerCase() : "";
-             if (command === "search" && !query)
-                 throw new Error(`Usage: ${surface} search <query>`);
+-    try {
+-        const surface = commandName(options.allowSession);
+-        const [command, ...rest] = args;
+-        if (command === "active") {
+-            if (rest.length !== 0)
+-                throw new Error(`Usage: ${surface} active`);
+-            const entries = getActiveSkillEntries({ ...options, strict: true });
+-            return {
+-                exitCode: 0,
+-                lines: entries.length ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)] : ["Skills: none"],
+-                activeEntries: entries,
+-            };
+-        }
+-        if (command === "list" || command === "search") {
+-            if (command === "list" && rest.length !== 0)
+-                throw new Error(`Usage: ${surface} list`);
+-            const query = command === "search" ? rest.join(" ").trim().toLowerCase() : "";
+-            if (command === "search" && !query)
+-                throw new Error(`Usage: ${surface} search <query>`);
 -            const skills = getSkillCatalog(options).filter((skill) => !query || `${skill.name} ${skill.description}`.toLowerCase().includes(query));
-+            const skills = (await getSkillCatalog(options)).filter((skill) => !query || `${skill.name} ${skill.description}`.toLowerCase().includes(query));
-             return { exitCode: 0, lines: skills.length ? skills.map((skill) => `${skill.name}\t${skill.description}`) : [query ? "No matching skills." : "No catalog skills found."] };
-         }
-         if (command === "add" || command === "remove") {
-@@ -257,7 +272,7 @@ export function runSkillsCommand(args, options) {
-             const target = normalizeSkillSource(source, options);
-             if (!target)
-                 throw new Error(`Skill source is invalid: ${source}`);
+-            return { exitCode: 0, lines: skills.length ? skills.map((skill) => `${skill.name}\t${skill.description}`) : [query ? "No matching skills." : "No catalog skills found."] };
+-        }
+-        if (command === "add" || command === "remove") {
+-            const source = rest.find((arg) => !arg.startsWith("--"));
+-            if (!source)
+-                throw new Error(`Usage: ${surface} ${command} <skill-or-path> --global|--repo${options.allowSession ? "|--session" : ""}`);
+-            const scope = scopeFromArgs(rest, options.allowSession);
+-            if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg)))
+-                throw new Error(`Usage: ${surface} ${command} <skill-or-path> --global|--repo${options.allowSession ? "|--session" : ""}`);
+-            const target = normalizeSkillSource(source, options);
+-            if (!target)
+-                throw new Error(`Skill source is invalid: ${source}`);
 -            if (command === "add" && !resolveSkillSource(source, options))
-+            if (command === "add" && !(await resolveSkillSource(source, options)))
-                 throw new Error(`Skill not found in the catalog or at an existing path: ${source}`);
-             if (scope === "session") {
-                 return { exitCode: 0, lines: [], session: { action: command, source: target } };
+-                throw new Error(`Skill not found in the catalog or at an existing path: ${source}`);
+-            if (scope === "session") {
+-                return { exitCode: 0, lines: [], session: { action: command, source: target } };
+-            }
+-            const updated = updatePersistedSkill(command, target, scope, options);
+-            if (!updated)
+-                throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
+-            return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
+-        }
+-        return { exitCode: 1, lines: usage(options.allowSession) };
+-    }
+-    catch (error) {
+-        return { exitCode: 1, lines: [error instanceof Error ? error.message : String(error)] };
+-    }
++/**
++ * Resolves one skill entry to a concrete file path, for session scope and for callers that need to check a
++ * catalog name without loading every active skill.
++ */
++export async function resolveSkillEntryPath(context, source) {
++    return core.resolveSkillEntryPath(env, context, source);
+ }
++//# sourceMappingURL=skill-management.js.map
+\ No newline at end of file
 diff --git a/dist/main.js b/dist/main.js
-index 4f86a90..9ac8d30 100644
+index 4f86a90..b90c9d6 100644
 --- a/dist/main.js
 +++ b/dist/main.js
-@@ -485,7 +485,7 @@ export async function main(args, options) {
-             });
-             bootstrapSettingsManager.setProjectTrusted(projectTrusted);
-         }
+@@ -26,10 +26,10 @@ import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.js";
+ import { exportFromFile } from "./core/export-html/index.js";
+ import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.js";
+ import { resolveCliModel, resolveModelScope } from "./core/model-resolver.js";
++import { handleSkillsCli } from "./core/skill-management.js";
+ import { ModelRuntime } from "./core/model-runtime.js";
+ import { restoreStdout, takeOverStdout } from "./core/output-guard.js";
+ import { resolveProjectTrusted } from "./core/project-trust.js";
+-import { runSkillsCommand } from "./core/skill-management.js";
+ import { formatMissingSessionCwdPrompt, getMissingSessionCwdIssue, MissingSessionCwdError, } from "./core/session-cwd.js";
+ import { assertValidSessionId, SessionManager } from "./core/session-manager.js";
+ import { collectSettingsDiagnostics, deduplicateDiagnostics } from "./core/settings-diagnostics.js";
+@@ -471,34 +471,7 @@ export async function main(args, options) {
+         return;
+     }
+     if (args[0] === "skills") {
+-        if (["list", "search", "add"].includes(args[1])) {
+-            const projectTrusted = await resolveProjectTrusted({
+-                cwd,
+-                trustStore: new ProjectTrustStore(agentDir),
+-                defaultProjectTrust: bootstrapSettingsManager.getDefaultProjectTrust(),
+-                projectTrustContext: createProjectTrustContext({
+-                    cwd,
+-                    mode: process.stdin.isTTY && process.stdout.isTTY ? "interactive" : "print",
+-                    settingsManager: bootstrapSettingsManager,
+-                    hasUI: Boolean(process.stdin.isTTY && process.stdout.isTTY),
+-                }),
+-            });
+-            bootstrapSettingsManager.setProjectTrusted(projectTrusted);
+-        }
 -        const result = runSkillsCommand(args.slice(1), {
-+        const result = await runSkillsCommand(args.slice(1), {
-             cwd,
-             agentDir,
-             settingsManager: bootstrapSettingsManager,
+-            cwd,
+-            agentDir,
+-            settingsManager: bootstrapSettingsManager,
+-        });
+-        const output = result.lines.join("\n");
+-        if (result.exitCode === 0) {
+-            if (output)
+-                console.log(output);
+-        }
+-        else {
+-            console.error(chalk.red(output));
+-            process.exitCode = result.exitCode;
+-        }
++        await handleSkillsCli({ args: args.slice(1), cwd, agentDir, settingsManager: bootstrapSettingsManager });
+         return;
+     }
+     const parsed = parseArgs(args);
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index e88834b..09913d0 100644
+index e88834b..f131946 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
-@@ -4983,7 +4983,7 @@ export class InteractiveMode {
-             await this.handleReloadCommand();
-             return;
-         }
+@@ -24,7 +24,8 @@ import { CredentialSynchronizationError } from "../../core/model-runtime.js";
+ import { DefaultPackageManager } from "../../core/package-manager.js";
+ import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.js";
+ import { SessionManager, sessionEntryToContextMessages } from "../../core/session-manager.js";
+-import { runSkillsCommand } from "../../core/skill-management.js";
++import { resolvePath } from "../../utils/paths.js";
++import { handleSkillsInteractive } from "../../core/skill-management.js";
+ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
+ import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
+ import { withBuiltInRenderers } from "../../core/tools/renderers/index.js";
+@@ -2474,11 +2475,6 @@ export class InteractiveMode {
+                 await this.handleReloadCommand();
+                 return;
+             }
+-            if (text === "/skills" || text.startsWith("/skills ")) {
+-                this.editor.setText("");
+-                await this.handleSkillsCommand(text);
+-                return;
+-            }
+             if (text === "/debug") {
+                 this.handleDebugCommand();
+                 this.editor.setText("");
+@@ -4978,80 +4974,22 @@ export class InteractiveMode {
+     // Command handlers
+     // =========================================================================
+     async handleSkillsCommand(text) {
+-        const args = text.slice("/skills".length).trim().split(/\s+/).filter(Boolean);
+-        if (args.length === 1 && args[0] === "reload") {
+-            await this.handleReloadCommand();
+-            return;
+-        }
 -        const result = runSkillsCommand(args, {
-+        const result = await runSkillsCommand(args, {
++        await handleSkillsInteractive(text, {
              cwd: this.sessionManager.getCwd(),
              agentDir: getAgentDir(),
              settingsManager: this.settingsManager,
-@@ -5002,7 +5002,7 @@ export class InteractiveMode {
-             if (typeof loader.invalidateSkillCatalogCache === "function") {
-                 loader.invalidateSkillCatalogCache();
-             }
+-            allowSession: true,
++            additionalSkillPaths: this.session.resourceLoader.additionalSkillPaths,
++            resolveResourcePath: (p) => resolvePath(p, this.sessionManager.getCwd()),
++            isBusy: () => this.session.isStreaming || this.session.isCompacting,
++            reload: () => this.handleReloadCommand(),
++            showWarning: (message) => this.showWarning(message),
++            showError: (message) => this.showError(message),
++            showOutput: (message) => {
++                this.chatContainer.addChild(new Spacer(1));
++                this.chatContainer.addChild(new Text(message, 1, 0));
++                this.ui.requestRender();
++            },
+         });
+-        if (result.exitCode !== 0) {
+-            this.showWarning(result.lines.join("\n"));
+-            return;
+-        }
+-        if (result.session) {
+-            const loader = this.session.resourceLoader;
+-            if (typeof loader.resolveSkillEntry !== "function" || !Array.isArray(loader.additionalSkillPaths)) {
+-                this.showError("Session skill activation is unavailable for this resource loader.");
+-                return;
+-            }
+-            if (typeof loader.invalidateSkillCatalogCache === "function") {
+-                loader.invalidateSkillCatalogCache();
+-            }
 -            const resolved = loader.resolveSkillEntry(result.session.source);
-+            const resolved = await loader.resolveSkillEntry(result.session.source);
-             if (result.session.action === "add") {
-                 if (!resolved) {
-                     this.showError(`Skill not found in the catalog: ${result.session.source}`);
+-            if (result.session.action === "add") {
+-                if (!resolved) {
+-                    this.showError(`Skill not found in the catalog: ${result.session.source}`);
+-                    return;
+-                }
+-                if (!loader.additionalSkillPaths.includes(resolved)) {
+-                    loader.additionalSkillPaths.push(resolved);
+-                }
+-            }
+-            else {
+-                const matches = (path) => {
+-                    const normalized = typeof loader.normalizeSkillEntry === "function" ? loader.normalizeSkillEntry(path) : path;
+-                    return path === result.session.source || normalized === result.session.source || (resolved !== undefined && normalized === resolved);
+-                };
+-                const enabled = loader.additionalSkillPaths.some(matches);
+-                if (!enabled) {
+-                    this.showError(`Skill is not enabled for this session: ${result.session.source}`);
+-                    return;
+-                }
+-                const retainedPaths = loader.additionalSkillPaths.filter((path) => !matches(path));
+-                loader.additionalSkillPaths.splice(0, loader.additionalSkillPaths.length, ...retainedPaths);
+-            }
+-            const displayedSource = result.session.action === "add" ? resolved : result.session.source;
+-            result.lines = [`${result.session.action === "add" ? "Enabled" : "Disabled"} ${displayedSource} for this session.`];
+-        }
+-        if (args[0] === "active") {
+-            const sessionPaths = this.session.resourceLoader.additionalSkillPaths;
+-            const activeEntries = [
+-                ...(result.activeEntries ?? []),
+-                ...(Array.isArray(sessionPaths) ? sessionPaths : []).map((source) => ({ scope: "session", source })),
+-            ];
+-            result.lines = activeEntries.length
+-                ? ["Active skills:", ...activeEntries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
+-                : ["Skills: none"];
+-        }
+-        if (args[0] === "add" || args[0] === "remove") {
+-            const reloadDeferred = this.session.isStreaming || this.session.isCompacting;
+-            if (reloadDeferred) {
+-                result.lines.push("Change will apply after `/skills reload` when the current operation finishes.");
+-            }
+-            else {
+-                await this.handleReloadCommand();
+-            }
+-        }
+-        if (result.lines.length > 0) {
+-            this.chatContainer.addChild(new Spacer(1));
+-            this.chatContainer.addChild(new Text(result.lines.join("\n"), 1, 0));
+-            this.ui.requestRender();
+-        }
+     }
+     async handleReloadCommand() {
+         if (this.session.isStreaming) {
 diff --git a/docs/skills.md b/docs/skills.md
 index 70d11fa..4126d77 100644
 --- a/docs/skills.md

@@ -1,162 +1,67 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFile } from "node:fs/promises";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-const patchPath = fileURLToPath(new URL("../patches/pi-0.85.1/skills.patch", import.meta.url));
-
-function countOccurrences(text, character) {
-  return text.split(character).length - 1;
-}
+import { fileURLToPath } from "node:url";
 
 /**
- * Extract a brace-balanced block that the patch adds, keeping the patched runtime as the single
- * source of truth for these tests instead of restating its dispatch logic here.
+ * Guards the wiring the patch installs, not the behaviour behind it.
+ *
+ * `/skills` has three dispatch surfaces — the interactive command, the one-shot CLI, and the builtin command
+ * list — and all three must route into the shared skill-management module rather than carrying their own
+ * copy of the logic. The behaviour itself is covered by `pi-overlay/skill-management-core.test.mjs` at the
+ * TypeScript level and by `scripts/skills-catalog.test.mjs` against a really patched package.
  */
-function extractAddedBlock(patchText, signature) {
+const patchPath = fileURLToPath(new URL("../patches/pi-0.85.1/skills.patch", import.meta.url));
+
+/** Returns the lines the patch adds to a given file. */
+function addedLinesFor(patchText, file) {
   const lines = patchText.split("\n");
-  const start = lines.findIndex((line) => line.startsWith("+") && line.slice(1).trimStart().startsWith(signature));
-  assert.notEqual(start, -1, `patch does not add a block starting with ${signature}`);
+  const start = lines.findIndex((line) => line === `+++ b/${file}`);
+  assert.notEqual(start, -1, `patch does not touch ${file}`);
 
-  const block = [];
-  let depth = 0;
-  for (let index = start; index < lines.length; index += 1) {
+  const added = [];
+  for (let index = start + 1; index < lines.length; index += 1) {
     const line = lines[index];
-    assert.ok(line.startsWith("+"), `block starting with ${signature} is not fully added by the patch`);
-    const source = line.slice(1);
-    block.push(source);
-    depth += countOccurrences(source, "{") - countOccurrences(source, "}");
-    if (depth === 0) {
-      return block.join("\n");
-    }
+    if (line.startsWith("--- ") || line.startsWith("diff --git ")) break;
+    if (line.startsWith("+") && !line.startsWith("+++")) added.push(line.slice(1));
   }
-  assert.fail(`block starting with ${signature} is not brace balanced`);
+  return added.join("\n");
 }
 
-async function loadPatchedHandler() {
-  const patchText = await readFile(patchPath, "utf8");
-  const commandNameSource = extractAddedBlock(patchText, "function commandName(");
-  const usageSource = extractAddedBlock(patchText, "function usage(");
-  const runSkillsCommandSource = extractAddedBlock(patchText, "export async function runSkillsCommand(");
-  const handlerSource = extractAddedBlock(patchText, "async handleSkillsCommand(");
+const patchText = await readFile(patchPath, "utf8");
 
-  // Catalog and persistence helpers throw so that any dispatch beyond the paths under test is loud.
-  const moduleSource = [
-    "function unavailable(name) {",
-    "  return () => {",
-    "    throw new Error(`unexpected call to ${name}`);",
-    "  };",
-    "}",
-    'const getActiveSkillEntries = unavailable("getActiveSkillEntries");',
-    'const getSkillCatalog = unavailable("getSkillCatalog");',
-    'const updatePersistedSkill = unavailable("updatePersistedSkill");',
-    'const scopeFromArgs = unavailable("scopeFromArgs");',
-    commandNameSource,
-    usageSource,
-    runSkillsCommandSource,
-    "export function attachSkillsHandler(instance, { getAgentDir, Spacer, Text }) {",
-    "  Object.assign(instance, {",
-    handlerSource,
-    "  });",
-    "  return instance;",
-    "}",
-  ].join("\n");
-
-  const directory = await mkdtemp(join(tmpdir(), "skills-patch-dispatch-"));
-  const modulePath = join(directory, "patched-dispatch.mjs");
-  await writeFile(modulePath, moduleSource, "utf8");
-  const { attachSkillsHandler } = await import(pathToFileURL(modulePath).href);
-  return attachSkillsHandler;
-}
-
-const attachSkillsHandler = await loadPatchedHandler();
-
-function createInteractiveModeStub() {
-  const calls = { reloads: 0, warnings: [], errors: [], rendered: 0 };
-  const instance = {
-    editor: {
-      setText() {},
-    },
-    sessionManager: {
-      getCwd: () => process.cwd(),
-    },
-    session: {
-      isStreaming: false,
-      isCompacting: false,
-      resourceLoader: {
-        additionalSkillPaths: [],
-        resolveSkillEntry: () => undefined,
-      },
-    },
-    chatContainer: {
-      addChild() {
-        calls.rendered += 1;
-      },
-    },
-    ui: {
-      requestRender() {},
-    },
-    showWarning(text) {
-      calls.warnings.push(text);
-    },
-    showError(text) {
-      calls.errors.push(text);
-    },
-    handleReloadCommand() {
-      calls.reloads += 1;
-      return Promise.resolve();
-    },
-  };
-
-  attachSkillsHandler(instance, {
-    getAgentDir: () => join(process.cwd(), ".pi"),
-    Spacer: class Spacer {},
-    Text: class Text {},
-  });
-
-  return { instance, calls };
-}
-
-test("/skills reload triggers a reload", async () => {
-  const { instance, calls } = createInteractiveModeStub();
-
-  await instance.handleSkillsCommand("/skills reload");
-
-  assert.equal(calls.reloads, 1);
-  assert.deepEqual(calls.warnings, []);
-  assert.deepEqual(calls.errors, []);
-  assert.equal(calls.rendered, 0);
+test("the builtin command list registers /skills with its argument hint", () => {
+  const added = addedLinesFor(patchText, "dist/core/slash-commands.js");
+  assert.match(added, /name: "skills"/u);
+  assert.match(added, /argumentHint: "<active\|list\|search\|add\|remove\|reload>"/u);
 });
 
-test("/skills reload tolerates surrounding whitespace", async () => {
-  const { instance, calls } = createInteractiveModeStub();
-
-  await instance.handleSkillsCommand("/skills   reload  ");
-
-  assert.equal(calls.reloads, 1);
-  assert.deepEqual(calls.warnings, []);
+test("interactive mode delegates /skills to the shared module", () => {
+  const added = addedLinesFor(patchText, "dist/modes/interactive/interactive-mode.js");
+  assert.match(added, /import \{ handleSkillsInteractive \} from "\.\.\/\.\.\/core\/skill-management\.js"/u);
+  assert.match(added, /async handleSkillsCommand\(text\)/u);
+  assert.match(added, /await handleSkillsInteractive\(text, \{/u);
+  assert.doesNotMatch(added, /runSkillsCommand\(/u, "interactive mode must not re-implement the dispatch");
 });
 
-test("/skills reload with an extra argument shows usage instead of reloading", async () => {
-  const { instance, calls } = createInteractiveModeStub();
-
-  await instance.handleSkillsCommand("/skills reload unexpected");
-
-  assert.equal(calls.reloads, 0);
-  assert.equal(calls.errors.length, 0);
-  assert.equal(calls.warnings.length, 1);
-  assert.match(calls.warnings[0], /^Usage: \/skills <active\|list\|search\|add\|remove\|reload>$/m);
-  assert.equal(calls.rendered, 0);
+test("interactive mode forwards the session skill list so session scope can mutate it", () => {
+  const added = addedLinesFor(patchText, "dist/modes/interactive/interactive-mode.js");
+  assert.match(added, /additionalSkillPaths: this\.session\.resourceLoader\.additionalSkillPaths/u);
+  assert.match(added, /reload: \(\) => this\.handleReloadCommand\(\)/u);
 });
 
-test("/skills without a subcommand shows usage instead of reloading", async () => {
-  const { instance, calls } = createInteractiveModeStub();
+test("the one-shot CLI delegates pi skills to the shared module", () => {
+  const added = addedLinesFor(patchText, "dist/main.js");
+  assert.match(added, /import \{ handleSkillsCli \} from "\.\/core\/skill-management\.js"/u);
+  assert.match(added, /if \(args\[0\] === "skills"\)/u);
+  assert.match(added, /await handleSkillsCli\(\{/u);
+});
 
-  await instance.handleSkillsCommand("/skills");
-
-  assert.equal(calls.reloads, 0);
-  assert.equal(calls.warnings.length, 1);
-  assert.match(calls.warnings[0], /^Usage: \/skills </m);
+test("the resource loader asks the shared module for active skills and keeps no skill API of its own", () => {
+  const added = addedLinesFor(patchText, "dist/core/resource-loader.js");
+  assert.match(added, /import \{ resolveActiveSkillPaths \} from "\.\/skill-management\.js"/u);
+  assert.match(added, /await resolveActiveSkillPaths\(\{/u);
+  for (const removed of ["getActiveSkillPaths", "resolveSkillEntry", "findCatalogSkillPath"]) {
+    assert.doesNotMatch(added, new RegExp(`${removed}\\(`, "u"), `${removed} belongs in skill-management`);
+  }
 });

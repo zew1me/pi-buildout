@@ -28,6 +28,7 @@ import type {
   ActiveSkillEntry,
   ActiveSkillPathsContext,
   CatalogSkill,
+  InteractiveSkillsContext,
   SettingsManagerLike,
   SkillCommandOptions,
   SkillCommandResult,
@@ -40,6 +41,7 @@ export type {
   ActiveSkillEntry,
   ActiveSkillPathsContext,
   CatalogSkill,
+  InteractiveSkillsContext,
   SkillCommandOptions,
   SkillCommandResult,
   SkillDiagnostic,
@@ -56,6 +58,8 @@ const env: SkillEnvironment = {
   loadSkillsFromDir,
   loadSkills,
   createSettingsManager: (cwd, agentDir) => SettingsManager.create(cwd, agentDir, { projectTrusted: false }),
+  // The core declares only the narrow `SettingsManagerLike` it calls, but every caller supplies a real
+  // SettingsManager: either pi's own, or the one `createSettingsManager` builds just above.
   resolvePackageResources: async ({ cwd, agentDir, settingsManager }) =>
     new DefaultPackageManager({
       cwd,
@@ -140,97 +144,32 @@ export async function handleSkillsCli(options: {
   }
 }
 
-/** What {@link handleSkillsInteractive} needs from `InteractiveMode`. */
-export type InteractiveSkillsContext = {
-  cwd: string;
-  agentDir: string;
-  settingsManager: SettingsManager;
-  /**
-   * The resource loader's session skill list, mutated in place so the loader sees the change.
-   *
-   * Optional because `ResourceLoader` implementations other than `DefaultResourceLoader` need not expose it;
-   * session scope reports that it is unavailable rather than failing.
-   */
-  additionalSkillPaths: string[] | undefined;
-  resolveResourcePath: (path: string) => string;
-  /** True while the agent is streaming or compacting, when a reload must be deferred. */
-  isBusy: () => boolean;
-  reload: () => Promise<void>;
-  showWarning: (message: string) => void;
-  showError: (message: string) => void;
-  showOutput: (message: string) => void;
-};
+/** Runs the interactive `/skills` command. See `skill-management-core.ts` for the behaviour. */
+export async function handleSkillsInteractive(text: string, context: InteractiveSkillsContext): Promise<void> {
+  return core.handleSkillsInteractive(env, text, context);
+}
+
+// The runtime module keeps the full public surface the previous hand-written patch exposed, so repository
+// tests and any other consumer can reach the pure helpers directly.
+export const normalizeGitRemoteUrl = core.normalizeGitRemoteUrl;
+export const scopeFromArgs = core.scopeFromArgs;
+export const usage = core.usage;
+
+export function resolveRepoKey(cwd: string): string | undefined {
+  return core.resolveRepoKey(env, cwd);
+}
+
+export function getSkillCatalogDirs(options: { cwd: string; agentDir: string; projectTrusted?: boolean }): string[] {
+  return core.getSkillCatalogDirs(env, options);
+}
 
 /**
- * Runs the interactive `/skills` command.
- *
- * This holds the whole command body so `InteractiveMode` only needs to forward its context. Session scope
- * resolves entries through this module rather than through resource-loader methods, so the loader keeps no
- * skill-specific API of its own.
+ * Resolves one skill entry to a concrete file path, for session scope and for callers that need to check a
+ * catalog name without loading every active skill.
  */
-export async function handleSkillsInteractive(text: string, context: InteractiveSkillsContext): Promise<void> {
-  const args = text.slice("/skills".length).trim().split(/\s+/).filter(Boolean);
-  if (args.length === 1 && args[0] === "reload") {
-    await context.reload();
-    return;
-  }
-
-  const { cwd, agentDir, settingsManager, additionalSkillPaths, resolveResourcePath } = context;
-  const result = await runSkillsCommand(args, { cwd, agentDir, settingsManager, allowSession: true });
-  if (result.exitCode !== 0) {
-    context.showWarning(result.lines.join("\n"));
-    return;
-  }
-
-  const session = result.session;
-  let lines = result.lines;
-
-  if (session) {
-    if (!additionalSkillPaths) {
-      context.showError("Session skill activation is unavailable for this resource loader.");
-      return;
-    }
-    const pathContext = { cwd, agentDir, settingsManager, resolveResourcePath };
-    const { normalized, resolved } = await core.resolveSkillEntryPath(env, pathContext, session.source);
-
-    if (session.action === "add") {
-      if (!resolved) {
-        context.showError(`Skill not found in the catalog: ${session.source}`);
-        return;
-      }
-      if (!additionalSkillPaths.includes(resolved)) additionalSkillPaths.push(resolved);
-    } else {
-      const matches = (path: string): boolean =>
-        path === session.source || path === normalized || (resolved !== undefined && path === resolved);
-      if (!additionalSkillPaths.some(matches)) {
-        context.showError(`Skill is not enabled for this session: ${session.source}`);
-        return;
-      }
-      const retained = additionalSkillPaths.filter((path) => !matches(path));
-      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
-    }
-
-    const displayed = session.action === "add" ? resolved : session.source;
-    lines = [`${session.action === "add" ? "Enabled" : "Disabled"} ${displayed} for this session.`];
-  }
-
-  if (args[0] === "active") {
-    const entries = [
-      ...(result.activeEntries ?? []).map((entry) => ({ scope: entry.scope as string, source: entry.source })),
-      ...(additionalSkillPaths ?? []).map((source) => ({ scope: "session", source })),
-    ];
-    lines = entries.length
-      ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
-      : ["Skills: none"];
-  }
-
-  if (args[0] === "add" || args[0] === "remove") {
-    if (context.isBusy()) {
-      lines = [...lines, "Change will apply after `/skills reload` when the current operation finishes."];
-    } else {
-      await context.reload();
-    }
-  }
-
-  if (lines.length > 0) context.showOutput(lines.join("\n"));
+export async function resolveSkillEntryPath(
+  context: ActiveSkillPathsContext,
+  source: string,
+): Promise<{ normalized: string; resolved: string | undefined }> {
+  return core.resolveSkillEntryPath(env, context, source);
 }
