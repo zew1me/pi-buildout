@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { access, cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -13,7 +16,13 @@ import { fileURLToPath } from "node:url";
  */
 const patchPath = fileURLToPath(new URL("../patches/pi-0.85.1/skills.patch", import.meta.url));
 
-/** Returns the lines the patch adds to a given file. */
+/**
+ * Returns the lines the patch adds to a given file.
+ *
+ * Only added lines, so this proves what the patch introduces but never what the patched file ends up
+ * containing. Assertions that something is *absent* belong against the applied result instead — see
+ * "the applied patch leaves no relocated implementation behind".
+ */
 function addedLinesFor(patchText, file) {
   const lines = patchText.split("\n");
   const start = lines.findIndex((line) => line === `+++ b/${file}`);
@@ -68,5 +77,79 @@ test("the resource loader asks the shared module for active skills and keeps no 
   assert.match(added, /await resolveActiveSkillPaths\(\{/u);
   for (const removed of ["getActiveSkillPaths", "resolveSkillEntry", "findCatalogSkillPath"]) {
     assert.doesNotMatch(added, new RegExp(`${removed}\\(`, "u"), `${removed} belongs in skill-management`);
+  }
+});
+
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+const packageRoot = join(repositoryRoot, "node_modules", "@earendil-works", "pi-coding-agent");
+
+async function exists(path) {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The package-relative paths the patch writes, taken from its own `+++ b/` headers. */
+function patchedPaths(text) {
+  return text
+    .split("\n")
+    .filter((line) => line.startsWith("+++ b/"))
+    .map((line) => line.slice("+++ b/".length).trim());
+}
+
+async function applyPatchTo(target) {
+  await new Promise((resolvePromise, reject) => {
+    const child = spawn("patch", ["--batch", "--forward", "--strip=1"], {
+      cwd: target,
+      stdio: ["pipe", "ignore", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolvePromise();
+      else reject(new Error(`patch exited with code ${String(code)}: ${stderr.trim()}`));
+    });
+    child.stdin.end(patchText);
+  });
+}
+
+/**
+ * Applies the patch to the installed 0.85.1 baseline and asserts against the complete resulting files.
+ *
+ * The negative claims above are checked against added lines only, so they would also hold if an
+ * implementation survived untouched in the baseline. This is the check that actually rules that out.
+ */
+test("the applied patch leaves no relocated implementation behind", async (t) => {
+  if (!(await exists(join(packageRoot, "package.json")))) {
+    t.skip("the installed @earendil-works/pi-coding-agent package is unavailable");
+    return;
+  }
+
+  const target = await mkdtemp(join(tmpdir(), "skills-dispatch-"));
+  try {
+    for (const path of patchedPaths(patchText)) {
+      const source = join(packageRoot, path);
+      if (!(await exists(source))) continue; // A file the patch creates.
+      await mkdir(join(target, dirname(path)), { recursive: true });
+      await cp(source, join(target, path));
+    }
+    await applyPatchTo(target);
+
+    const interactive = await readFile(join(target, "dist/modes/interactive/interactive-mode.js"), "utf8");
+    assert.match(interactive, /await this\.handleSkillsCommand\(text\);/u, "interactive mode must dispatch /skills");
+    assert.doesNotMatch(interactive, /runSkillsCommand\(/u, "interactive mode must not re-implement the dispatch");
+
+    const loader = await readFile(join(target, "dist/core/resource-loader.js"), "utf8");
+    for (const removed of ["getActiveSkillPaths", "resolveSkillEntry", "findCatalogSkillPath"]) {
+      assert.doesNotMatch(loader, new RegExp(`${removed}\\(`, "u"), `${removed} belongs in skill-management`);
+    }
+  } finally {
+    await rm(target, { recursive: true, force: true });
   }
 });
