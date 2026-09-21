@@ -221,6 +221,10 @@ test("pi 0.84.2 and later patches normalize persisted paths and lock configurati
       /return withSkillConfigLock\(location\.path, \(\) => \{[\s\S]*const config = readJson\(location\.path\);[\s\S]*writeJson\(location\.path, config\);[\s\S]*\}\);/,
     );
     assert.match(source, /looksLikePath\(source\) \|\| existsSync\(resolved\) \? resolved : source/);
+    assert.match(
+      source,
+      /finally \{\n {8}try \{\n {12}release\(\);\n {8}\}\n {8}catch \(error\) \{\n {12}console\.error\(/,
+    );
     assert.match(source, /const target = normalizeSkillSource\(source, options\);/);
     assert.match(source, /updatePersistedSkill\(command, target, scope, options\);/);
   }

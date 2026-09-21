@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index 1105d40..12cce60 100644
+index 1105d40..94e5086 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
 @@ -2,7 +2,9 @@ import { execFileSync } from "node:child_process";
@@ -12,7 +12,7 @@ index 1105d40..12cce60 100644
  import { loadSkillsFromDir } from "./skills.js";
  
  function readJson(path) {
-@@ -22,6 +24,38 @@ function writeJson(path, value) {
+@@ -22,6 +24,43 @@ function writeJson(path, value) {
      writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
      renameSync(tempPath, path);
  }
@@ -45,7 +45,12 @@ index 1105d40..12cce60 100644
 +        return fn();
 +    }
 +    finally {
-+        release();
++        try {
++            release();
++        }
++        catch (error) {
++            console.error(`Could not release skill configuration lock ${path}: ${error instanceof Error ? error.message : String(error)}`);
++        }
 +    }
 +}
  function git(cwd, args) {

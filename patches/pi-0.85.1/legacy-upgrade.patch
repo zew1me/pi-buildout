@@ -76,7 +76,7 @@ index c85a0e5..e0153e1 100644
      }
      updateSkillsFromPaths(skillPaths, metadataByPath) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index e040118..00c9a4b 100644
+index e040118..a5cbed9 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
 @@ -2,10 +2,12 @@ import { execFileSync } from "node:child_process";
@@ -104,7 +104,7 @@ index e040118..00c9a4b 100644
      }
      catch (error) {
          throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
-@@ -27,6 +31,38 @@ function writeJson(path, value) {
+@@ -27,6 +31,43 @@ function writeJson(path, value) {
      writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
      renameSync(tempPath, path);
  }
@@ -137,7 +137,12 @@ index e040118..00c9a4b 100644
 +        return fn();
 +    }
 +    finally {
-+        release();
++        try {
++            release();
++        }
++        catch (error) {
++            console.error(`Could not release skill configuration lock ${path}: ${error instanceof Error ? error.message : String(error)}`);
++        }
 +    }
 +}
  function git(cwd, args) {

@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index 9ac670f..00c9a4b 100644
+index 9ac670f..a5cbed9 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
 @@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
@@ -10,7 +10,7 @@ index 9ac670f..00c9a4b 100644
  import { CONFIG_DIR_NAME } from "../config.js";
  import { resolvePath } from "../utils/paths.js";
  import { DefaultPackageManager } from "./package-manager.js";
-@@ -30,6 +31,38 @@ function writeJson(path, value) {
+@@ -30,6 +31,43 @@ function writeJson(path, value) {
      writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
      renameSync(tempPath, path);
  }
@@ -43,7 +43,12 @@ index 9ac670f..00c9a4b 100644
 +        return fn();
 +    }
 +    finally {
-+        release();
++        try {
++            release();
++        }
++        catch (error) {
++            console.error(`Could not release skill configuration lock ${path}: ${error instanceof Error ? error.message : String(error)}`);
++        }
 +    }
 +}
  function git(cwd, args) {

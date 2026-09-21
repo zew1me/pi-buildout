@@ -122,10 +122,10 @@ index c5ed4d7..e0153e1 100644
          if (this.noSkills && skillPaths.length === 0) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..00c9a4b
+index 0000000..a5cbed9
 --- /dev/null
 +++ b/dist/core/skill-management.js
-@@ -0,0 +1,326 @@
+@@ -0,0 +1,331 @@
 +import { execFileSync } from "node:child_process";
 +import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 +import { homedir } from "node:os";
@@ -188,7 +188,12 @@ index 0000000..00c9a4b
 +        return fn();
 +    }
 +    finally {
-+        release();
++        try {
++            release();
++        }
++        catch (error) {
++            console.error(`Could not release skill configuration lock ${path}: ${error instanceof Error ? error.message : String(error)}`);
++        }
 +    }
 +}
 +function git(cwd, args) {
