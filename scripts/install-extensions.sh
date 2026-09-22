@@ -9,6 +9,7 @@ EXTENSIONS=(clear effort markdown-backlinks subagents)
 PATCH_FILES=()
 UPGRADE_SUMS=()
 UPGRADE_PATCHES=()
+UPGRADE_ABSENT=()
 PATCH_STAGE_DIR=
 PATCH_BACKUP_DIR=
 PATCH_COMMIT_IN_PROGRESS=0
@@ -182,6 +183,11 @@ if ((APPLY_SKILLS_PATCH)); then
     fi
     UPGRADE_SUMS+=("$upgrade_sums")
     UPGRADE_PATCHES+=("$upgrade_patch")
+    # Optional, and empty when the state contains every patched file. Lists paths that must not exist in
+    # that state, so a patch which adds a file can still describe the states that predate it.
+    upgrade_absent=${upgrade_sums%-patched.sha256}-absent
+    [[ -f "$upgrade_absent" ]] || upgrade_absent=
+    UPGRADE_ABSENT+=("$upgrade_absent")
   done
   for upgrade_patch in "$PATCH_DIR"/*-upgrade.patch; do
     [[ -f "$upgrade_patch" ]] || continue
@@ -220,9 +226,18 @@ if ((APPLY_SKILLS_PATCH)); then
   MATCHED_UPGRADE_PATCH=
   for upgrade_index in "${!UPGRADE_SUMS[@]}"; do
     upgrade_sums=${UPGRADE_SUMS[$upgrade_index]}
+    upgrade_absent=${UPGRADE_ABSENT[$upgrade_index]}
     upgrade_matches=1
     for file in "${PATCH_FILES[@]}"; do
       upgrade_checksum=$(manifest_checksum "$upgrade_sums" "$file")
+      if [[ -n "$upgrade_absent" ]] && grep -Fxq "$file" "$upgrade_absent"; then
+        if [[ -n "$upgrade_checksum" ]]; then
+          printf 'Upgrade manifests conflict for %s in %s.\n' "$file" "$(basename "$upgrade_sums")" >&2
+          exit 1
+        fi
+        [[ ! -e "$PI_PACKAGE_DIR/$file" && ! -L "$PI_PACKAGE_DIR/$file" ]] || upgrade_matches=0
+        continue
+      fi
       if [[ ! "$upgrade_checksum" =~ ^[0-9a-f]{64}$ ]]; then
         printf 'Upgrade checksum manifest %s is invalid for %s.\n' "$(basename "$upgrade_sums")" "$file" >&2
         exit 1

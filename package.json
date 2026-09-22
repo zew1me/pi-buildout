@@ -26,10 +26,12 @@
     "lint:markdown": "markdownlint-cli2 \"**/*.md\"",
     "lint:shell": "shellcheck scripts/*.sh",
     "typecheck": "tsc --noEmit",
-    "test": "node --test extensions/*/*.test.mjs scripts/*.test.mjs",
+    "test": "node --test extensions/*/*.test.mjs pi-overlay/*.test.mjs scripts/*.test.mjs",
     "knip": "knip",
     "secrets": "secretlint \"**/*\"",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run knip && npm run secrets",
+    "patches:build": "node scripts/build-pi-patch.mjs",
+    "patches:check": "node scripts/build-pi-patch.mjs --check",
     "audit": "node scripts/check-audit.mjs"
   },
   "devDependencies": {

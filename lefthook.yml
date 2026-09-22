@@ -7,6 +7,11 @@ pre-commit:
       stage_fixed: true
     eslint:
       glob: "*.{js,mjs,cjs,ts,mts,cts}"
+      # Skip the paths eslint.config.mjs ignores. Passing them explicitly makes ESLint warn that the file is
+      # ignored, and --max-warnings 0 turns that warning into a failed commit.
+      exclude:
+        - "pi-overlay/skill-management.ts"
+        - "pi-overlay/versions/**"
       run: npx eslint --fix --max-warnings 0 {staged_files}
       stage_fixed: true
     markdown:

@@ -10,6 +10,7 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 | `extensions/subagents`                 | Natural-language creation and control of isolated, recursively nestable Pi subagents        | [`extensions/subagents/README.md`](extensions/subagents/README.md)                   |
 | `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
 | `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-0.85.1/README.md`](patches/pi-0.85.1/README.md)                         |
+| `pi-overlay`                           | Authored TypeScript the newest `/skills` patch is generated from                            | [`pi-overlay/README.md`](pi-overlay/README.md)                                       |
 
 ## Installation
 
@@ -37,6 +38,22 @@ of runtime files from that patch's checksum manifest, stages and verifies the pa
 bundled pi releases, the versioned patch delegates the published entrypoints to the patched unbundled runtime. The
 installer can also migrate recognized earlier patch states and rejects unknown or mixed states. It does not modify pi
 settings. Use `--skip-skill-loading-patch` to install only the extensions.
+
+### Where the `/skills` patch comes from
+
+From pi 0.85.1 the patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overlay`](pi-overlay) is the
+source of truth, and `patches/pi-0.85.1/*` is produced from it:
+
+```bash
+npm run patches:build # regenerate the patch and its checksum manifests
+npm run patches:check # fail if the committed artifacts are stale
+```
+
+The pipeline fetches the pinned upstream release source archive and npm tarball, verifies both against checksums
+committed in `pi-overlay/versions/<version>/upstream.json`, and proves the unmodified pinned source rebuilds the
+published runtime byte-for-byte before it will emit anything. It also holds edits to pre-existing upstream files to a
+declared budget, so logic that creeps into pi's own files fails the build. Regeneration is network-bound and builds pi's
+workspace packages, so it runs in its own scheduled CI job rather than on every pull request.
 
 ## Development and quality checks
 

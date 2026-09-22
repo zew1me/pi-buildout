@@ -6,11 +6,18 @@ import sonarjs from "eslint-plugin-sonarjs";
 import unicorn from "eslint-plugin-unicorn";
 import tseslint from "typescript-eslint";
 
-const typedFiles = ["extensions/**/*.ts"];
+const typedFiles = ["extensions/**/*.ts", "pi-overlay/*.ts"];
 
 export default tseslint.config(
   {
-    ignores: ["node_modules/**", "coverage/**", "patches/**"],
+    ignores: [
+      "node_modules/**",
+      "coverage/**",
+      "patches/**",
+      "pi-overlay/versions/**",
+      // Type-checked by upstream's tsgo inside a Pi source tree, where its imports resolve.
+      "pi-overlay/skill-management.ts",
+    ],
   },
   eslint.configs.recommended,
   {
@@ -20,7 +27,7 @@ export default tseslint.config(
   ...tseslint.configs.strictTypeChecked.map((config) => ({ ...config, files: typedFiles })),
   ...tseslint.configs.stylisticTypeChecked.map((config) => ({ ...config, files: typedFiles })),
   {
-    files: ["extensions/**/*.{ts,mjs}"],
+    files: ["extensions/**/*.{ts,mjs}", "pi-overlay/*.{ts,mjs}"],
     languageOptions: {
       globals: globals.node,
       parserOptions: {

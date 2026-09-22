@@ -54,6 +54,26 @@ any such entrypoint files in the patch and checksum manifests when a release swi
 Source maps may exist, but the editable runtime is `dist/*.js`. Prefer changing the smallest runtime surface that proves
 the behavior.
 
+Since 0.85.1 the patch also ships `dist/core/skill-management-core.js` beside `dist/core/skill-management.js`. The core
+file holds the logic and imports nothing; the other binds pi's modules to it.
+
+## Preferred Process: Author TypeScript, Generate the Patch
+
+For pi 0.85.1 and later this repository no longer hand-edits generated JavaScript. The authored source is the TypeScript
+overlay in [`pi-overlay/`](../../../../pi-overlay), and `patches/pi-<version>/*` is generated from it by
+`npm run patches:build`. Prefer that route whenever the change belongs in a shipped patch:
+
+1. Put new logic in `pi-overlay/skill-management-core.ts`, which imports nothing and is unit-tested directly by
+   `pi-overlay/skill-management-core.test.mjs`.
+2. Bind anything from pi in `pi-overlay/skill-management.ts`, the only file that names pi modules.
+3. Touch upstream files only through `pi-overlay/versions/<version>/integration.patch`, and only to add an import and a
+   call site. The pipeline enforces a line budget on those edits and fails the build if it is exceeded, so logic that
+   grows inside an upstream file is a build error rather than a review comment.
+4. Run `npm run patches:build`, then `npm test`.
+
+Editing `dist/*.js` by hand is now only for exploring the live install, or for a pi version that has no overlay yet.
+Anything proven that way should be moved into the overlay before it ships.
+
 ## Working Pattern
 
 1. **Locate the live install.** Do not assume the current folder is the package source.
@@ -105,7 +125,9 @@ ignore it.
 
 ## Interactive and CLI Skill Management
 
-The command surfaces are deliberately thin wrappers around `dist/core/skill-management.js`:
+The command surfaces are deliberately thin wrappers around `dist/core/skill-management.js`. Since 0.85.1 the interactive
+body lives in the shared module too, as `handleSkillsInteractive`, and `DefaultResourceLoader` carries no skill-specific
+methods at all — it calls `resolveActiveSkillPaths` and nothing else:
 
 - interactive: `/skills active|list|search|add|remove|reload`
 - `/skills reload` takes no arguments; anything after it is a usage error, not a reload

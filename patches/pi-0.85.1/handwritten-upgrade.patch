@@ -619,10 +619,10 @@ index 0000000..bebc5be
 +//# sourceMappingURL=skill-management-core.js.map
 \ No newline at end of file
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index f8714df..3d18e7d 100644
+index 9ac670f..3d18e7d 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
-@@ -1,286 +1,131 @@
+@@ -1,290 +1,131 @@
 +/**
 + * Pi-facing entry point for opt-in skill management.
 + *
@@ -656,7 +656,9 @@ index f8714df..3d18e7d 100644
 -        return {};
 -    try {
 -        const value = JSON.parse(readFileSync(path, "utf-8"));
--        return isObjectRecord(value) ? value : {};
+-        if (!isObjectRecord(value))
+-            throw new Error("Expected a JSON object");
+-        return value;
 -    }
 -    catch (error) {
 -        throw new Error(`Could not parse ${path}: ${error instanceof Error ? error.message : String(error)}`);
@@ -694,7 +696,9 @@ index f8714df..3d18e7d 100644
 -    try {
 -        const parsed = new URL(url);
 -        const repoPath = parsed.pathname.replace(/\.git$/i, "").replace(/^\/+|\/+$/g, "");
--        return parsed.hostname && repoPath ? `${parsed.hostname.toLowerCase()}:${repoPath}` : undefined;
+-        const defaultPort = parsed.protocol === "ssh:" ? "22" : parsed.protocol === "git:" ? "9418" : undefined;
+-        const host = parsed.port && parsed.port !== defaultPort ? parsed.host : parsed.hostname;
+-        return host && repoPath ? `${host.toLowerCase()}:${repoPath}` : undefined;
 -    }
 -    catch {
 -        return undefined;

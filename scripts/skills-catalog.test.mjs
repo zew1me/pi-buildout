@@ -224,8 +224,10 @@ async function addSkillsConcurrently(patchedPackage, sources, scope, options) {
   }
 }
 
-test("pi 0.84.2 and later patches normalize persisted paths and lock configuration updates", async () => {
-  for (const version of ["0.84.2", "0.84.4", "0.85.1"]) {
+// The 0.85.1 runtime is generated from pi-overlay/, whose unit tests cover the same behavior at the source level,
+// and the end-to-end test below exercises it through the packaged CLI.
+test("hand-written pi 0.84.x patches normalize persisted paths and lock configuration updates", async () => {
+  for (const version of ["0.84.2", "0.84.4"]) {
     const patch = await readFile(join(repositoryRoot, "patches", `pi-${version}`, "skills.patch"), "utf8");
     const source = addedFileSource(patch, "dist/core/skill-management.js");
     assert.match(source, /import lockfile from "proper-lockfile";/);
@@ -336,7 +338,7 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
     const moduleUrl = (relativePath) => pathToFileURL(join(patchedPackage, relativePath)).href;
     const [
       { SettingsManager },
-      { getSkillCatalog, normalizeGitRemoteUrl, runSkillsCommand },
+      { getSkillCatalog, normalizeGitRemoteUrl, resolveSkillEntryPath, runSkillsCommand },
       { DefaultResourceLoader },
     ] = await Promise.all([
       import(moduleUrl("dist/core/settings-manager.js")),
@@ -465,9 +467,14 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
     assert.deepEqual(new Set(repoConfig[repoKey].enabled), new Set([...seededEntries, ...concurrentSources]));
     assert.equal(await exists(`${repoConfigPath}.lock`), false);
 
+    // Entry resolution lives in the skill-management module, so DefaultResourceLoader keeps no skill API.
+    const entryContext = { cwd, agentDir, settingsManager, resolveResourcePath: (path) => path };
+    for (const name of ["package-manifest", "setting-project"]) {
+      const { resolved } = await resolveSkillEntryPath(entryContext, name);
+      assert.equal(resolved, catalogByName.get(name)?.filePath, name);
+    }
+
     const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
-    assert.equal(await loader.resolveSkillEntry("package-manifest"), catalogByName.get("package-manifest")?.filePath);
-    assert.equal(await loader.resolveSkillEntry("setting-project"), catalogByName.get("setting-project")?.filePath);
     await loader.reload();
     assert.deepEqual(
       loader.getSkills().skills.map((skill) => skill.name),
