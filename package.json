@@ -27,6 +27,7 @@
     "lint:shell": "shellcheck scripts/*.sh",
     "typecheck": "tsc --noEmit",
     "test": "node --test extensions/*/*.test.mjs scripts/*.test.mjs",
+    "eval:routing-prompts": "node extensions/subagents/routing-prompt-experiments.mjs",
     "knip": "knip",
     "secrets": "secretlint \"**/*\"",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm test && npm run knip && npm run secrets",

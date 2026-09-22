@@ -175,8 +175,9 @@ patterns.
 
 - Source: Artificial Analysis, <https://artificialanalysis.ai>
 - Material reviewed: the "Intelligence vs. Cost per Intelligence Index Task" chart for the GPT-5.6 family, the "Coding
-  Agent Index vs. Cost per Task" chart, and the per-model comparison pages for GPT-5.6 Luna (low/high/max) against
-  GPT-5.4 mini (xhigh), as supplied by the project owner in 2026-09.
+  Agent Index vs. Cost per Task" chart, the multi-benchmark "Intelligence Evaluations" comparison grid, and the
+  per-model comparison pages for GPT-5.6 Luna (low/high/max) against GPT-5.4 mini (xhigh), as supplied by the project
+  owner in 2026-09.
 - License: not declared to this project; no Artificial Analysis text, data file, or image is redistributed here.
 
 Ideas and data used in `extensions/subagents/helpers.ts` and `extensions/subagents/routing-eval-cases.mjs`:
@@ -186,14 +187,27 @@ Ideas and data used in `extensions/subagents/helpers.ts` and `extensions/subagen
 - The finding that GPT-5.4 mini is Pareto-dominated by GPT-5.6 Luna on intelligence, cost, and latency simultaneously
   (index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04 and 98s). This is why the routing ladder ranks it
   below Luna even though it is the more expensive model per token, and why the eval suite bands it as `substandard`.
-- The escalation criteria for GPT-6 Astra: a Coding Agent Index of roughly 62 against Sol's 55 for $7.08 against $6.24
-  per task, making the agentic premium modest. The accompanying claim that Astra hallucinates roughly half as often was
-  supplied directly by the project owner and is not drawn from the charts listed above.
+- The effort-level efficient frontier shown by the GPT-5.6 chart: Luna high is preferred over Terra low/medium; Luna
+  xhigh over Terra high and Sol low; and Sol medium over Terra xhigh. Terra is retained in classifier guidance only at
+  max effort and for task-specific measured evidence; when max is unavailable, automatic classification is told not to
+  select Terra.
+- Approximate Intelligence Index and benchmark-cost-per-task observations for Luna low through xhigh, Terra low through
+  max, and Sol low through max are included as explanatory prompt context rather than executable thresholds. The prompt
+  explicitly says the index is comparative, not a percentage, probability, linear scale, or score out of 100.
+- The escalation context for GPT-6 Astra: a Coding Agent Index of roughly 62 at an average
+  $7.08 per task, versus Sol
+  max's 55 at $6.24 per task (about 13.5% more). The accompanying claim that Astra
+  hallucinates roughly half as often was supplied directly by the project owner and is not drawn from the charts listed
+  above.
 
 Intentionally not adopted:
 
 - The absolute Intelligence Index values, benchmark subscores, and cost-per-task figures are not used as thresholds
   anywhere in routing logic. They inform a documented ordering and the prompt's guidance text only, so routing does not
   silently depend on numbers that move between Artificial Analysis publication runs.
-- No pricing is hardcoded from these charts. Live pricing is read from Pi's own model catalog at runtime.
+- No chart image or source data file is redistributed. The retained experiment artifacts contain only the prompt text,
+  eval inputs, and model outputs needed to reproduce the routing decision.
+- Live pricing and exact model availability still come from Pi's model catalog. Chart cost-per-task figures are labeled
+  separately and are not treated as token prices.
 - Placement of models absent from the reviewed charts is deliberately left to the ranking fallback rather than guessed.
+  In dimension-specific evidence, absence is treated as "not evaluated", not as evidence that the shown model is best.
