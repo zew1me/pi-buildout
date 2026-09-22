@@ -111,8 +111,16 @@ async function applyPatch(target, source = patchPath, reverse = false) {
 
 function testEnvironment(overrides = {}) {
   const env = { ...process.env, ...overrides };
-  delete env.GIT_DIR;
-  delete env.GIT_WORK_TREE;
+  for (const key of [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  ]) {
+    delete env[key];
+  }
   return env;
 }
 
