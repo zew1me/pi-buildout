@@ -133,17 +133,46 @@ sources while preserving Pi's precedence and project-trust behavior. It intentio
 of every discovered skill, concurrent-update locking, configured-path confinement, new public resource-loader mutator
 APIs, or changes to Pi's unrelated extension, prompt, theme, package, trust, and provider behavior.
 
+## Pi 0.87.1 `/skills` runtime patch
+
+- Source: `@earendil-works/pi-coding-agent@0.87.1`
+- Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
+- Upstream revision reviewed: `f07218c4d4bbc12bef056a7058c3dd49dfe41abe` (`v0.87.1`)
+- License declared by the package: MIT
+
+[`patches/pi-0.87.1/skills.patch`](patches/pi-0.87.1/skills.patch) is a modified-code patch against Pi's published,
+generated runtime and documentation, generated from the TypeScript overlay below. It modifies upstream
+`dist/bundle/cli-runtime.js`, `dist/bundle/rpc-entry.js`, `dist/core/resource-loader.js`, `dist/core/slash-commands.js`,
+`dist/main.js`, `dist/modes/interactive/interactive-mode.js`, and `docs/skills.md`; their unchanged context and modified
+lines derive from the MIT-licensed Pi package. The bundled runtime and RPC entrypoints become thin wrappers so the
+patched unbundled runtime handles CLI and RPC execution; upstream's `dist/bundle/cli.js` compile-cache loader is left
+unchanged and is only pinned by checksum in both manifests. The added `dist/core/skill-management.js` and
+`dist/core/skill-management-core.js` are compiled from this repository's original overlay code and are byte-identical to
+the 0.85.1 patch's copies.
+
+The patch adopts the same behavior as the 0.85.1 patch: explicit global, repository, and session skill activation; a
+discoverable-but-inactive catalog built on Pi's package manager; normalized repository identity with non-default ports
+preserved; shared CLI and interactive command semantics; strict configuration validation; and checksum-guarded
+installation. It intentionally does not adopt Pi 0.87.1's automatic loading of every discovered skill, and does not
+change Pi's unrelated extension, prompt, theme, package, trust, provider, compile-cache, or bundled-chunk behavior. The
+`docs/skills.md` changes were rewritten against 0.87.1's restructured skills page rather than carried over from 0.85.1.
+
+`scripts/skills-patch-entrypoint.test.mjs` writes a five-line stand-in for upstream 0.87.1's `dist/bundle/cli.js`
+(`enableCompileCache()` followed by `createRequire(import.meta.url)("./cli-runtime.js")`). That shape is adapted from
+the MIT-licensed Pi package so the test can exercise the same `require()` dispatch the published loader performs.
+
 ## Pi `/skills` TypeScript overlay
 
-- Source: `@earendil-works/pi-coding-agent@0.85.1`
+- Source: `@earendil-works/pi-coding-agent@0.85.1` and `@earendil-works/pi-coding-agent@0.87.1`
 - Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
-- Upstream revision reviewed: `d981de1229ef899957bbe968bc8dcda02a21f477` (`v0.85.1`), taken from the npm registry's
-  `gitHead` for that release
-- Source acquired from the release asset `pi-0.85.1-source.tar.gz`, verified against upstream's published `SHA256SUMS`
+- Upstream revisions reviewed: `d981de1229ef899957bbe968bc8dcda02a21f477` (`v0.85.1`) and
+  `f07218c4d4bbc12bef056a7058c3dd49dfe41abe` (`v0.87.1`), each taken from the npm registry's `gitHead` for that release
+- Source acquired from the release assets `pi-0.85.1-source.tar.gz` and `pi-0.87.1-source.tar.gz`, each verified against
+  upstream's published `SHA256SUMS` for that release
 - License declared by the package: MIT
 
 [`pi-overlay`](pi-overlay) is the authored form of the `/skills` runtime patch; the artifacts under `patches/pi-0.85.1/`
-are generated from it.
+and `patches/pi-0.87.1/` are generated from it.
 
 `pi-overlay/skill-management-core.ts` and `pi-overlay/skill-management.ts` are original code for this repository. They
 are a TypeScript reimplementation of the `dist/core/skill-management.js` previously authored here as JavaScript,
@@ -151,13 +180,18 @@ informed by Pi's resource-loading and command conventions rather than copied fro
 absorb logic that earlier versions of the patch inlined into upstream files, so those files now receive only imports and
 call sites.
 
-`pi-overlay/versions/0.85.1/integration.patch` is a modified-code patch against Pi's MIT-licensed TypeScript sources:
-`src/core/resource-loader.ts`, `src/core/slash-commands.ts`, `src/main.ts`, `src/modes/interactive/interactive-mode.ts`,
-and `docs/skills.md`. Its unchanged context and modified lines derive from the MIT-licensed Pi package.
+`pi-overlay/versions/0.85.1/integration.patch` and `pi-overlay/versions/0.87.1/integration.patch` are modified-code
+patches against Pi's MIT-licensed TypeScript sources for those releases: `src/core/resource-loader.ts`,
+`src/core/slash-commands.ts`, `src/main.ts`, `src/modes/interactive/interactive-mode.ts`, and `docs/skills.md`. Their
+unchanged context and modified lines derive from the MIT-licensed Pi package. The 0.87.1 seam was rebased by re-reading
+the 0.87.1 sources: the code call sites are unchanged, its interactive-mode import extends the existing `utils/paths.ts`
+import, and its documentation hunk targets the rewritten skills page.
 
-`pi-overlay/versions/0.85.1/replacements/dist/bundle/cli.js` and `rpc-entry.js` are original hand-written wrappers, not
-derived from upstream's generated bundle output. They replace Pi's esbuild-produced bundled entrypoints so the patched
-unbundled runtime handles CLI and RPC execution.
+`pi-overlay/versions/0.85.1/replacements/dist/bundle/cli.js` and `rpc-entry.js`, and
+`pi-overlay/versions/0.87.1/replacements/dist/bundle/cli-runtime.js` and `rpc-entry.js`, are original hand-written
+wrappers, not derived from upstream's generated bundle output. They replace Pi's esbuild-produced bundled entrypoints so
+the patched unbundled runtime handles CLI and RPC execution. The 0.87.1 wrappers have the same content as the 0.85.1
+ones, because 0.87.1's `src/cli.ts`, `src/cli/setup.ts`, and `src/rpc-entry.ts` are unchanged from 0.85.1.
 
 This repository vendors no upstream source and maintains no fork. Upstream source is fetched per generation run against
 pinned, checksum-verified inputs, and is not committed here.

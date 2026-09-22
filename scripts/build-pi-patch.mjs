@@ -7,10 +7,14 @@
  * in the format `scripts/install-extensions.sh` already consumes.
  *
  * Usage:
- *   node scripts/build-pi-patch.mjs [--version <semver>] [--check] [--work-dir <dir>] [--keep]
+ *   node scripts/build-pi-patch.mjs [--version <semver> | --all] [--check] [--work-dir <dir>] [--keep]
  *
  * `--check` regenerates into a scratch directory and fails if the committed artifacts differ, which is how
  * CI detects drift. Without it, the committed artifacts are rewritten in place.
+ *
+ * Without `--version` or `--all`, the version is the pinned `@earendil-works/pi-coding-agent` development
+ * dependency. `--all` processes every version with an overlay under `pi-overlay/versions/`, so a supported
+ * version whose pin has moved on is still regenerated and checked.
  */
 
 import { createHash } from "node:crypto";
@@ -102,6 +106,23 @@ export function countUpstreamEditedLines(patchText, countedPaths) {
     if (/^[+-]/.test(line)) total += 1;
   }
   return total;
+}
+
+/**
+ * Orders dotted numeric versions ascending, so `--all` processes and reports versions predictably.
+ *
+ * @param {string[]} versions
+ */
+export function sortVersions(versions) {
+  const parts = (version) => version.split(".").map(Number);
+  return [...versions].sort((left, right) => {
+    const [a, b] = [parts(left), parts(right)];
+    for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+      const difference = (a[index] ?? 0) - (b[index] ?? 0);
+      if (difference !== 0) return difference;
+    }
+    return 0;
+  });
 }
 
 /**
@@ -237,10 +258,17 @@ function assertBuildReproducesBaseline(builtRoot, baselineRoot, manifest) {
   console.log(`  clean build reproduces npm for all ${checked} pre-existing built files`);
 }
 
-/** Assembles the patched package tree: baseline, overwritten by built, documented and replacement files. */
+/**
+ * Assembles the patched package tree: baseline, overwritten by built, documented and replacement files.
+ *
+ * An `unchanged` entry keeps its baseline bytes. It is tracked only so both manifests pin it, for a file the patch
+ * depends on without editing, such as 0.87.1's `dist/bundle/cli.js` loader that selects the replaced
+ * `cli-runtime.js`. The installer then refuses a package whose copy of it differs.
+ */
 async function assemblePatchedTree(target, baselineRoot, builtRoot, patchedSourceRoot, overlayDir, manifest) {
   await cp(baselineRoot, target, { recursive: true });
   for (const entry of manifest.trackedFiles) {
+    if (entry.source === "unchanged") continue;
     const destination = join(target, entry.path);
     await mkdir(dirname(destination), { recursive: true });
     if (entry.source === "built") await cp(join(builtRoot, entry.path), destination);
@@ -379,30 +407,73 @@ function assertUpgradeStatesRoundTrip(workDir, patchedRoot, outputDir) {
   }
 }
 
+/** Every pi version with an authored overlay, i.e. every `pi-overlay/versions/<version>/upstream.json`. */
+function overlayVersions() {
+  const versionsRoot = join(repositoryRoot, "pi-overlay", "versions");
+  return sortVersions(
+    readdirSync(versionsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && existsSync(join(versionsRoot, entry.name, "upstream.json")))
+      .map((entry) => entry.name),
+  );
+}
+
 async function main() {
   const argv = process.argv.slice(2);
   const check = argv.includes("--check");
   const keep = argv.includes("--keep");
+  const all = argv.includes("--all");
   const versionFlag = argv.indexOf("--version");
   const workDirFlag = argv.indexOf("--work-dir");
+  if (all && versionFlag !== -1) throw new Error("--all and --version are mutually exclusive.");
 
-  const version =
-    versionFlag === -1
-      ? JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf-8")).devDependencies[
-          "@earendil-works/pi-coding-agent"
-        ]
-      : argv[versionFlag + 1];
-  if (!version) throw new Error("Could not determine which pi version to build.");
+  const versions = all
+    ? overlayVersions()
+    : [
+        versionFlag === -1
+          ? JSON.parse(readFileSync(join(repositoryRoot, "package.json"), "utf-8")).devDependencies[
+              "@earendil-works/pi-coding-agent"
+            ]
+          : argv[versionFlag + 1],
+      ];
+  if (versions.length === 0 || versions.some((version) => !version)) {
+    throw new Error("Could not determine which pi version to build.");
+  }
 
+  const workDirRoot = workDirFlag === -1 ? undefined : resolve(process.cwd(), argv[workDirFlag + 1]);
+  /** @type {string[]} */
+  const failures = [];
+  for (const version of versions) {
+    try {
+      await buildVersion(version, {
+        check,
+        keep,
+        // One work directory per version, so `--all --work-dir` never mixes two versions' trees.
+        workDir: workDirRoot === undefined ? undefined : all ? join(workDirRoot, version) : workDirRoot,
+      });
+    } catch (error) {
+      if (!all) throw error;
+      // Keep going so one broken version does not hide drift in another.
+      console.error(`\npi ${version} failed: ${error instanceof Error ? error.message : String(error)}\n`);
+      failures.push(version);
+    }
+  }
+  if (failures.length > 0) throw new Error(`Patch generation failed for pi ${failures.join(", ")}.`);
+}
+
+/**
+ * Runs the full pipeline for one version.
+ *
+ * @param {string} version
+ * @param {{ check: boolean; keep: boolean; workDir: string | undefined }} options
+ */
+async function buildVersion(version, options) {
+  const { check, keep } = options;
   const overlayDir = join(repositoryRoot, "pi-overlay", "versions", version);
   const manifestPath = join(overlayDir, "upstream.json");
   if (!existsSync(manifestPath)) throw new Error(`No overlay for pi ${version} at ${manifestPath}`);
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8"));
 
-  const workDir =
-    workDirFlag === -1
-      ? mkdtempSync(join(tmpdir(), `pi-patch-${version}-`))
-      : resolve(process.cwd(), argv[workDirFlag + 1]);
+  const workDir = options.workDir ?? mkdtempSync(join(tmpdir(), `pi-patch-${version}-`));
   mkdirSync(workDir, { recursive: true });
   console.log(`pi ${version}\nwork directory: ${workDir}\n`);
 
@@ -457,6 +528,11 @@ async function main() {
 
     const addedPaths = new Set(manifest.trackedFiles.filter((e) => e.added).map((e) => e.path));
     const files = patchedFileList(patchText);
+    const unchangedPaths = new Set(manifest.trackedFiles.filter((e) => e.source === "unchanged").map((e) => e.path));
+    const touchedUnchanged = files.filter((file) => unchangedPaths.has(file.path)).map((file) => file.path);
+    if (touchedUnchanged.length > 0) {
+      throw new Error(`Patch touches paths declared unchanged: ${touchedUnchanged.join(", ")}`);
+    }
     const expectedPaths = new Set(manifest.trackedFiles.map((entry) => entry.path));
     const unexpected = files.filter((file) => !expectedPaths.has(file.path)).map((file) => file.path);
     if (unexpected.length > 0) throw new Error(`Patch touches untracked paths: ${unexpected.join(", ")}`);
@@ -515,7 +591,7 @@ async function main() {
     // just produced. Checking earlier would block the write that regenerating them depends on.
     assertUpgradeStatesRoundTrip(workDir, patchedRoot, outputDir);
   } finally {
-    if (!keep && workDirFlag === -1) rmSync(workDir, { recursive: true, force: true });
+    if (!keep && options.workDir === undefined) rmSync(workDir, { recursive: true, force: true });
     else console.log(`\nKept work directory: ${workDir}`);
   }
 }

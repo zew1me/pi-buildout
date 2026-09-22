@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 
 import {
   countUpstreamEditedLines,
@@ -7,6 +10,7 @@ import {
   formatChecksumManifest,
   parseChecksumManifest,
   patchedFileList,
+  sortVersions,
 } from "./build-pi-patch.mjs";
 
 const HASH_A = "a".repeat(64);
@@ -113,3 +117,82 @@ test("diffChecksumManifests reports nothing for identical manifests", () => {
   const entries = [{ path: "dist/main.js", sha256: HASH_A }];
   assert.deepEqual(diffChecksumManifests(entries, [...entries]), []);
 });
+
+test("sortVersions orders dotted versions numerically rather than lexically", () => {
+  assert.deepEqual(sortVersions(["0.87.1", "0.85.1", "0.100.0", "0.9.0"]), ["0.9.0", "0.85.1", "0.87.1", "0.100.0"]);
+  assert.deepEqual(sortVersions([]), []);
+});
+
+const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
+const versionsRoot = join(repositoryRoot, "pi-overlay", "versions");
+const overlayVersions = readdirSync(versionsRoot).filter((name) =>
+  existsSync(join(versionsRoot, name, "upstream.json")),
+);
+
+/** The post-image of one file in a unified diff: its context and added lines. */
+function patchedSection(patchText, path) {
+  const marker = `diff --git a/${path} b/${path}`;
+  const start = patchText.indexOf(marker);
+  assert.notEqual(start, -1, `patch does not touch ${path}`);
+  const next = patchText.indexOf("\ndiff --git ", start + marker.length);
+  const lines = patchText.slice(start, next === -1 ? undefined : next).split("\n");
+  const body = lines.slice(lines.findIndex((line) => line.startsWith("@@")));
+  return body
+    .filter((line) => (line.startsWith("+") && !line.startsWith("+++")) || line.startsWith(" "))
+    .map((line) => line.slice(1))
+    .join("\n")
+    .concat("\n");
+}
+
+// Offline counterpart to `npm run patches:check`: it cannot prove the build reproduces, but it catches an
+// overlay declaration that disagrees with the artifacts committed for it, for every supported version.
+for (const version of overlayVersions) {
+  test(`pi ${version} committed artifacts agree with the overlay declaration`, () => {
+    const manifest = JSON.parse(readFileSync(join(versionsRoot, version, "upstream.json"), "utf8"));
+    const patchDirectory = join(repositoryRoot, "patches", `pi-${version}`);
+    const patchText = readFileSync(join(patchDirectory, "skills.patch"), "utf8");
+    assert.equal(manifest.version, version);
+
+    // `unchanged` entries are pinned by both manifests but never appear in the patch itself.
+    const declared = manifest.trackedFiles
+      .filter((entry) => entry.source !== "unchanged")
+      .map((entry) => ({ path: entry.path, added: entry.added === true }));
+    const byPath = (left, right) => left.path.localeCompare(right.path);
+    assert.deepEqual(patchedFileList(patchText).sort(byPath), [...declared].sort(byPath));
+    assert.deepEqual(
+      parseChecksumManifest(readFileSync(join(patchDirectory, "patched.sha256"), "utf8")).map((entry) => entry.path),
+      manifest.trackedFiles.map((entry) => entry.path),
+    );
+
+    const baselineByPath = new Map(
+      parseChecksumManifest(readFileSync(join(patchDirectory, "baseline.sha256"), "utf8")).map((entry) => [
+        entry.path,
+        entry.sha256,
+      ]),
+    );
+    const patchedByPath = new Map(
+      parseChecksumManifest(readFileSync(join(patchDirectory, "patched.sha256"), "utf8")).map((entry) => [
+        entry.path,
+        entry.sha256,
+      ]),
+    );
+    for (const entry of manifest.trackedFiles.filter((file) => file.source === "unchanged")) {
+      assert.match(baselineByPath.get(entry.path) ?? "", /^[0-9a-f]{64}$/u, `${entry.path} is pinned by the baseline`);
+      assert.equal(patchedByPath.get(entry.path), baselineByPath.get(entry.path), `${entry.path} stays unchanged`);
+    }
+
+    for (const entry of manifest.trackedFiles.filter((file) => file.source === "replacement")) {
+      const replacement = readFileSync(join(versionsRoot, version, "replacements", entry.path), "utf8");
+      assert.equal(patchedSection(patchText, entry.path), replacement, `${entry.path} is delivered verbatim`);
+    }
+
+    const budgeted = new Set(
+      manifest.trackedFiles.filter((entry) => entry.source === "built" && !entry.added).map((entry) => entry.path),
+    );
+    assert.equal(
+      countUpstreamEditedLines(patchText, budgeted),
+      manifest.maxUpstreamEditedLines,
+      "maxUpstreamEditedLines must equal the measured count, so the budget never silently loosens",
+    );
+  });
+}

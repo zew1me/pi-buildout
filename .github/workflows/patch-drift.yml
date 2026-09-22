@@ -48,5 +48,7 @@ jobs:
         run: npm ci --ignore-scripts --registry=https://registry.npmjs.org/
       # Regeneration needs npm and github.com. If either is unreachable the pipeline throws, which fails the
       # job: an unverifiable patch must never look the same as a verified one.
-      - name: Regenerate the patch and compare against the committed artifacts
+      # `patches:check` passes `--all`, so every version under pi-overlay/versions/ is regenerated, not only the
+      # one the development dependencies pin.
+      - name: Regenerate every version's patch and compare against the committed artifacts
         run: npm run patches:check
