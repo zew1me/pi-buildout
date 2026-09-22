@@ -374,6 +374,19 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       join(canonicalCwd, "bare-relative-skill"),
     ]);
 
+    // A bare name persisted as a path must stay removable by that name once the path is gone.
+    await rm(bareRelativeSkill, { recursive: true, force: true });
+    const removedBare = await runPatchedCli(patchedPackage, ["skills", "remove", "bare-relative-skill", "--global"], {
+      cwd,
+      agentDir: normalizedPathAgentDir,
+      home: temporaryHome,
+    });
+    assert.equal(removedBare.code, 0, removedBare.stderr);
+    assert.deepEqual(JSON.parse(await readFile(join(normalizedPathAgentDir, "skills.json"), "utf8")).enabled, [
+      homeSkill,
+      join(canonicalCwd, "relative-skill"),
+    ]);
+
     assert.equal(normalizeGitRemoteUrl("https://git.example.com:8443/org/repo.git"), "git.example.com:8443:org/repo");
     assert.equal(normalizeGitRemoteUrl("https://git.example.com:9443/org/repo.git"), "git.example.com:9443:org/repo");
     assert.equal(normalizeGitRemoteUrl("git@github.com:org/repo.git"), "github.com:org/repo");

@@ -100,10 +100,10 @@ index e0153e1..26254a8 100644
          if (this.noSkills && skillPaths.length === 0) {
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..bebc5be
+index 0000000..d6b7bc0
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,513 @@
+@@ -0,0 +1,530 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -300,6 +300,21 @@ index 0000000..bebc5be
 +        return true;
 +    });
 +}
++/**
++ * Removes a persisted entry by its normalized form first, then by the path a bare name resolves to.
++ *
++ * Adding a bare name that names an existing path persists that path. Once the path is deleted the name
++ * normalizes to itself again, so without the fallback the entry could no longer be removed by its original
++ * spelling. A matching catalog-name entry still wins, because it is tried first.
++ */
++function removePersistedSkill(env, source, target, scope, options) {
++    if (updatePersistedSkill(env, "remove", target, scope, options))
++        return true;
++    if (looksLikePath(source))
++        return false;
++    const resolved = env.resolvePath(source, options.cwd, { trim: true });
++    return resolved !== target && updatePersistedSkill(env, "remove", resolved, scope, options);
++}
 +export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
 +    const entries = [];
 +    const safeRead = (path) => {
@@ -448,9 +463,11 @@ index 0000000..bebc5be
 +    }
 +    if (scope === "session")
 +        return { exitCode: 0, lines: [], session: { action: command, source: target } };
-+    if (!updatePersistedSkill(env, command, target, scope, options)) {
++    const updated = command === "add"
++        ? updatePersistedSkill(env, command, target, scope, options)
++        : removePersistedSkill(env, source, target, scope, options);
++    if (!updated)
 +        throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
-+    }
 +    return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
 +}
 +export async function runSkillsCommand(env, args, options) {

@@ -322,6 +322,26 @@ export function updatePersistedSkill(
   });
 }
 
+/**
+ * Removes a persisted entry by its normalized form first, then by the path a bare name resolves to.
+ *
+ * Adding a bare name that names an existing path persists that path. Once the path is deleted the name
+ * normalizes to itself again, so without the fallback the entry could no longer be removed by its original
+ * spelling. A matching catalog-name entry still wins, because it is tried first.
+ */
+function removePersistedSkill(
+  env: SkillEnvironment,
+  source: string,
+  target: string,
+  scope: SkillScope,
+  options: { cwd: string; agentDir: string },
+): boolean {
+  if (updatePersistedSkill(env, "remove", target, scope, options)) return true;
+  if (looksLikePath(source)) return false;
+  const resolved = env.resolvePath(source, options.cwd, { trim: true });
+  return resolved !== target && updatePersistedSkill(env, "remove", resolved, scope, options);
+}
+
 export function getActiveSkillEntries(
   env: SkillEnvironment,
   { cwd, agentDir, strict = false, onWarn }: ActiveSkillEntriesOptions,
@@ -510,9 +530,11 @@ async function runMutationCommand(
 
   if (scope === "session") return { exitCode: 0, lines: [], session: { action: command, source: target } };
 
-  if (!updatePersistedSkill(env, command, target, scope, options)) {
-    throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
-  }
+  const updated =
+    command === "add"
+      ? updatePersistedSkill(env, command, target, scope, options)
+      : removePersistedSkill(env, source, target, scope, options);
+  if (!updated) throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
   return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
 }
 

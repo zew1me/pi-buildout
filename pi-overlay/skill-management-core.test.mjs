@@ -599,6 +599,38 @@ test("a bare source naming an existing path is persisted as that path, and other
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"]);
 });
 
+test("a bare source persisted as a path stays removable by its name after the path is deleted", async () => {
+  const { env, store } = createEnvironment();
+  let pathExists = true;
+  env.fs.existsSync = (path) => (path === "/work/local-skill" ? pathExists : store.has(path));
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  assert.equal((await runSkillsCommand(env, ["add", "local-skill", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/local-skill"]);
+
+  pathExists = false;
+  const removed = await runSkillsCommand(env, ["remove", "local-skill", "--global"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, []);
+});
+
+test("removing a bare name prefers a catalog-name entry over a deleted path with the same spelling", async () => {
+  const { env, store } = createEnvironment({
+    files: { "/agent/skills.json": JSON.stringify({ enabled: ["/work/local-skill", "local-skill"] }) },
+  });
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  assert.equal((await runSkillsCommand(env, ["remove", "local-skill", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/local-skill"]);
+
+  assert.equal((await runSkillsCommand(env, ["remove", "local-skill", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, []);
+
+  const missing = await runSkillsCommand(env, ["remove", "local-skill", "--global"], options);
+  assert.equal(missing.exitCode, 1);
+  assert.match(firstLine(missing), /Skill is not enabled for global scope: local-skill/);
+});
+
 /**
  * Builds an interactive context that records what the command did.
  *

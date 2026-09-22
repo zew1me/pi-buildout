@@ -146,7 +146,8 @@ activation in `DefaultResourceLoader` awaits that same catalog so package and se
 Starting with the 0.84.2 patch, normalize user-provided local skill sources with Pi's `resolvePath()` before storing or
 adding them to a session, so tilde, explicit relative, and existing bare relative forms become stable absolute paths.
 Keep non-existent bare names available for catalog lookup. Use the same normalization when matching an existing entry
-for removal.
+for removal, and when a bare name matches nothing, retry with its resolved path without requiring that path to exist, so
+an entry persisted as a path stays removable after the path is deleted.
 
 Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
 synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without

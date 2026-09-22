@@ -70,9 +70,10 @@ never authorizes an upgrade. A package already matching `patched.sha256` is left
 mixed state is rejected and must be restored to the clean package rather than overwritten.
 
 User-provided tilde and relative skill sources, including a bare name that resolves to an existing path, are
-resolved to absolute paths before session activation or persistence. Persisted global and repository skill
-updates lock the applicable JSON file across the complete read-modify-write transaction, so concurrent CLI
-processes cannot discard one another's changes.
+resolved to absolute paths before session activation or persistence; such a bare name stays removable by that
+name after its path is deleted. Persisted global and repository skill updates lock the applicable JSON file
+across the complete read-modify-write transaction, so concurrent CLI processes cannot discard one another's
+changes.
 
 Because pi 0.85.1 dispatches through bundled entrypoints, the patch also replaces `dist/bundle/cli.js` and
 `dist/bundle/rpc-entry.js` with thin wrappers around the patched unbundled runtime. This keeps `pi skills` and
