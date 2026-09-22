@@ -49,17 +49,27 @@ session as unscoped.
 
 ## Cost-efficient tier selection
 
-Routing aims for the cheapest model and effort that clears the task's required intelligence. Within the GPT-5.6 family
-capability and cost both rise Luna -> Terra -> Sol, and raising effort on a cheaper model is usually a better trade than
-moving to a pricier model at low effort. Trivial and mechanical work stays on the cheapest tier; broad implementation,
-subtle debugging, security, and architecture work earn a stronger one.
+Routing aims for the cheapest model-and-effort combination that clears the task's required intelligence. The calibrated
+efficient frontier is Luna low/medium for trivial work, Luna high/xhigh for ordinary through demanding local work, then
+Sol medium/high/xhigh when Luna is insufficient. The classifier is told not to choose Terra at low or medium over Luna
+high, Terra high over Luna xhigh, Terra xhigh over Sol medium, or Sol low over Luna xhigh. Terra is reserved for max
+effort plus task-specific benchmark evidence; because the current GPT-5.6 endpoint does not offer max, the automatic
+classifier should not choose it from the current catalog. Explicit user requests remain authoritative.
+
+Scope and difficulty are evaluated separately. A read-only task or narrow diff may still require Sol when its core
+judgment is an ambiguous retry/idempotency boundary, exploitability, authorization, shipped compatibility contract, or
+omitted-versus-default behavior. Conversely, merely mentioning OAuth, security, or pagination in a bounded checklist
+does not trigger a higher tier. Classifications join simple lookups and mechanical edits as explicitly cheap work.
 
 `gpt-5.4-mini` is deliberately ranked _below_ Luna despite costing about 3.75x more per token. Measured head-to-head it
 is dominated on all three axes at once - intelligence index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04
 and 98s - so routing prefers Luna whenever both are eligible and reaches for `gpt-5.4-mini` only when no GPT-5.6 model
 is in scope. The eval suite bands it as `substandard` rather than cheap for the same reason.
 
-Models outside the reviewed benchmarks fall back to output price as a coarse capability proxy, bounded so an expensive
+The prompt includes approximate Artificial Analysis Intelligence Index and benchmark-cost observations to explain these
+tradeoffs. It explicitly says that the index is comparative, not a percentage, probability, linear scale, or score out
+of 100; benchmark task costs are not token prices; and a missing model means "not evaluated", not "worse". Models
+outside the reviewed benchmarks still fall back to output price as a coarse capability proxy, bounded so an expensive
 unknown model cannot outrank the frontier tier.
 
 The classification call itself runs on the cheapest in-scope model at low effort (Luna, in a typical scope) rather than
@@ -68,10 +78,11 @@ scope or the cheaper model has no configured auth; the active model classifying 
 
 ## Frontier escalation and approval
 
-The frontier tier (GPT-6 Astra) is gated. Escalation is worth requesting in two cases: the task genuinely needs
-coding-agent capability above the ceiling tier, or hallucination and factual reliability are a material risk, where
-Astra errs roughly half as often. On agentic coding work the premium is modest (~$7.08 against ~$6.24 per task), so the
-approval gate rather than cost is the reason to be selective.
+The frontier tier (GPT-6 Astra) is gated. Escalation is worth requesting when the strongest eligible Sol configuration
+is materially insufficient, or hallucination and factual reliability are a material risk. On the separate Coding Agent
+Index, Astra max is about 62 against Sol max at about 55, while average task cost is $7.08 against $6.24 (about 13.5%
+more). Those index values are comparative rather than percentages or a linear measure, so they support an escalation
+option without making a seven-point gap an automatic trigger.
 
 Every selection path - explicit request, routing plugin, classifier, and fallback - passes through the same gate, so an
 escalation-class model cannot launch unapproved regardless of which path chose it. The gate matches the Astra family by
@@ -138,6 +149,18 @@ in-scope resolution the extension itself uses, so an eval pass cannot come from 
 rejected. The suite carries negative controls: always-frontier, always-`gpt-5.4-mini`, overspent effort, and
 hallucinated identifiers must each fail. A test pins the evaluated prompt to `buildClassifierPrompt`, so the suite
 cannot drift onto a private copy of the shipped instructions.
+
+`routing-prompt-experiments.mjs` retains the live prompt permutations used to tune the ladder, and the adjacent
+`routing-prompt-experiment-results-round-*.json` files retain exact prompt variants and inputs, cases, raw decisions,
+and scores. The live evaluation is deliberately disabled in normal tests because it is paid, network-dependent,
+credential-dependent, and nondeterministic. Run it only by explicit opt-in:
+
+```bash
+npm run eval:routing-prompts -- --live
+```
+
+The experiment summary and the reason for selecting the production variant are in
+[`routing-prompt-experiments.md`](routing-prompt-experiments.md).
 
 ## Isolation and inheritance
 

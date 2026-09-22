@@ -378,8 +378,14 @@ test("the routing ceiling excludes escalation models and uses the highest effort
   assert.equal(routingCeiling([]), undefined);
 });
 
-test("routing ladder guidance states the cheapest-sufficient policy and both escalation criteria", () => {
+test("routing ladder guidance states the calibrated efficient frontier and escalation criteria", () => {
   assert.match(ROUTING_LADDER_GUIDANCE, /cheapest model and effort/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /Never choose Terra at low or medium effort; prefer Luna high/);
+  assert.match(ROUTING_LADDER_GUIDANCE, /Never choose Terra at high effort; prefer Luna xhigh/);
+  assert.match(ROUTING_LADDER_GUIDANCE, /Never choose Terra at xhigh effort; prefer Sol medium/);
+  assert.match(ROUTING_LADDER_GUIDANCE, /If max is absent.+do not choose Terra/);
+  assert.match(ROUTING_LADDER_GUIDANCE, /missing model or effort means "not evaluated", not "worse"/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /not a percentage, probability, or score out of 100/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /gpt-5\.4-mini/);
   assert.match(ROUTING_LADDER_GUIDANCE, /hallucinat/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /approval/i);
@@ -497,6 +503,7 @@ test("a disabled ladder removes the tier nudges but keeps the classification con
   const withLadder = buildClassifierPrompt({ ...shared, includeLadder: true });
   const without = buildClassifierPrompt({ ...shared, includeLadder: false });
   assert.match(withLadder, /cheapest model and effort/i);
+  assert.match(withLadder, /simple lookups, classifications, and mechanical edits do not/i);
   assert.doesNotMatch(without, /cheapest model and effort/i);
   assert.doesNotMatch(without, /gpt-5\.4-mini/);
   assert.doesNotMatch(without, /hallucinat/i);

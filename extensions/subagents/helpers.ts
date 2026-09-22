@@ -364,7 +364,7 @@ export function buildClassifierPrompt(options: {
   includeLadder?: boolean;
 }): string {
   const ladder = options.includeLadder === false ? "" : `${ROUTING_LADDER_GUIDANCE}\n\n`;
-  return `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups and mechanical edits do not.
+  return `Classify the difficulty and complexity of a delegated coding-agent task, then choose the best session-eligible model and reasoning effort from the exact catalog below. Return a model identifier from the catalog verbatim; do not invent or modify identifiers. Scope effort pins override your effort choice. Balance capability, reliability, context needs, latency, and cost. Hard architecture, debugging, security, or broad implementation work generally deserves a stronger model and higher effort; simple lookups, classifications, and mechanical edits do not.
 
 ${ladder}${options.fixedChoice ? `The user fixed ${options.fixedChoice}; preserve those values and classify only what is missing. ` : ""}Return one JSON object only: {"model":"provider/id","effort":"off|minimal|low|medium|high|xhigh|max","rationale":"one short sentence"}.
 
@@ -404,16 +404,30 @@ export function escalationGate(options: {
 }
 
 /** Cost-efficiency guidance appended to the routing classifier prompt. */
-export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort that clears the task's required intelligence; do not buy capability the task does not need. Within the GPT-5.6 family, capability and cost both rise Luna -> Terra -> Sol, and raising effort on a cheaper model is usually a better trade than moving to a pricier one at low effort.
-- Trivial, mechanical, or lookup work: the cheapest family (Luna) at low or medium effort.
-- Ordinary implementation, focused debugging, or review: Luna at high or max effort.
-- Broad multi-file implementation, subtle debugging, security, or architecture: Terra, then Sol, raising effort before tier.
-- Prefer Luna over gpt-5.4-mini whenever both are eligible: measured head-to-head, gpt-5.4-mini is dominated on intelligence, cost, and latency (index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04 and 98s). Route to gpt-5.4-mini only when no GPT-5.6 model is eligible.
+export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort that clears the task's required intelligence; do not buy capability the task does not need. Treat model and effort as one combined choice rather than choosing a family first.
+- Trivial, mechanical, classification, or lookup work: Luna at low or medium effort.
+- Ordinary implementation, focused debugging, or review: Luna at high effort.
+- Work that needs more reasoning but still fits the cheapest family: Luna at xhigh effort.
+- Never choose Terra at low or medium effort; prefer Luna high.
+- Never choose Terra at high effort; prefer Luna xhigh.
+- Never choose Terra at xhigh effort; prefer Sol medium.
+- Terra is eligible only at max effort and only for a task-specific measured strength. If max is absent from Terra's catalog entry, do not choose Terra.
+- Prefer Luna xhigh over Sol low. When Luna xhigh is insufficient, move to Sol medium, then Sol high or xhigh as needed.
+- Prefer Luna over gpt-5.4-mini whenever both are eligible: measured head-to-head, gpt-5.4-mini is dominated on intelligence, cost, and latency. Route to gpt-5.4-mini only when no GPT-5.6 model is eligible.
 
-The frontier escalation tier (GPT-6 Astra) requires separate user approval, so request it only when one of these actually applies:
-- The task needs coding-agent capability above the ceiling tier. On Artificial Analysis' Coding Agent Index, Astra (max) scores ~62 against Sol (max) at ~55 for $7.08 against $6.24 per task, so on agentic coding work the premium is modest even though Astra's per-token price is far higher; the approval gate, not cost, is the reason to be selective.
-- Hallucination or factual reliability is a material risk for this task. Astra hallucinates about half as often as the ceiling tier, which is the clearest reason to prefer it.
-Do not request escalation for work the ceiling tier can complete.`;
+The frontier escalation tier (GPT-6 Astra) requires separate user approval. Request it only when the strongest eligible Sol configuration is materially insufficient or when hallucination/factual reliability is a material task risk. Do not request escalation merely because the task is broad or expensive.
+
+Scope and difficulty are separate. "Focused", "read-only", an existing regression test, or a narrow expected diff reduces work volume but does not by itself make the reasoning ordinary. Use Sol medium when the task's core deliverable requires resolving ambiguous, high-consequence semantics: cross-layer failure behavior; retry and idempotency boundaries; security exploitability or authorization; externally shipped contracts; serialization or omitted-versus-default behavior; or production changes where a locally plausible answer can silently lose or corrupt data. Existing tests reduce implementation uncertainty, but they do not remove semantic difficulty.
+
+Apply that rule to the task's required judgment, not to incidental nouns. A bounded checklist or review that merely enumerates known OAuth, security, pagination, or integration concerns remains Luna high or xhigh. A review that must decide an ambiguous failure boundary or produce concrete exploitable security findings is Sol medium. Ordinary contract-preserving implementation with a clear local solution remains Luna high or xhigh; resolving subtle omitted-versus-default or compatibility semantics is Sol medium.
+
+Artificial Analysis' general Intelligence Index is a comparative benchmark score where higher is better. It is not a percentage, probability, or score out of 100, and differences must not be assumed linear. Approximate score / benchmark-cost-per-task observations from the supplied chart are:
+- Luna: low 33 / $0.04; medium 38 / $0.05; high 46 / $0.09; xhigh 49 / $0.13.
+- Terra: low 40 / $0.10; medium 46 / $0.13; high 49 / $0.24; xhigh 52 / $0.34; max 55 / $0.57.
+- Sol: low 49 / $0.20; medium 54 / $0.32; high 56 / $0.45; xhigh 58 / $0.68; max 59 / $1.03.
+These benchmark costs are not the live token prices in the catalog. They support the efficient-frontier preferences above; they are not hard thresholds. Dimension-specific benchmark charts may justify Terra max for a particular task only when Terra max is eligible and the relevant alternatives were actually evaluated on that dimension. A missing model or effort means "not evaluated", not "worse".
+
+On the separate Coding Agent Index, Astra max is about 62 versus Sol max about 55, while average task cost is $7.08 versus $6.24 (about 13.5% more). That index is also comparative, not a percentage or linear scale. Use this only as evidence that approved Astra escalation can buy additional agentic capability; it does not show that every seven-point gap matters to a task.`;
 
 /**
  * Well-known global key another extension assigns to take over subagent routing.
