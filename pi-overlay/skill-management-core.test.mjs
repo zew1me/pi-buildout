@@ -631,6 +631,28 @@ test("removing a bare name prefers a catalog-name entry over a deleted path with
   assert.match(firstLine(missing), /Skill is not enabled for global scope: local-skill/);
 });
 
+test("a persisted catalog name is compared literally, whatever exists in the current directory", async () => {
+  const { env, store } = withCatalog([{ name: "alpha", description: "catalog skill", filePath: "/pkg/alpha" }]);
+  store.set("/agent/skills.json", JSON.stringify({ enabled: ["alpha"] }));
+  env.fs.existsSync = (path) => path === "/work/alpha" || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const added = await runSkillsCommand(env, ["add", "./alpha", "--global"], options);
+  assert.equal(added.exitCode, 0, added.lines.join("\n"));
+  assert.deepEqual(
+    readStored(store, "/agent/skills.json").enabled,
+    ["alpha", "/work/alpha"],
+    "a local folder named like a catalog skill does not make the path a duplicate of the name",
+  );
+
+  assert.equal((await runSkillsCommand(env, ["remove", "./alpha", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"], "removing the path keeps the name");
+
+  const removed = await runSkillsCommand(env, ["remove", "alpha", "--global"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, [], "the catalog name is still removable");
+});
+
 /**
  * Builds an interactive context that records what the command did.
  *

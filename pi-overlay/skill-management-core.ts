@@ -289,6 +289,22 @@ function normalizeSkillSource(
   return looksLikePath(source) || env.fs.existsSync(resolved) ? resolved : source;
 }
 
+/**
+ * Normalizes an entry already persisted in a configuration file.
+ *
+ * User input is normalized before it is stored, so a stored bare value is a catalog name and is compared
+ * literally. Resolving it against whatever happens to exist in the current directory would let an unrelated
+ * local folder make a catalog-name entry match, or block, a path entry.
+ */
+function normalizePersistedSource(
+  env: SkillEnvironment,
+  source: string | undefined,
+  options: { cwd: string },
+): string | undefined {
+  if (!source) return undefined;
+  return looksLikePath(source) ? env.resolvePath(source, options.cwd, { trim: true }) : source;
+}
+
 export function updatePersistedSkill(
   env: SkillEnvironment,
   action: "add" | "remove",
@@ -306,7 +322,7 @@ export function updatePersistedSkill(
     const target: JsonRecord = location.key === undefined ? config : isObjectRecord(existing) ? existing : {};
 
     const enabled = enabledEntries(target);
-    const matched = enabled.some((entry) => normalizeSkillSource(env, sourceOf(entry), options) === source);
+    const matched = enabled.some((entry) => normalizePersistedSource(env, sourceOf(entry), options) === source);
     if (action === "remove" && !matched) return false;
 
     target.enabled =
@@ -314,7 +330,7 @@ export function updatePersistedSkill(
         ? matched
           ? enabled
           : [...enabled, source]
-        : enabled.filter((entry) => normalizeSkillSource(env, sourceOf(entry), options) !== source);
+        : enabled.filter((entry) => normalizePersistedSource(env, sourceOf(entry), options) !== source);
 
     if (location.key !== undefined) config[location.key] = target;
     writeJson(env, path, config);
@@ -323,11 +339,12 @@ export function updatePersistedSkill(
 }
 
 /**
- * Removes a persisted entry by its normalized form first, then by the path a bare name resolves to.
+ * Removes a persisted entry by its normalized form first, then by each other reading of a bare name.
  *
- * Adding a bare name that names an existing path persists that path. Once the path is deleted the name
- * normalizes to itself again, so without the fallback the entry could no longer be removed by its original
- * spelling. A matching catalog-name entry still wins, because it is tried first.
+ * A bare name is stored as the catalog name, or as the path it named when that path existed at add time.
+ * Whether the path exists now says nothing about which form was stored: the path may have been deleted, or an
+ * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
+ * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
  */
 function removePersistedSkill(
   env: SkillEnvironment,
@@ -336,10 +353,10 @@ function removePersistedSkill(
   scope: SkillScope,
   options: { cwd: string; agentDir: string },
 ): boolean {
-  if (updatePersistedSkill(env, "remove", target, scope, options)) return true;
-  if (looksLikePath(source)) return false;
-  const resolved = env.resolvePath(source, options.cwd, { trim: true });
-  return resolved !== target && updatePersistedSkill(env, "remove", resolved, scope, options);
+  const candidates = looksLikePath(source)
+    ? [target]
+    : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
+  return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
 }
 
 export function getActiveSkillEntries(
