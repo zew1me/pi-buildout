@@ -31,6 +31,12 @@ function createEnvironment({ files = {}, git = {}, catalog = [] } = {}) {
   const store = new Map(Object.entries(files));
   /** @type {{ path: string; contents: string | undefined }[]} */
   const writes = [];
+  /** @type {{ lockfilePath: string; held: boolean }[]} */
+  const locks = [];
+  /** @type {number[]} */
+  const sleeps = [];
+  /** @type {string[]} */
+  const reported = [];
   /** @type {import("./skill-management-core.ts").SkillEnvironment} */
   const env = {
     fs: {
@@ -74,6 +80,15 @@ function createEnvironment({ files = {}, git = {}, catalog = [] } = {}) {
       return response;
     },
     processId: () => 4242,
+    lockSync: (_directory, { lockfilePath }) => {
+      const lock = { lockfilePath, held: true };
+      locks.push(lock);
+      return () => {
+        lock.held = false;
+      };
+    },
+    sleepSync: (milliseconds) => sleeps.push(milliseconds),
+    reportError: (message) => reported.push(message),
     configDirName: ".pi",
     resolvePath: (input, baseDir) => (input.startsWith("/") ? input : `${baseDir}/${input.replace(/^\.\//, "")}`),
     loadSkillsFromDir: () => ({ skills: [] }),
@@ -88,7 +103,7 @@ function createEnvironment({ files = {}, git = {}, catalog = [] } = {}) {
         })),
       }),
   };
-  return { env, store, writes };
+  return { env, store, writes, locks, sleeps, reported };
 }
 
 /**
@@ -101,6 +116,24 @@ function withCatalog(skills) {
   env.loadSkills = () => ({ skills });
   return { env, store, writes };
 }
+
+/**
+ * Serves `local` from `loadSkills` only when it is asked about one of those paths, the way Pi's loader reads
+ * just the paths it is given. Any other call falls through to `fallback`.
+ *
+ * @param {import("./skill-management-core.ts").SkillEnvironment} env
+ * @param {Record<string, import("./skill-management-core.ts").CatalogSkill[]>} local Skills keyed by path.
+ */
+function withLocalSkills(env, local) {
+  const fallback = env.loadSkills;
+  env.loadSkills = (options) => {
+    const [path] = options.skillPaths;
+    if (options.skillPaths.length === 1 && path !== undefined && path in local) return { skills: local[path] ?? [] };
+    return fallback(options);
+  };
+}
+
+const localSkill = { name: "local-skill", description: "local skill", filePath: "/work/local-skill/SKILL.md" };
 
 /**
  * Parses a file the test just wrote, failing loudly when it is missing.
@@ -270,6 +303,115 @@ test("updatePersistedSkill writes atomically through a pid-scoped temp file", ()
     ["/agent/skills.json"],
     "the temp file is renamed onto the target",
   );
+});
+
+/**
+ * An error shaped like the ones `proper-lockfile` throws.
+ *
+ * @param {string} code
+ */
+function lockError(code) {
+  return Object.assign(new Error(`lock failed: ${code}`), { code });
+}
+
+test("updatePersistedSkill holds the configuration lock across the whole read-modify-write", () => {
+  const { env, store, locks } = createEnvironment();
+  const readFileSync = env.fs.readFileSync;
+  const renameSync = env.fs.renameSync;
+  /** @type {boolean[]} */
+  const heldDuring = [];
+  env.fs.readFileSync = (path, encoding) => {
+    heldDuring.push(locks.at(-1)?.held === true);
+    return readFileSync(path, encoding);
+  };
+  env.fs.renameSync = (from, to) => {
+    heldDuring.push(locks.at(-1)?.held === true);
+    renameSync(from, to);
+  };
+  store.set("/agent/skills.json", JSON.stringify({ enabled: ["alpha"] }));
+
+  assert.equal(updatePersistedSkill(env, "add", "beta", "global", { cwd: "/work", agentDir: "/agent" }), true);
+  assert.deepEqual(heldDuring, [true, true], "the read and the rename both happen under the lock");
+  assert.deepEqual(locks, [{ lockfilePath: "/agent/skills.json.lock", held: false }], "the lock is released");
+});
+
+test("updatePersistedSkill retries while another process holds the lock", () => {
+  const { env, store, sleeps } = createEnvironment();
+  const lockSync = env.lockSync;
+  let attempts = 0;
+  env.lockSync = (directory, options) => {
+    attempts += 1;
+    if (attempts < 3) throw lockError("ELOCKED");
+    return lockSync(directory, options);
+  };
+
+  assert.equal(updatePersistedSkill(env, "add", "alpha", "global", { cwd: "/work", agentDir: "/agent" }), true);
+  assert.equal(attempts, 3);
+  assert.deepEqual(sleeps, [20, 20], "waits between attempts instead of spinning");
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"]);
+});
+
+test("updatePersistedSkill gives up on a lock that stays held, and never retries other lock errors", () => {
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const held = createEnvironment();
+  let heldAttempts = 0;
+  held.env.lockSync = () => {
+    heldAttempts += 1;
+    throw lockError("ELOCKED");
+  };
+  assert.throws(() => updatePersistedSkill(held.env, "add", "alpha", "global", options), { code: "ELOCKED" });
+  assert.equal(heldAttempts, 100);
+  assert.equal(held.store.has("/agent/skills.json"), false, "nothing is written without the lock");
+
+  const denied = createEnvironment();
+  let deniedAttempts = 0;
+  denied.env.lockSync = () => {
+    deniedAttempts += 1;
+    throw lockError("EACCES");
+  };
+  assert.throws(() => updatePersistedSkill(denied.env, "add", "alpha", "global", options), { code: "EACCES" });
+  assert.equal(deniedAttempts, 1);
+  assert.deepEqual(denied.sleeps, []);
+});
+
+test("updatePersistedSkill releases the lock when the update fails", () => {
+  const { env, store, locks } = createEnvironment();
+  store.set("/agent/skills.json", "not json");
+
+  assert.throws(
+    () => updatePersistedSkill(env, "add", "alpha", "global", { cwd: "/work", agentDir: "/agent" }),
+    /Could not parse \/agent\/skills\.json/,
+  );
+  assert.equal(locks.length, 1);
+  assert.equal(locks[0]?.held, false);
+});
+
+/** Releases nothing and fails, the way a compromised `proper-lockfile` lock does. */
+function throwingRelease() {
+  throw new Error("lock compromised");
+}
+
+/** Takes a lock whose release fails. */
+function failingRelease() {
+  return throwingRelease;
+}
+
+test("a failed lock release is reported without replacing the update's result or error", () => {
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const succeeded = createEnvironment();
+  succeeded.env.lockSync = failingRelease;
+  assert.equal(updatePersistedSkill(succeeded.env, "add", "alpha", "global", options), true);
+  assert.deepEqual(readStored(succeeded.store, "/agent/skills.json").enabled, ["alpha"]);
+  assert.deepEqual(succeeded.reported, [
+    "Could not release skill configuration lock /agent/skills.json: lock compromised",
+  ]);
+
+  const failed = createEnvironment({ files: { "/agent/skills.json": "not json" } });
+  failed.env.lockSync = failingRelease;
+  assert.throws(() => updatePersistedSkill(failed.env, "add", "alpha", "global", options), /Could not parse/);
+  assert.equal(failed.reported.length, 1);
 });
 
 test("getActiveSkillEntries reports global and repository scopes", () => {
@@ -462,6 +604,136 @@ test("path sources resolve against the working directory before being persisted"
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/skills/alpha"]);
 });
 
+test("a bare source naming an existing path is persisted as that path, and other bare names stay names", async () => {
+  const { env, store } = withCatalog([{ name: "alpha", description: "catalog skill", filePath: "/pkg/alpha" }]);
+  withLocalSkills(env, { "/work/local-skill": [localSkill] });
+  env.fs.existsSync = (path) => path === "/work/local-skill" || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  assert.equal((await runSkillsCommand(env, ["add", "local-skill", "--global"], options)).exitCode, 0);
+  assert.equal((await runSkillsCommand(env, ["add", "alpha", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/local-skill", "alpha"]);
+
+  assert.equal((await runSkillsCommand(env, ["remove", "local-skill", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"]);
+});
+
+test("a local folder without skills does not shadow a catalog skill of the same name", async () => {
+  const { env, store } = withCatalog([{ name: "alpha", description: "catalog skill", filePath: "/pkg/alpha" }]);
+  withLocalSkills(env, { "/work/alpha": [], "/work/ghost": [] });
+  env.fs.existsSync = (path) => path === "/work/alpha" || path === "/work/ghost" || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const added = await runSkillsCommand(env, ["add", "alpha", "--global"], options);
+  assert.equal(added.exitCode, 0, added.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"], "the catalog name is persisted");
+
+  const ghost = await runSkillsCommand(env, ["add", "ghost", "--global"], options);
+  assert.equal(ghost.exitCode, 1, "a skill-less folder that is not a catalog skill is not addable");
+  assert.match(firstLine(ghost), /Skill not found in the catalog or at an existing path: ghost/);
+
+  const explicit = await runSkillsCommand(env, ["add", "./alpha", "--global"], options);
+  assert.equal(explicit.exitCode, 0, "an explicit path keeps direct path handling");
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha", "/work/alpha"]);
+});
+
+test("a bare name prefers a catalog skill over a local skill folder of the same name", async () => {
+  const catalogAlpha = { name: "alpha", description: "catalog skill", filePath: "/pkg/alpha/SKILL.md" };
+  const { env, store } = withCatalog([catalogAlpha]);
+  withLocalSkills(env, { "/work/alpha": [{ ...catalogAlpha, filePath: "/work/alpha/SKILL.md" }] });
+  env.fs.existsSync = (path) => path === "/work/alpha" || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const added = await runSkillsCommand(env, ["add", "alpha", "--global"], options);
+  assert.equal(added.exitCode, 0, added.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"], "the catalog name is persisted");
+
+  const explicit = await runSkillsCommand(env, ["add", "./alpha", "--global"], options);
+  assert.equal(explicit.exitCode, 0, "the local folder stays reachable through an explicit path");
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha", "/work/alpha"]);
+
+  assert.equal((await runSkillsCommand(env, ["remove", "alpha", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/alpha"], "remove targets the name");
+});
+
+test("removing a bare name never resolves packages, and prefers the stored catalog name", async () => {
+  const catalogAlpha = { name: "alpha", description: "catalog skill", filePath: "/pkg/alpha/SKILL.md" };
+  const { env, store } = withCatalog([catalogAlpha]);
+  withLocalSkills(env, { "/work/alpha": [{ ...catalogAlpha, filePath: "/work/alpha/SKILL.md" }] });
+  env.fs.existsSync = (path) => path === "/work/alpha" || store.has(path);
+  store.set("/agent/skills.json", JSON.stringify({ enabled: ["alpha", "/work/alpha"] }));
+  let resolutions = 0;
+  env.resolvePackageResources = () => {
+    resolutions += 1;
+    return Promise.reject(new Error("package resolution must not run during removal"));
+  };
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const removed = await runSkillsCommand(env, ["remove", "alpha", "--global"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/alpha"]);
+
+  const again = await runSkillsCommand(env, ["remove", "alpha", "--global"], options);
+  assert.equal(again.exitCode, 0, again.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, []);
+  assert.equal(resolutions, 0);
+});
+
+test("a bare source persisted as a path stays removable by its name after the path is deleted", async () => {
+  const { env, store } = createEnvironment();
+  withLocalSkills(env, { "/work/local-skill": [localSkill] });
+  let pathExists = true;
+  env.fs.existsSync = (path) => (path === "/work/local-skill" ? pathExists : store.has(path));
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  assert.equal((await runSkillsCommand(env, ["add", "local-skill", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/local-skill"]);
+
+  pathExists = false;
+  const removed = await runSkillsCommand(env, ["remove", "local-skill", "--global"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, []);
+});
+
+test("removing a bare name prefers a catalog-name entry over a deleted path with the same spelling", async () => {
+  const { env, store } = createEnvironment({
+    files: { "/agent/skills.json": JSON.stringify({ enabled: ["/work/local-skill", "local-skill"] }) },
+  });
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  assert.equal((await runSkillsCommand(env, ["remove", "local-skill", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/local-skill"]);
+
+  assert.equal((await runSkillsCommand(env, ["remove", "local-skill", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, []);
+
+  const missing = await runSkillsCommand(env, ["remove", "local-skill", "--global"], options);
+  assert.equal(missing.exitCode, 1);
+  assert.match(firstLine(missing), /Skill is not enabled for global scope: local-skill/);
+});
+
+test("a persisted catalog name is compared literally, whatever exists in the current directory", async () => {
+  const { env, store } = withCatalog([{ name: "alpha", description: "catalog skill", filePath: "/pkg/alpha" }]);
+  store.set("/agent/skills.json", JSON.stringify({ enabled: ["alpha"] }));
+  env.fs.existsSync = (path) => path === "/work/alpha" || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const added = await runSkillsCommand(env, ["add", "./alpha", "--global"], options);
+  assert.equal(added.exitCode, 0, added.lines.join("\n"));
+  assert.deepEqual(
+    readStored(store, "/agent/skills.json").enabled,
+    ["alpha", "/work/alpha"],
+    "a local folder named like a catalog skill does not make the path a duplicate of the name",
+  );
+
+  assert.equal((await runSkillsCommand(env, ["remove", "./alpha", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"], "removing the path keeps the name");
+
+  const removed = await runSkillsCommand(env, ["remove", "alpha", "--global"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, [], "the catalog name is still removable");
+});
+
 /**
  * Builds an interactive context that records what the command did.
  *
@@ -556,6 +828,24 @@ test("/skills remove --session deactivates a session skill", async () => {
   await handleSkillsInteractive(env, "/skills remove alpha --session", context);
   assert.deepEqual(paths, [], "the loader's list is mutated in place");
   assert.deepEqual(calls.output, ["Disabled alpha for this session."]);
+});
+
+test("/skills remove --session removes a deleted local skill by its bare name", async () => {
+  const { env, store } = createEnvironment();
+  withLocalSkills(env, { "/work/local-skill": [localSkill] });
+  let pathExists = true;
+  env.fs.existsSync = (path) => (path === "/work/local-skill" ? pathExists : store.has(path));
+  const paths = ["/pkg/other/SKILL.md"];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+
+  await handleSkillsInteractive(env, "/skills add local-skill --session", context);
+  assert.deepEqual(paths, ["/pkg/other/SKILL.md", "/work/local-skill"]);
+
+  pathExists = false;
+  await handleSkillsInteractive(env, "/skills remove local-skill --session", context);
+  assert.deepEqual(calls.errors, []);
+  assert.deepEqual(paths, ["/pkg/other/SKILL.md"], "only the stale local path is removed");
+  assert.deepEqual(calls.output.at(-1), "Disabled local-skill for this session.");
 });
 
 test("/skills remove --session reports a skill that is not active", async () => {

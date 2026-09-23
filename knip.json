@@ -10,5 +10,5 @@
   "project": ["extensions/**/*.{ts,mjs}", "pi-overlay/*.{ts,mjs}"],
   "ignoreUnresolved": ["^\\.{1,2}/.*\\.ts$"],
   "ignoreBinaries": ["patch", "shellcheck", "taskkill"],
-  "ignoreDependencies": ["@secretlint/secretlint-rule-preset-recommend", "chalk"]
+  "ignoreDependencies": ["@secretlint/secretlint-rule-preset-recommend", "chalk", "proper-lockfile"]
 }

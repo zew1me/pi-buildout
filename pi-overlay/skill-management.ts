@@ -14,6 +14,7 @@ import chalk from "chalk";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import lockfile from "proper-lockfile";
 import { createProjectTrustContext } from "../cli/project-trust.ts";
 import { CONFIG_DIR_NAME } from "../config.ts";
 import { resolveProjectTrusted } from "./project-trust.ts";
@@ -47,12 +48,21 @@ export type {
   SkillDiagnostic,
 } from "./skill-management-core.ts";
 
+const lockWait = new Int32Array(new SharedArrayBuffer(4));
+
 const env: SkillEnvironment = {
   fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
   path: { dirname, isAbsolute, join, relative, resolve, sep },
   homedir,
   execFileSync,
   processId: () => process.pid,
+  lockSync: (directory, options) => lockfile.lockSync(directory, options),
+  sleepSync: (milliseconds) => {
+    Atomics.wait(lockWait, 0, 0, milliseconds);
+  },
+  reportError: (message) => {
+    console.error(message);
+  },
   configDirName: CONFIG_DIR_NAME,
   resolvePath,
   loadSkillsFromDir,

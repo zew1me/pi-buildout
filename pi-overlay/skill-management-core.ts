@@ -57,6 +57,12 @@ export type SkillEnvironment = {
   ) => string;
   /** Process id, used only to make the atomic-write temp filename unique. */
   processId: () => number;
+  /** Pi's synchronous `proper-lockfile` lock; returns the function that releases it. */
+  lockSync: (directory: string, options: { realpath: false; lockfilePath: string }) => () => void;
+  /** Blocks the calling thread for the given time without busy-waiting. */
+  sleepSync: (milliseconds: number) => void;
+  /** Reports a problem that must not replace the result or error of the operation in progress. */
+  reportError: (message: string) => void;
   /** Pi's `CONFIG_DIR_NAME`. */
   configDirName: string;
   /** Pi's `resolvePath` from `utils/paths`. */
@@ -127,6 +133,47 @@ function writeJson(env: SkillEnvironment, path: string, value: JsonRecord): void
   const tempPath = `${path}.${String(env.processId())}.tmp`;
   env.fs.writeFileSync(tempPath, `${JSON.stringify(value, null, 2)}\n`);
   env.fs.renameSync(tempPath, path);
+}
+
+const skillConfigLockAttempts = 100;
+const skillConfigLockDelayMs = 20;
+
+function errorCode(error: unknown): string | undefined {
+  return typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
+}
+
+/** Follows Pi's trust-store lock: retry only while another process holds the lock. */
+function acquireSkillConfigLock(env: SkillEnvironment, path: string): () => void {
+  const configDir = env.path.dirname(path);
+  env.fs.mkdirSync(configDir, { recursive: true });
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return env.lockSync(configDir, { realpath: false, lockfilePath: `${path}.lock` });
+    } catch (error) {
+      if (errorCode(error) !== "ELOCKED" || attempt >= skillConfigLockAttempts) throw error;
+      env.sleepSync(skillConfigLockDelayMs);
+    }
+  }
+}
+
+/**
+ * Runs a read-modify-write of one configuration file under its lock.
+ *
+ * A failed release is reported rather than thrown, so it never hides the update's own result or error.
+ */
+function withSkillConfigLock<T>(env: SkillEnvironment, path: string, fn: () => T): T {
+  const release = acquireSkillConfigLock(env, path);
+  try {
+    return fn();
+  } finally {
+    try {
+      release();
+    } catch (error) {
+      env.reportError(
+        `Could not release skill configuration lock ${path}: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
 }
 
 function git(env: SkillEnvironment, cwd: string, args: string[]): string | undefined {
@@ -231,7 +278,41 @@ export function looksLikePath(value: string): boolean {
   return value.includes("/") || value.includes("\\") || value.startsWith(".") || value.startsWith("~");
 }
 
-function normalizeSkillSource(
+/** True when `path` exists and Pi's own loader finds at least one skill in it. */
+function containsSkills(env: SkillEnvironment, path: string, options: { cwd: string; agentDir: string }): boolean {
+  if (!env.fs.existsSync(path)) return false;
+  const { skills } = env.loadSkills({
+    cwd: options.cwd,
+    agentDir: options.agentDir,
+    skillPaths: [path],
+    includeDefaults: false,
+  });
+  return skills.length > 0;
+}
+
+async function normalizeSkillSource(
+  env: SkillEnvironment,
+  source: string | undefined,
+  options: { cwd: string; agentDir: string; settingsManager?: SettingsManagerLike },
+): Promise<string | undefined> {
+  if (!source) return undefined;
+  const resolved = env.resolvePath(source, options.cwd, { trim: true });
+  if (looksLikePath(source)) return resolved;
+  // A bare name is a path only when it names a folder or file holding skills, and no catalog skill has that
+  // name. A bare name therefore always means what `skills list` shows, and a local folder never shadows it.
+  if (!containsSkills(env, resolved, options)) return source;
+  const catalog = await getSkillCatalog(env, options);
+  return catalog.some((skill) => skill.name === source) ? source : resolved;
+}
+
+/**
+ * Normalizes an entry already persisted in a configuration file.
+ *
+ * User input is normalized before it is stored, so a stored bare value is a catalog name and is compared
+ * literally. Resolving it against whatever happens to exist in the current directory would let an unrelated
+ * local folder make a catalog-name entry match, or block, a path entry.
+ */
+function normalizePersistedSource(
   env: SkillEnvironment,
   source: string | undefined,
   options: { cwd: string },
@@ -248,26 +329,50 @@ export function updatePersistedSkill(
   options: { cwd: string; agentDir: string },
 ): boolean {
   const location = configLocation(env, scope, options.cwd, options.agentDir);
-  if (location.path === undefined) throw new Error(`Scope ${scope} has no persisted configuration.`);
+  const path = location.path;
+  if (path === undefined) throw new Error(`Scope ${scope} has no persisted configuration.`);
 
-  const config = readJson(env, location.path);
-  const existing = location.key === undefined ? config : config[location.key];
-  const target: JsonRecord = location.key === undefined ? config : isObjectRecord(existing) ? existing : {};
+  return withSkillConfigLock(env, path, () => {
+    const config = readJson(env, path);
+    const existing = location.key === undefined ? config : config[location.key];
+    const target: JsonRecord = location.key === undefined ? config : isObjectRecord(existing) ? existing : {};
 
-  const enabled = enabledEntries(target);
-  const matched = enabled.some((entry) => normalizeSkillSource(env, sourceOf(entry), options) === source);
-  if (action === "remove" && !matched) return false;
+    const enabled = enabledEntries(target);
+    const matched = enabled.some((entry) => normalizePersistedSource(env, sourceOf(entry), options) === source);
+    if (action === "remove" && !matched) return false;
 
-  target.enabled =
-    action === "add"
-      ? matched
-        ? enabled
-        : [...enabled, source]
-      : enabled.filter((entry) => normalizeSkillSource(env, sourceOf(entry), options) !== source);
+    target.enabled =
+      action === "add"
+        ? matched
+          ? enabled
+          : [...enabled, source]
+        : enabled.filter((entry) => normalizePersistedSource(env, sourceOf(entry), options) !== source);
 
-  if (location.key !== undefined) config[location.key] = target;
-  writeJson(env, location.path, config);
-  return true;
+    if (location.key !== undefined) config[location.key] = target;
+    writeJson(env, path, config);
+    return true;
+  });
+}
+
+/**
+ * Removes a persisted entry by its normalized form first, then by each other reading of a bare name.
+ *
+ * A bare name is stored as the catalog name, or as the path it named when that path existed at add time.
+ * Whether the path exists now says nothing about which form was stored: the path may have been deleted, or an
+ * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
+ * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
+ */
+function removePersistedSkill(
+  env: SkillEnvironment,
+  source: string,
+  target: string,
+  scope: SkillScope,
+  options: { cwd: string; agentDir: string },
+): boolean {
+  const candidates = looksLikePath(source)
+    ? [target]
+    : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
+  return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
 }
 
 export function getActiveSkillEntries(
@@ -371,9 +476,9 @@ async function resolveSkillSource(
   source: string,
   options: { cwd: string; agentDir: string; settingsManager?: SettingsManagerLike },
 ): Promise<string | undefined> {
-  const normalized = normalizeSkillSource(env, source, options);
+  const normalized = await normalizeSkillSource(env, source, options);
   if (!normalized) return undefined;
-  if (looksLikePath(source)) return env.fs.existsSync(normalized) ? normalized : undefined;
+  if (looksLikePath(source) || normalized !== source) return env.fs.existsSync(normalized) ? normalized : undefined;
   return (await getSkillCatalog(env, options)).find((skill) => skill.name === normalized)?.filePath;
 }
 
@@ -450,7 +555,14 @@ async function runMutationCommand(
     throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
   }
 
-  const target = normalizeSkillSource(env, source, options);
+  // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
+  // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
+  const target =
+    command === "remove"
+      ? looksLikePath(source)
+        ? env.resolvePath(source, options.cwd, { trim: true })
+        : source
+      : await normalizeSkillSource(env, source, options);
   if (!target) throw new Error(`Skill source is invalid: ${source}`);
   if (command === "add" && !(await resolveSkillSource(env, source, options))) {
     throw new Error(`Skill not found in the catalog or at an existing path: ${source}`);
@@ -458,9 +570,11 @@ async function runMutationCommand(
 
   if (scope === "session") return { exitCode: 0, lines: [], session: { action: command, source: target } };
 
-  if (!updatePersistedSkill(env, command, target, scope, options)) {
-    throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
-  }
+  const updated =
+    command === "add"
+      ? updatePersistedSkill(env, command, target, scope, options)
+      : removePersistedSkill(env, source, target, scope, options);
+  if (!updated) throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
   return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
 }
 
@@ -630,8 +744,12 @@ async function applySessionSkillChange(
     return `Enabled ${resolved} for this session.`;
   }
 
-  const matches = (path: string): boolean =>
+  const direct = (path: string): boolean =>
     path === session.source || path === normalized || (resolved !== undefined && path === resolved);
+  // A bare name added as a local path stays removable by that name after the path is deleted, but only when
+  // nothing matches it directly.
+  const localPath = looksLikePath(session.source) ? undefined : env.resolvePath(session.source, cwd, { trim: true });
+  const matches = additionalSkillPaths.some(direct) ? direct : (path: string): boolean => path === localPath;
   if (!additionalSkillPaths.some(matches)) {
     context.showError(`Skill is not enabled for this session: ${session.source}`);
     return undefined;

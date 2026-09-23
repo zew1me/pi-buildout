@@ -47,9 +47,9 @@ docs/skills.md                    # skill docs
 README.md                         # high-level docs and CLI table
 ```
 
-Pi 0.84.4 and 0.85.1 dispatch the installed `pi` command and RPC entrypoint through `dist/bundle/`; their versioned
-patches therefore also replace those two bundled entrypoints with wrappers around the patched unbundled runtime. Include
-any such entrypoint files in the patch and checksum manifests when a release switches its package bin layout.
+Pi 0.84.4 and later dispatch the installed `pi` command and RPC entrypoint through `dist/bundle/`; versioned patches for
+those releases therefore also replace those two bundled entrypoints with wrappers around the patched unbundled runtime.
+Include any such entrypoint files in the patch and checksum manifests when a release switches its package bin layout.
 
 Source maps may exist, but the editable runtime is `dist/*.js`. Prefer changing the smallest runtime surface that proves
 the behavior.
@@ -143,6 +143,20 @@ Catalog resolution is asynchronous. It keeps fixed global and trusted-project di
 precedence behavior. Both `runSkillsCommand()` callers must await it and pass the active `SettingsManager`; name-based
 activation in `DefaultResourceLoader` awaits that same catalog so package and settings names resolve consistently.
 
+Starting with the 0.85.1 patch, normalize user-provided local skill sources with Pi's `resolvePath()` before storing or
+adding them to a session, so tilde and explicit relative forms become stable absolute paths. A bare relative name
+becomes an absolute path only when that path holds at least one skill, as found by Pi's own `loadSkills()`; otherwise it
+stays a catalog name, including when it names an existing folder without skills. A catalog skill of the same name always
+wins, so a local folder never shadows one; reach such a folder through an explicit `./` path. Use the same normalization
+when matching an existing entry for removal, and when a bare name matches nothing, retry with its resolved path without
+requiring that path to exist, so an entry persisted as a path stays removable after the path is deleted. Compare stored
+bare entries literally: user input is normalized before it is stored, so a stored bare value is a catalog name, not a
+path relative to the current directory.
+
+Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
+synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without
+busy-spinning, and release in `finally` so concurrent CLI processes cannot overwrite one another's updates.
+
 ## Verification Ideas
 
 Create temp skills and temp agent dirs. Exercise these behaviors without network calls:
@@ -151,8 +165,10 @@ Create temp skills and temp agent dirs. Exercise these behaviors without network
 - `additionalSkillPaths` loads a session skill
 - `agentDir/skills.json` enables a global skill
 - `agentDir/repo-skills.json` enables a repo skill by normalized upstream URL
+- tilde and relative sources are persisted as absolute paths and can be removed through their original spelling
 - non-default remote ports stay distinct while explicit default ports retain canonical repository keys
 - non-object top-level JSON values fail strict configuration reads
+- concurrent global and repository updates preserve every requested change and clean up their lock files
 - `noSkills: true` ignores global/repo active skills
 
 Example shape:
