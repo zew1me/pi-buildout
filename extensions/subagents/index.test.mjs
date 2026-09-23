@@ -364,6 +364,30 @@ test("gpt-5.4-mini ranks below Luna because it is dominated head-to-head, not by
   assert.ok(modelStrengthRank(unknown) < modelStrengthRank(astra));
 });
 
+test("a mixed GPT-5.6 / GPT-6 scope uses cheap Luna to classify and GPT-6 Sol as ceiling", () => {
+  const luna56 = { provider: "openai-codex", id: "gpt-5.6-luna", cost: { output: 1.2 } };
+  const luna6 = {
+    provider: "openai-codex",
+    id: "gpt-6-luna",
+    cost: { output: 0.5 },
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+  };
+  const sol56 = { provider: "openai-codex", id: "gpt-5.6-sol", cost: { output: 20 } };
+  const sol6 = {
+    provider: "openai-codex",
+    id: "gpt-6-sol",
+    cost: { output: 10 },
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+  };
+  const astra = { provider: "openai-codex", id: "gpt-6-astra", cost: { output: 50 } };
+  assert.equal(modelStrengthRank(sol6) > modelStrengthRank(sol56), true);
+  assert.equal(modelStrengthRank(luna6), modelStrengthRank(luna56));
+  assert.equal(classifierModel([sol56, luna56, astra, sol6, luna6])?.model, luna6);
+  assert.deepEqual(routingCeiling([sol56, astra, sol6, luna6]), { model: sol6, effort: "max" });
+  assert.deepEqual(routingCeiling([luna56, luna6]), { model: luna6, effort: "max" });
+  assert.deepEqual(routingCeiling([sol56]), { model: sol56, effort: "xhigh" });
+});
+
 test("the routing ceiling excludes escalation models and uses the highest effort Sol truly supports", () => {
   const luna = { provider: "openai", id: "gpt-5.6-luna" };
   const sol = { provider: "openai", id: "gpt-5.6-sol" };
@@ -389,6 +413,10 @@ test("routing ladder guidance states the calibrated efficient frontier and escal
   assert.match(ROUTING_LADDER_GUIDANCE, /gpt-5\.4-mini/);
   assert.match(ROUTING_LADDER_GUIDANCE, /hallucinat/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /approval/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /GPT-6 Luna.+\$0\.10.+\$0\.50/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /GPT-6 Sol.+\$2\/\$10/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /Coding Agent Index is slightly lower \(41 vs 43/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /Astra still costs \$10 input\/\$50 output/i);
 });
 
 test("a routing plugin is read only when it matches the contract", () => {

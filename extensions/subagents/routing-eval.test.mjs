@@ -4,6 +4,7 @@ import { buildClassifierPrompt, formatModelCatalog } from "./helpers.ts";
 import { ESCALATION_EVAL_CASES, INTENT_EVAL_CASES, ROUTING_EVAL_CASES } from "./routing-eval-cases.mjs";
 import {
   EVAL_CANDIDATES,
+  GPT6_EVAL_CANDIDATES,
   createLiveClassifier,
   evaluateIntent,
   evaluateRouting,
@@ -47,6 +48,29 @@ test("the eval corpus is well formed and exercises the full difficulty range", (
   assert.ok(ROUTING_EVAL_CASES.some((evalCase) => evalCase.allow.includes("economy")));
   assert.ok(ROUTING_EVAL_CASES.some((evalCase) => evalCase.allow.includes("premium")));
   assert.ok(ESCALATION_EVAL_CASES.some((evalCase) => evalCase.allowEscalation));
+});
+
+test("a mixed GPT-6 catalog scores in the same bands without treating Astra as cheap", () => {
+  const luna = GPT6_EVAL_CANDIDATES.find(({ id }) => id === "gpt-6-luna");
+  const sol = GPT6_EVAL_CANDIDATES.find(({ id }) => id === "gpt-6-sol");
+  assert.ok(luna && sol);
+  assert.equal(luna.cost.output, 0.5);
+  assert.equal(sol.cost.output, 10);
+  assert.equal(tierOf(luna), "economy");
+  assert.equal(tierOf(sol), "premium");
+  const astra = GPT6_EVAL_CANDIDATES.find(({ id }) => id === "gpt-6-astra");
+  assert.ok(astra);
+  assert.equal(tierOf(astra), "frontier");
+  const handshake = ROUTING_EVAL_CASES[0];
+  assert.ok(handshake);
+  assert.equal(
+    scoreDecision(handshake, { model: "openai-codex/gpt-6-luna", effort: "low" }, GPT6_EVAL_CANDIDATES).ok,
+    true,
+  );
+  assert.equal(
+    scoreDecision(handshake, { model: "openai-codex/gpt-6-astra", effort: "low" }, GPT6_EVAL_CANDIDATES).ok,
+    false,
+  );
 });
 
 test("tier banding places gpt-5.4-mini below the economy tier", () => {

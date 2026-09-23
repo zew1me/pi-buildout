@@ -251,7 +251,10 @@ export function isEscalationClassModel(model: ModelLike): boolean {
  * Relative routing strength of the families this extension routes over.
  *
  * Ordering is taken from Artificial Analysis' Intelligence Index for the GPT-5.6
- * family (Luna < Terra < Sol) with Astra above Sol. `gpt-5.4-mini` is ranked
+ * family (Luna < Terra < Sol) with Astra above Sol. GPT-6 Sol edges GPT-5.6 Sol
+ * on the Coding Agent Index at half the token rate; the Luna versions share a
+ * rank because GPT-6 Luna regresses slightly on agentic coding even though it
+ * is cheaper. `gpt-5.4-mini` is ranked
  * *below* Luna despite costing ~3.75x more per token: measured head-to-head it is
  * Pareto-dominated, scoring index 24 at $0.41 and 261s per task against Luna's 32
  * at $0.04 and 98s. Cost alone would therefore rank it backwards, which is why
@@ -259,6 +262,7 @@ export function isEscalationClassModel(model: ModelLike): boolean {
  */
 const FAMILY_RANKS: readonly { pattern: RegExp; rank: number }[] = [
   { pattern: ESCALATION_ID_PATTERN, rank: 90 },
+  { pattern: /(?:^|[^a-z0-9])gpt-6-sol(?:[^a-z0-9]|$)/i, rank: 61 },
   { pattern: /(?:^|[^a-z0-9])sol(?:[^a-z0-9]|$)/i, rank: 60 },
   { pattern: /(?:^|[^a-z0-9])terra(?:[^a-z0-9]|$)/i, rank: 50 },
   { pattern: /(?:^|[^a-z0-9])luna(?:[^a-z0-9]|$)/i, rank: 40 },
@@ -313,9 +317,9 @@ export function classifierModel<T extends ModelLike>(
  * The strongest non-escalation candidate and the highest effort it actually supports.
  *
  * This is both the escalation trigger's reference point and its decline/timeout
- * fallback, so the two can never disagree. Note that for `gpt-5.6-sol` this
- * resolves to `xhigh`, not `max`: `supportedThinkingLevels` narrows the direct
- * OpenAI GPT-5.6 endpoint because it rejects `minimal` and `max` at runtime.
+ * fallback, so the two can never disagree. For GPT-5.6 Sol this resolves to
+ * `xhigh` because the endpoint rejects `max`; GPT-6 Sol supports `max` when
+ * its catalog metadata advertises it and wins over GPT-5.6 Sol in a mixed scope.
  */
 export function routingCeiling<T extends ModelLike>(
   candidates: readonly T[],
@@ -323,7 +327,13 @@ export function routingCeiling<T extends ModelLike>(
   let best: T | undefined;
   for (const candidate of candidates) {
     if (isEscalationClassModel(candidate)) continue;
-    if (!best || modelStrengthRank(candidate) > modelStrengthRank(best)) best = candidate;
+    if (
+      !best ||
+      modelStrengthRank(candidate) > modelStrengthRank(best) ||
+      (modelStrengthRank(candidate) === modelStrengthRank(best) &&
+        (candidate.cost?.output ?? Infinity) < (best.cost?.output ?? Infinity))
+    )
+      best = candidate;
   }
   return best ? { model: best, effort: clampThinkingLevel("max", best) } : undefined;
 }
@@ -413,21 +423,22 @@ export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort tha
 - Never choose Terra at xhigh effort; prefer Sol medium.
 - Terra is eligible only at max effort and only for a task-specific measured strength. If max is absent from Terra's catalog entry, do not choose Terra.
 - Prefer Luna xhigh over Sol low. When Luna xhigh is insufficient, move to Sol medium, then Sol high or xhigh as needed.
-- Prefer Luna over gpt-5.4-mini whenever both are eligible: measured head-to-head, gpt-5.4-mini is dominated on intelligence, cost, and latency. Route to gpt-5.4-mini only when no GPT-5.6 model is eligible.
+- In a mixed eligible scope, prefer GPT-6 Luna ($0.10 input/$0.50 output per million tokens) to GPT-5.6 Luna ($0.20/$1.20) for cheap work, and GPT-6 Sol ($2/$10) to GPT-5.6 Sol ($4/$20) for demanding agentic coding. These are comparative hints, not licenses to pick an out-of-scope model. GPT-6 Luna's Coding Agent Index is slightly lower (41 vs 43 at max), so GPT-5.6 Luna remains defensible when that measured difference matters; the versions are not universally capability-equivalent.
+- Prefer Luna over gpt-5.4-mini whenever both are eligible: measured head-to-head, gpt-5.4-mini is dominated on intelligence, cost, and latency. Route to gpt-5.4-mini only when no Luna model is eligible.
 
-The frontier escalation tier (GPT-6 Astra) requires separate user approval. Request it only when the strongest eligible Sol configuration is materially insufficient or when hallucination/factual reliability is a material task risk. Do not request escalation merely because the task is broad or expensive.
+The frontier escalation tier (GPT-6 Astra) requires separate user approval. Astra still costs $10 input/$50 output per million tokens, not less than before; it is 5x GPT-6 Sol's token rate. Low or medium effort does not bypass approval or make Astra automatically cost-effective. Request escalation only when an eligible Sol configuration is materially insufficient or when factual reliability / hallucination risk specifically justifies Astra for this task and user approval. Do not request escalation merely because the task is broad or expensive.
 
 Scope and difficulty are separate. "Focused", "read-only", an existing regression test, or a narrow expected diff reduces work volume but does not by itself make the reasoning ordinary. Use Sol medium when the task's core deliverable requires resolving ambiguous, high-consequence semantics: cross-layer failure behavior; retry and idempotency boundaries; security exploitability or authorization; externally shipped contracts; serialization or omitted-versus-default behavior; or production changes where a locally plausible answer can silently lose or corrupt data. Existing tests reduce implementation uncertainty, but they do not remove semantic difficulty.
 
 Apply that rule to the task's required judgment, not to incidental nouns. A bounded checklist or review that merely enumerates known OAuth, security, pagination, or integration concerns remains Luna high or xhigh. A review that must decide an ambiguous failure boundary or produce concrete exploitable security findings is Sol medium. Ordinary contract-preserving implementation with a clear local solution remains Luna high or xhigh; resolving subtle omitted-versus-default or compatibility semantics is Sol medium.
 
-Artificial Analysis' general Intelligence Index is a comparative benchmark score where higher is better. It is not a percentage, probability, or score out of 100, and differences must not be assumed linear. Approximate score / benchmark-cost-per-task observations from the supplied chart are:
+Artificial Analysis' general Intelligence Index is a comparative benchmark score where higher is better. It is not a percentage, probability, or score out of 100, and differences must not be assumed linear. The following approximate score / benchmark-cost-per-task observations describe GPT-5.6, not GPT-6:
 - Luna: low 33 / $0.04; medium 38 / $0.05; high 46 / $0.09; xhigh 49 / $0.13.
 - Terra: low 40 / $0.10; medium 46 / $0.13; high 49 / $0.24; xhigh 52 / $0.34; max 55 / $0.57.
 - Sol: low 49 / $0.20; medium 54 / $0.32; high 56 / $0.45; xhigh 58 / $0.68; max 59 / $1.03.
 These benchmark costs are not the live token prices in the catalog. They support the efficient-frontier preferences above; they are not hard thresholds. Dimension-specific benchmark charts may justify Terra max for a particular task only when Terra max is eligible and the relevant alternatives were actually evaluated on that dimension. A missing model or effort means "not evaluated", not "worse".
 
-On the separate Coding Agent Index, Astra max is about 62 versus Sol max about 55, while average task cost is $7.08 versus $6.24 (about 13.5% more). That index is also comparative, not a percentage or linear scale. Use this only as evidence that approved Astra escalation can buy additional agentic capability; it does not show that every seven-point gap matters to a task.`;
+On the separate Coding Agent Index, Astra max is about 62 at $7.08 per benchmark task; GPT-6 Sol max scores about 57 at $2.99 per task. This makes Astra roughly 2.4x the benchmark task cost, not a modest premium over today's Sol. These are comparative scores, not percentages or a linear scale. Low/medium Astra may be worth asking about when its specific reliability/capability is needed, but do not infer its task cost from max-effort data or silently launch it.`;
 
 /**
  * Well-known global key another extension assigns to take over subagent routing.

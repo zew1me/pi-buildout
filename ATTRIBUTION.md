@@ -194,11 +194,11 @@ Ideas and data used in `extensions/subagents/helpers.ts` and `extensions/subagen
 - Approximate Intelligence Index and benchmark-cost-per-task observations for Luna low through xhigh, Terra low through
   max, and Sol low through max are included as explanatory prompt context rather than executable thresholds. The prompt
   explicitly says the index is comparative, not a percentage, probability, linear scale, or score out of 100.
-- The escalation context for GPT-6 Astra: a Coding Agent Index of roughly 62 at an average
-  $7.08 per task, versus Sol
-  max's 55 at $6.24 per task (about 13.5% more). The accompanying claim that Astra
-  hallucinates roughly half as often was supplied directly by the project owner and is not drawn from the charts listed
-  above.
+- The original escalation context for GPT-6 Astra compared its Coding Agent Index of roughly 62 at
+  $7.08 per task
+  against **GPT-5.6** Sol max's 55 at $6.24. The accompanying claim that Astra hallucinates roughly half
+  as often was supplied directly by the project owner and is not drawn from the charts listed above. The current prompt
+  instead compares Astra with GPT-6 Sol (see below).
 
 Intentionally not adopted:
 
@@ -211,3 +211,28 @@ Intentionally not adopted:
   separately and are not treated as token prices.
 - Placement of models absent from the reviewed charts is deliberately left to the ranking fallback rather than guessed.
   In dimension-specific evidence, absence is treated as "not evaluated", not as evidence that the shown model is best.
+
+## GPT-6 Sol and Luna release and pricing (2026-09-22)
+
+- Sources: OpenAI, [release announcement](https://openai.com/index/introducing-gpt-6-sol-and-luna/),
+  [API pricing](https://developers.openai.com/api/docs/pricing), and
+  [Astra model page](https://developers.openai.com/api/docs/models/gpt-6-astra); Artificial Analysis,
+  [release benchmark analysis](https://artificialanalysis.ai/articles/gpt-6-sol-and-luna-push-the-cost-efficiency-frontier).
+- Revision reviewed: public pages retrieved 2026-09-22 (no immutable revision published).
+- Licenses: not declared to this project. No source code, images, or page text copied.
+
+Adapted facts and decisions: GPT-6 Luna costs $0.10/$0.50 per million input/output tokens versus GPT-5.6 Luna's
+$0.20/$1.20; GPT-6 Sol costs $2/$10 versus GPT-5.6 Sol's $4/$20. These figures inform the new classifier guidance and
+mixed-scope eval catalog; the live model catalog still supplies the actual price and availability. GPT-6 Sol max scores
+57 versus GPT-5.6 Sol max's 55 in Artificial Analysis' Coding Agent Index, but GPT-6 Luna max **regresses** (41 versus
+43); both show knowledge-work regressions despite lower hallucination rates. Thus GPT-6 Luna and its predecessor retain
+an equal strength rank, and the classifier may select the older one when the measured differences matter. The GPT-6 Sol
+rank breaks a same-family ceiling tie in favor of the newer Sol when both are eligible. Astra's API price remains
+$10/$50, five times GPT-6 Sol's token rate: no Astra price cut was found. The updated prompt compares published
+max-effort Coding Agent Index values of roughly 62/$7.08 per task for Astra and 57/$2.99 for GPT-6 Sol; it does not
+infer low- or medium-effort costs from those measurements. The escalation gate remains unchanged.
+
+Intentionally not adopted: a blanket claim that every GPT-6 variant outperforms its predecessor; hardcoded per-token
+prices as runtime billing authority; treating benchmark points as linear or equivalent to percentages; changing explicit
+user requests, effort pins, model scope, or the user-approval requirement. The new live eval stores only our prompts,
+cases, and classifier responses rather than redistributing upstream charts or publication text.

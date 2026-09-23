@@ -54,12 +54,32 @@ export function execFileClosedStdin(file, args, options = {}) {
  * `openai` provider: `max` is not reachable for these models, and the ceiling is
  * `gpt-5.6-sol` at `xhigh`.
  */
+// Frozen historical scope for the committed pre-GPT-6 prompt experiment artifacts.
 export const EVAL_CANDIDATES = [
   { provider: "openai-codex", id: "gpt-5.4-mini", contextWindow: 400_000, cost: { input: 0.75, output: 4.5 } },
   { provider: "openai-codex", id: "gpt-5.6-luna", contextWindow: 1_000_000, cost: { input: 0.2, output: 1.2 } },
   { provider: "openai-codex", id: "gpt-5.6-terra", contextWindow: 1_000_000, cost: { input: 2, output: 12 } },
   { provider: "openai-codex", id: "gpt-5.6-sol", contextWindow: 1_000_000, cost: { input: 4, output: 20 } },
   { provider: "openai-codex", id: "gpt-6-astra", contextWindow: 1_000_000, cost: { input: 10, output: 50 } },
+];
+
+/** Mixed live scope: preserve old candidates for explicit requests; add the new generation. */
+export const GPT6_EVAL_CANDIDATES = [
+  ...EVAL_CANDIDATES,
+  {
+    provider: "openai-codex",
+    id: "gpt-6-luna",
+    contextWindow: 272_000,
+    cost: { input: 0.1, output: 0.5 },
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+  },
+  {
+    provider: "openai-codex",
+    id: "gpt-6-sol",
+    contextWindow: 272_000,
+    cost: { input: 2, output: 10 },
+    thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+  },
 ];
 
 /**

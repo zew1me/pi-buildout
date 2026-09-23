@@ -51,9 +51,12 @@ session as unscoped.
 
 Routing aims for the cheapest model-and-effort combination that clears the task's required intelligence. The calibrated
 efficient frontier is Luna low/medium for trivial work, Luna high/xhigh for ordinary through demanding local work, then
-Sol medium/high/xhigh when Luna is insufficient. The classifier is told not to choose Terra at low or medium over Luna
-high, Terra high over Luna xhigh, Terra xhigh over Sol medium, or Sol low over Luna xhigh. Terra is reserved for max
-effort plus task-specific benchmark evidence; because the current GPT-5.6 endpoint does not offer max, the automatic
+Sol medium/high/xhigh when Luna is insufficient. In mixed scopes GPT-6 Luna ($0.10/$0.50 input/output per million
+short-context tokens) is generally cheaper than GPT-5.6 Luna ($0.20/$1.20), and GPT-6 Sol ($2/$10) costs half GPT-5.6
+Sol ($4/$20). The older versions remain eligible, and GPT-6 Luna slightly regresses on the Coding Agent Index at max
+effort (41 versus 43), so it is not uniformly better. The classifier is told not to choose Terra at low or medium over
+Luna high, Terra high over Luna xhigh, Terra xhigh over Sol medium, or Sol low over Luna xhigh. Terra is reserved for
+max effort plus task-specific benchmark evidence; because the current GPT-5.6 endpoint does not offer max, the automatic
 classifier should not choose it from the current catalog. Explicit user requests remain authoritative.
 
 Scope and difficulty are evaluated separately. A read-only task or narrow diff may still require Sol when its core
@@ -66,11 +69,11 @@ is dominated on all three axes at once - intelligence index 24 at $0.41 and 261s
 and 98s - so routing prefers Luna whenever both are eligible and reaches for `gpt-5.4-mini` only when no GPT-5.6 model
 is in scope. The eval suite bands it as `substandard` rather than cheap for the same reason.
 
-The prompt includes approximate Artificial Analysis Intelligence Index and benchmark-cost observations to explain these
-tradeoffs. It explicitly says that the index is comparative, not a percentage, probability, linear scale, or score out
-of 100; benchmark task costs are not token prices; and a missing model means "not evaluated", not "worse". Models
-outside the reviewed benchmarks still fall back to output price as a coarse capability proxy, bounded so an expensive
-unknown model cannot outrank the frontier tier.
+The prompt includes approximate **GPT-5.6** Artificial Analysis Intelligence Index and benchmark-cost observations to
+explain these tradeoffs; these historical numbers are not GPT-6 scores. It explicitly says that the index is
+comparative, not a percentage, probability, linear scale, or score out of 100; benchmark task costs are not token
+prices; and a missing model means "not evaluated", not "worse". Models outside the reviewed benchmarks still fall back
+to output price as a coarse capability proxy, bounded so an expensive unknown model cannot outrank the frontier tier.
 
 The classification call itself runs on the cheapest in-scope model at low effort (Luna, in a typical scope) rather than
 the active model, since it is a short structured judgment. It falls back to the active model when nothing cheaper is in
@@ -79,10 +82,11 @@ scope or the cheaper model has no configured auth; the active model classifying 
 ## Frontier escalation and approval
 
 The frontier tier (GPT-6 Astra) is gated. Escalation is worth requesting when the strongest eligible Sol configuration
-is materially insufficient, or hallucination and factual reliability are a material risk. On the separate Coding Agent
-Index, Astra max is about 62 against Sol max at about 55, while average task cost is $7.08 against $6.24 (about 13.5%
-more). Those index values are comparative rather than percentages or a linear measure, so they support an escalation
-option without making a seven-point gap an automatic trigger.
+is materially insufficient, or Astra's factual reliability is specifically needed. Astra's API token price remains
+$10/$50 input/output per million short-context tokens, 5x GPT-6 Sol's rate, not cheaper than before. On the separate
+Coding Agent Index, Astra max scored about 62 at $7.08 versus GPT-6 Sol max about 57 at $2.99 per benchmark task
+(approximately 2.4x the cost). Those comparative scores are not percentages or a linear measure. Astra low/medium may be
+useful for a particular reliability need, but neither effort nor the pricing changes waive the approval gate.
 
 Every selection path - explicit request, routing plugin, classifier, and fallback - passes through the same gate, so an
 escalation-class model cannot launch unapproved regardless of which path chose it. The gate matches the Astra family by
@@ -90,10 +94,11 @@ bare model id across every provider that aliases it, not one provider-qualified 
 
 Approval uses Pi's dialog timeout. Declining, answering nothing within 30 seconds, or running without interactive UI all
 fall back to the _ceiling selection_: the strongest non-escalation scoped model at the highest effort it actually
-supports. Trigger and fallback share that one reference point, so they cannot disagree. Note that the ceiling is
-`gpt-5.6-sol` at `xhigh` rather than `max`, because the GPT-5.6 endpoints reject `max`. Supported effort is treated as a
-property of the model rather than the route to it: providers exposing the same model string (`openai`, `openai-codex`,
-and gateways) are equivalent and get the same narrowing.
+supports. Trigger and fallback share that one reference point, so they cannot disagree. In a mixed scope the ceiling is
+`gpt-6-sol` at `max` when its catalog metadata supports that effort. In an older-only scope it is `gpt-5.6-sol` at
+`xhigh`, because the GPT-5.6 endpoints reject `max`. Supported effort is treated as a property of the model rather than
+the route to it: providers exposing the same model string (`openai`, `openai-codex`, and gateways) are equivalent and
+get the same narrowing.
 
 Two cases skip the prompt deliberately. A nested subagent has no human on its RPC channel, so it declines immediately
 instead of burning the full timeout. A session scope containing no non-escalation model is itself the authorization,
@@ -160,7 +165,16 @@ npm run eval:routing-prompts -- --live
 ```
 
 The experiment summary and the reason for selecting the production variant are in
-[`routing-prompt-experiments.md`](routing-prompt-experiments.md).
+[`routing-prompt-experiments.md`](routing-prompt-experiments.md). Those earlier experiments retain their original
+GPT-5.6-only catalog for reproducibility. The new mixed-catalog evaluation is an independent opt-in run:
+
+```bash
+npm run eval:routing-gpt6 -- --live
+```
+
+The first mixed-catalog run passed 10/10 tier cases; its exact inputs, guidance, decisions, and rationales are stored in
+[`routing-gpt6-eval-results.json`](routing-gpt6-eval-results.json). This is one nondeterministic CLI run, not proof that
+the extension's `completeSimple` classifier or interactive Astra dialog behaves identically.
 
 ## Isolation and inheritance
 
