@@ -126,10 +126,10 @@ index c85a0e5..26254a8 100644
          if (this.noSkills && skillPaths.length === 0) {
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..04f3c29
+index 0000000..e0db49e
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,556 @@
+@@ -0,0 +1,559 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -306,15 +306,18 @@ index 0000000..04f3c29
 +    });
 +    return skills.length > 0;
 +}
-+function normalizeSkillSource(env, source, options) {
++async function normalizeSkillSource(env, source, options) {
 +    if (!source)
 +        return undefined;
 +    const resolved = env.resolvePath(source, options.cwd, { trim: true });
 +    if (looksLikePath(source))
 +        return resolved;
-+    // A bare name is a path only when it names a folder or file holding skills. Any other bare name is a catalog
-+    // name, so an unrelated local folder that happens to share a skill's name cannot shadow the catalog skill.
-+    return containsSkills(env, resolved, options) ? resolved : source;
++    // A bare name is a path only when it names a folder or file holding skills, and no catalog skill has that
++    // name. A bare name therefore always means what `skills list` shows, and a local folder never shadows it.
++    if (!containsSkills(env, resolved, options))
++        return source;
++    const catalog = await getSkillCatalog(env, options);
++    return catalog.some((skill) => skill.name === source) ? source : resolved;
 +}
 +/**
 + * Normalizes an entry already persisted in a configuration file.
@@ -449,7 +452,7 @@ index 0000000..04f3c29
 +    return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
 +}
 +async function resolveSkillSource(env, source, options) {
-+    const normalized = normalizeSkillSource(env, source, options);
++    const normalized = await normalizeSkillSource(env, source, options);
 +    if (!normalized)
 +        return undefined;
 +    if (looksLikePath(source) || normalized !== source)
@@ -507,7 +510,7 @@ index 0000000..04f3c29
 +    if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
 +        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
 +    }
-+    const target = normalizeSkillSource(env, source, options);
++    const target = await normalizeSkillSource(env, source, options);
 +    if (!target)
 +        throw new Error(`Skill source is invalid: ${source}`);
 +    if (command === "add" && !(await resolveSkillSource(env, source, options))) {

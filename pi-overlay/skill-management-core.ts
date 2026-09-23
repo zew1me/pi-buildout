@@ -290,17 +290,19 @@ function containsSkills(env: SkillEnvironment, path: string, options: { cwd: str
   return skills.length > 0;
 }
 
-function normalizeSkillSource(
+async function normalizeSkillSource(
   env: SkillEnvironment,
   source: string | undefined,
-  options: { cwd: string; agentDir: string },
-): string | undefined {
+  options: { cwd: string; agentDir: string; settingsManager?: SettingsManagerLike },
+): Promise<string | undefined> {
   if (!source) return undefined;
   const resolved = env.resolvePath(source, options.cwd, { trim: true });
   if (looksLikePath(source)) return resolved;
-  // A bare name is a path only when it names a folder or file holding skills. Any other bare name is a catalog
-  // name, so an unrelated local folder that happens to share a skill's name cannot shadow the catalog skill.
-  return containsSkills(env, resolved, options) ? resolved : source;
+  // A bare name is a path only when it names a folder or file holding skills, and no catalog skill has that
+  // name. A bare name therefore always means what `skills list` shows, and a local folder never shadows it.
+  if (!containsSkills(env, resolved, options)) return source;
+  const catalog = await getSkillCatalog(env, options);
+  return catalog.some((skill) => skill.name === source) ? source : resolved;
 }
 
 /**
@@ -474,7 +476,7 @@ async function resolveSkillSource(
   source: string,
   options: { cwd: string; agentDir: string; settingsManager?: SettingsManagerLike },
 ): Promise<string | undefined> {
-  const normalized = normalizeSkillSource(env, source, options);
+  const normalized = await normalizeSkillSource(env, source, options);
   if (!normalized) return undefined;
   if (looksLikePath(source) || normalized !== source) return env.fs.existsSync(normalized) ? normalized : undefined;
   return (await getSkillCatalog(env, options)).find((skill) => skill.name === normalized)?.filePath;
@@ -553,7 +555,7 @@ async function runMutationCommand(
     throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
   }
 
-  const target = normalizeSkillSource(env, source, options);
+  const target = await normalizeSkillSource(env, source, options);
   if (!target) throw new Error(`Skill source is invalid: ${source}`);
   if (command === "add" && !(await resolveSkillSource(env, source, options))) {
     throw new Error(`Skill not found in the catalog or at an existing path: ${source}`);

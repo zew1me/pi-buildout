@@ -637,6 +637,25 @@ test("a local folder without skills does not shadow a catalog skill of the same 
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha", "/work/alpha"]);
 });
 
+test("a bare name prefers a catalog skill over a local skill folder of the same name", async () => {
+  const catalogAlpha = { name: "alpha", description: "catalog skill", filePath: "/pkg/alpha/SKILL.md" };
+  const { env, store } = withCatalog([catalogAlpha]);
+  withLocalSkills(env, { "/work/alpha": [{ ...catalogAlpha, filePath: "/work/alpha/SKILL.md" }] });
+  env.fs.existsSync = (path) => path === "/work/alpha" || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const added = await runSkillsCommand(env, ["add", "alpha", "--global"], options);
+  assert.equal(added.exitCode, 0, added.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"], "the catalog name is persisted");
+
+  const explicit = await runSkillsCommand(env, ["add", "./alpha", "--global"], options);
+  assert.equal(explicit.exitCode, 0, "the local folder stays reachable through an explicit path");
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha", "/work/alpha"]);
+
+  assert.equal((await runSkillsCommand(env, ["remove", "alpha", "--global"], options)).exitCode, 0);
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/alpha"], "remove targets the name");
+});
+
 test("a bare source persisted as a path stays removable by its name after the path is deleted", async () => {
   const { env, store } = createEnvironment();
   withLocalSkills(env, { "/work/local-skill": [localSkill] });

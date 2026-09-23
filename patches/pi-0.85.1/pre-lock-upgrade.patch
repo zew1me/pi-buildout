@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 915d49d..04f3c29 100644
+index 915d49d..e0db49e 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -28,6 +28,45 @@ function writeJson(env, path, value) {
@@ -48,10 +48,11 @@ index 915d49d..04f3c29 100644
  function git(env, cwd, args) {
      try {
          return env
-@@ -123,32 +162,78 @@ export function configLocation(env, scope, cwd, agentDir) {
+@@ -123,32 +162,81 @@ export function configLocation(env, scope, cwd, agentDir) {
  export function looksLikePath(value) {
      return value.includes("/") || value.includes("\\") || value.startsWith(".") || value.startsWith("~");
  }
+-function normalizeSkillSource(env, source, options) {
 +/** True when `path` exists and Pi's own loader finds at least one skill in it. */
 +function containsSkills(env, path, options) {
 +    if (!env.fs.existsSync(path))
@@ -64,15 +65,18 @@ index 915d49d..04f3c29 100644
 +    });
 +    return skills.length > 0;
 +}
- function normalizeSkillSource(env, source, options) {
++async function normalizeSkillSource(env, source, options) {
 +    if (!source)
 +        return undefined;
 +    const resolved = env.resolvePath(source, options.cwd, { trim: true });
 +    if (looksLikePath(source))
 +        return resolved;
-+    // A bare name is a path only when it names a folder or file holding skills. Any other bare name is a catalog
-+    // name, so an unrelated local folder that happens to share a skill's name cannot shadow the catalog skill.
-+    return containsSkills(env, resolved, options) ? resolved : source;
++    // A bare name is a path only when it names a folder or file holding skills, and no catalog skill has that
++    // name. A bare name therefore always means what `skills list` shows, and a local folder never shadows it.
++    if (!containsSkills(env, resolved, options))
++        return source;
++    const catalog = await getSkillCatalog(env, options);
++    return catalog.some((skill) => skill.name === source) ? source : resolved;
 +}
 +/**
 + * Normalizes an entry already persisted in a configuration file.
@@ -145,8 +149,12 @@ index 915d49d..04f3c29 100644
  }
  export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
      const entries = [];
-@@ -235,7 +320,7 @@ async function resolveSkillSource(env, source, options) {
-     const normalized = normalizeSkillSource(env, source, options);
+@@ -232,10 +320,10 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager }) {
+     return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
+ }
+ async function resolveSkillSource(env, source, options) {
+-    const normalized = normalizeSkillSource(env, source, options);
++    const normalized = await normalizeSkillSource(env, source, options);
      if (!normalized)
          return undefined;
 -    if (looksLikePath(source))
@@ -154,7 +162,16 @@ index 915d49d..04f3c29 100644
          return env.fs.existsSync(normalized) ? normalized : undefined;
      return (await getSkillCatalog(env, options)).find((skill) => skill.name === normalized)?.filePath;
  }
-@@ -298,9 +383,11 @@ async function runMutationCommand(env, command, rest, surface, options) {
+@@ -290,7 +378,7 @@ async function runMutationCommand(env, command, rest, surface, options) {
+     if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
+         throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
+     }
+-    const target = normalizeSkillSource(env, source, options);
++    const target = await normalizeSkillSource(env, source, options);
+     if (!target)
+         throw new Error(`Skill source is invalid: ${source}`);
+     if (command === "add" && !(await resolveSkillSource(env, source, options))) {
+@@ -298,9 +386,11 @@ async function runMutationCommand(env, command, rest, surface, options) {
      }
      if (scope === "session")
          return { exitCode: 0, lines: [], session: { action: command, source: target } };
