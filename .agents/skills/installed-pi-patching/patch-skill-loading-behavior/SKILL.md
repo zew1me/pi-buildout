@@ -144,12 +144,13 @@ precedence behavior. Both `runSkillsCommand()` callers must await it and pass th
 activation in `DefaultResourceLoader` awaits that same catalog so package and settings names resolve consistently.
 
 Starting with the 0.85.1 patch, normalize user-provided local skill sources with Pi's `resolvePath()` before storing or
-adding them to a session, so tilde, explicit relative, and existing bare relative forms become stable absolute paths.
-Keep non-existent bare names available for catalog lookup. Use the same normalization when matching an existing entry
-for removal, and when a bare name matches nothing, retry with its resolved path without requiring that path to exist, so
-an entry persisted as a path stays removable after the path is deleted. Compare stored bare entries literally: user
-input is normalized before it is stored, so a stored bare value is a catalog name, not a path relative to the current
-directory.
+adding them to a session, so tilde and explicit relative forms become stable absolute paths. A bare relative name
+becomes an absolute path only when that path holds at least one skill, as found by Pi's own `loadSkills()`; otherwise it
+stays a catalog name, including when it names an existing folder without skills, so a local folder cannot shadow a
+catalog skill. Use the same normalization when matching an existing entry for removal, and when a bare name matches
+nothing, retry with its resolved path without requiring that path to exist, so an entry persisted as a path stays
+removable after the path is deleted. Compare stored bare entries literally: user input is normalized before it is
+stored, so a stored bare value is a catalog name, not a path relative to the current directory.
 
 Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
 synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without

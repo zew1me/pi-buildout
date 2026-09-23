@@ -69,9 +69,10 @@ are limited to exact full-file states previously produced by this repository; a 
 never authorizes an upgrade. A package already matching `patched.sha256` is left unchanged. Any unknown or
 mixed state is rejected and must be restored to the clean package rather than overwritten.
 
-User-provided tilde and relative skill sources, including a bare name that resolves to an existing path, are
-resolved to absolute paths before session activation or persistence; such a bare name stays removable by that
-name after its path is deleted. Persisted global and repository skill updates lock the applicable JSON file
+User-provided tilde and relative skill sources, including a bare name that resolves to a path holding at least one
+skill, are resolved to absolute paths before session activation or persistence. A bare name persisted that way stays
+removable by that name after its path is deleted. Any other bare name, even one naming an existing folder without
+skills, stays a catalog name. Persisted global and repository skill updates lock the applicable JSON file
 across the complete read-modify-write transaction, so concurrent CLI processes cannot discard one another's
 changes.
 
