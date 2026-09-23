@@ -234,5 +234,6 @@ infer low- or medium-effort costs from those measurements. The escalation gate r
 
 Intentionally not adopted: a blanket claim that every GPT-6 variant outperforms its predecessor; hardcoded per-token
 prices as runtime billing authority; treating benchmark points as linear or equivalent to percentages; changing explicit
-user requests, effort pins, model scope, or the user-approval requirement. The new live eval stores only our prompts,
-cases, and classifier responses rather than redistributing upstream charts or publication text.
+user requests, effort pins, model scope, or the user-approval requirement. Dominated GPT-5.4 mini is removed from the
+new mixed-catalog eval and active prompt text, not Pi's catalog or the frozen historical evaluation. The new live eval
+stores only our prompts, cases, and classifier responses rather than redistributing upstream charts or publication text.

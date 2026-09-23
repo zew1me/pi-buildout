@@ -63,9 +63,9 @@ export const EVAL_CANDIDATES = [
   { provider: "openai-codex", id: "gpt-6-astra", contextWindow: 1_000_000, cost: { input: 10, output: 50 } },
 ];
 
-/** Mixed live scope: preserve old candidates for explicit requests; add the new generation. */
+/** Mixed live scope: omit dominated mini from automatic-routing eval, retain the older families for comparison. */
 export const GPT6_EVAL_CANDIDATES = [
-  ...EVAL_CANDIDATES,
+  ...EVAL_CANDIDATES.filter(({ id }) => id !== "gpt-5.4-mini"),
   {
     provider: "openai-codex",
     id: "gpt-6-luna",
@@ -138,6 +138,9 @@ export function scoreDecision(evalCase, decision, candidates = EVAL_CANDIDATES) 
 
   if (!evalCase.allow.includes(tier)) {
     failures.push(`selected ${reference} (${tier}); allowed tiers are ${evalCase.allow.join(", ")}`);
+  }
+  if (evalCase.minEffort && !effortWithinLimit(evalCase.minEffort, effort)) {
+    failures.push(`selected effort ${effort} below the ${evalCase.minEffort} floor for this task`);
   }
   if (evalCase.maxEffort && !effortWithinLimit(effort, evalCase.maxEffort)) {
     failures.push(`selected effort ${effort} above the ${evalCase.maxEffort} ceiling for this task`);

@@ -7,7 +7,9 @@ eval cases, raw decisions, rationales, elapsed times, and scores are retained in
 - [`routing-prompt-experiment-results-round-1.json`](routing-prompt-experiment-results-round-1.json)
 - [`routing-prompt-experiment-results-round-2.json`](routing-prompt-experiment-results-round-2.json)
 
-The JSON is intentionally verbose so this conclusion does not depend on terminal output or chat history.
+The JSON is intentionally verbose so this conclusion does not depend on terminal output or chat history. These artifacts
+freeze the _original_ ten-case corpus; the current corpus adds a tool-using cwd lookup, so rerunning the script from
+today's checkout will exercise an additional case. The historical files were not rewritten.
 
 ## Method
 

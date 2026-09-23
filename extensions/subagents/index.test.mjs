@@ -410,7 +410,8 @@ test("routing ladder guidance states the calibrated efficient frontier and escal
   assert.match(ROUTING_LADDER_GUIDANCE, /If max is absent.+do not choose Terra/);
   assert.match(ROUTING_LADDER_GUIDANCE, /missing model or effort means "not evaluated", not "worse"/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /not a percentage, probability, or score out of 100/i);
-  assert.match(ROUTING_LADDER_GUIDANCE, /gpt-5\.4-mini/);
+  assert.doesNotMatch(ROUTING_LADDER_GUIDANCE, /gpt-5\.4-mini/);
+  assert.match(ROUTING_LADDER_GUIDANCE, /shell-based environment lookup.+Luna at medium/);
   assert.match(ROUTING_LADDER_GUIDANCE, /hallucinat/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /approval/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /GPT-6 Luna.+\$0\.10.+\$0\.50/i);

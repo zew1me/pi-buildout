@@ -415,7 +415,7 @@ export function escalationGate(options: {
 
 /** Cost-efficiency guidance appended to the routing classifier prompt. */
 export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort that clears the task's required intelligence; do not buy capability the task does not need. Treat model and effort as one combined choice rather than choosing a family first.
-- Trivial, mechanical, classification, or lookup work: Luna at low or medium effort.
+- No-tool trivial, mechanical, classification, or direct single-file lookup work: Luna at low effort. A shell-based environment lookup that must execute and report a command (such as checking the cwd): Luna at medium effort; high is reasonable if interpreting the result needs care.
 - Ordinary implementation, focused debugging, or review: Luna at high effort.
 - Work that needs more reasoning but still fits the cheapest family: Luna at xhigh effort.
 - Never choose Terra at low or medium effort; prefer Luna high.
@@ -424,7 +424,6 @@ export const ROUTING_LADDER_GUIDANCE = `Choose the cheapest model and effort tha
 - Terra is eligible only at max effort and only for a task-specific measured strength. If max is absent from Terra's catalog entry, do not choose Terra.
 - Prefer Luna xhigh over Sol low. When Luna xhigh is insufficient, move to Sol medium, then Sol high or xhigh as needed.
 - In a mixed eligible scope, prefer GPT-6 Luna ($0.10 input/$0.50 output per million tokens) to GPT-5.6 Luna ($0.20/$1.20) for cheap work, and GPT-6 Sol ($2/$10) to GPT-5.6 Sol ($4/$20) for demanding agentic coding. These are comparative hints, not licenses to pick an out-of-scope model. GPT-6 Luna's Coding Agent Index is slightly lower (41 vs 43 at max), so GPT-5.6 Luna remains defensible when that measured difference matters; the versions are not universally capability-equivalent.
-- Prefer Luna over gpt-5.4-mini whenever both are eligible: measured head-to-head, gpt-5.4-mini is dominated on intelligence, cost, and latency. Route to gpt-5.4-mini only when no Luna model is eligible.
 
 The frontier escalation tier (GPT-6 Astra) requires separate user approval. Astra still costs $10 input/$50 output per million tokens, not less than before; it is 5x GPT-6 Sol's token rate. Low or medium effort does not bypass approval or make Astra automatically cost-effective. Request escalation only when an eligible Sol configuration is materially insufficient or when factual reliability / hallucination risk specifically justifies Astra for this task and user approval. Do not request escalation merely because the task is broad or expensive.
 

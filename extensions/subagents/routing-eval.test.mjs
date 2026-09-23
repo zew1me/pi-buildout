@@ -50,6 +50,17 @@ test("the eval corpus is well formed and exercises the full difficulty range", (
   assert.ok(ESCALATION_EVAL_CASES.some((evalCase) => evalCase.allowEscalation));
 });
 
+test("a mixed GPT-6 catalog excludes mini by default without erasing historical or explicit mini tests", () => {
+  assert.equal(
+    GPT6_EVAL_CANDIDATES.some(({ id }) => id === "gpt-5.4-mini"),
+    false,
+  );
+  assert.equal(
+    EVAL_CANDIDATES.some(({ id }) => id === "gpt-5.4-mini"),
+    true,
+  );
+});
+
 test("a mixed GPT-6 catalog scores in the same bands without treating Astra as cheap", () => {
   const luna = GPT6_EVAL_CANDIDATES.find(({ id }) => id === "gpt-6-luna");
   const sol = GPT6_EVAL_CANDIDATES.find(({ id }) => id === "gpt-6-sol");
@@ -113,6 +124,21 @@ test("a router that always picks the dominated gpt-5.4-mini fails the eval", asy
     assert.equal(result?.ok, false, `${evalCase.id} must reject gpt-5.4-mini`);
     assert.ok(result?.failures.some((message) => message.includes("substandard")));
   }
+});
+
+test("a tool-using cwd lookup stays economy at medium or high effort", () => {
+  const evalCase = ROUTING_EVAL_CASES.find(({ id }) => id === "lookup-cwd-with-tool");
+  assert.ok(evalCase);
+  for (const effort of /** @type {const} */ (["medium", "high"])) {
+    assert.equal(scoreDecision(evalCase, { model: "openai-codex/gpt-6-luna", effort }, GPT6_EVAL_CANDIDATES).ok, true);
+  }
+  const low = scoreDecision(evalCase, { model: "openai-codex/gpt-6-luna", effort: "low" }, GPT6_EVAL_CANDIDATES);
+  assert.equal(low.ok, false);
+  assert.ok(low.failures.some((failure) => failure.includes("below the medium floor")));
+  assert.equal(
+    scoreDecision(evalCase, { model: "openai-codex/gpt-6-sol", effort: "medium" }, GPT6_EVAL_CANDIDATES).ok,
+    false,
+  );
 });
 
 test("overspending effort on a trivial handshake fails the eval", async () => {

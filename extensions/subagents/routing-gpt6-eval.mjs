@@ -33,10 +33,11 @@ const artifact = {
     contextSummary: "",
     catalog: formatModelCatalog(GPT6_EVAL_CANDIDATES),
   }),
-  cases: cases.map(({ id, task, allow, maxEffort, allowEscalation }) => ({
+  cases: cases.map(({ id, task, allow, minEffort, maxEffort, allowEscalation }) => ({
     id,
     task,
     allow,
+    minEffort,
     maxEffort,
     allowEscalation,
   })),

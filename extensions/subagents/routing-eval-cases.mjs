@@ -1,12 +1,14 @@
 /**
  * Routing evaluation corpus.
  *
- * Every task below is an abridged real subagent kickoff taken from local Pi
+ * Most tasks below are abridged real subagent kickoffs taken from local Pi
  * subagent session logs (`~/.pi/agent/subagents`), so the cases exercise the
  * shapes the classifier actually sees: terse liveness handshakes, read-only
  * review and analysis work, and multi-file implementation against a named
- * issue. Task text is abridged for readability; repository-identifying detail
- * is kept only where it carries the signal the classifier routes on.
+ * issue. The `lookup-cwd-with-tool` case is a user-requested synthetic sentinel
+ * for a simple shell-backed environment lookup. Task text is abridged for
+ * readability; repository-identifying detail is kept only where it carries
+ * the signal the classifier routes on.
  *
  * `allow` lists the tiers a defensible decision may land in, not one golden
  * answer, because routing is a judgment call with a band of reasonable
@@ -23,6 +25,7 @@
  * @property {string} id
  * @property {string} task
  * @property {RoutingTier[]} allow Tiers a defensible decision may select.
+ * @property {import("./helpers.ts").ThinkingLevel} [minEffort] Lowest effort this task can justify.
  * @property {import("./helpers.ts").ThinkingLevel} [maxEffort] Highest effort this task can justify.
  * @property {boolean} [allowEscalation] Whether the frontier tier is defensible here.
  * @property {string} why Why this case bounds routing the way it does.
@@ -50,6 +53,14 @@ export const ROUTING_EVAL_CASES = [
     allow: ["economy"],
     maxEffort: "medium",
     why: "A single-file mechanical lookup is the canonical cheapest-tier task.",
+  },
+  {
+    id: "lookup-cwd-with-tool",
+    task: "What is the current working directory (cwd)? Use a shell tool to check and report the path.",
+    allow: ["economy"],
+    minEffort: "medium",
+    maxEffort: "high",
+    why: "A one-command environment lookup is cheap work, but the child must execute and interpret a shell tool result; medium or high effort is acceptable.",
   },
   {
     id: "classify-task-difficulty",

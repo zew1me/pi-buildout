@@ -59,15 +59,17 @@ Luna high, Terra high over Luna xhigh, Terra xhigh over Sol medium, or Sol low o
 max effort plus task-specific benchmark evidence; because the current GPT-5.6 endpoint does not offer max, the automatic
 classifier should not choose it from the current catalog. Explicit user requests remain authoritative.
 
-Scope and difficulty are evaluated separately. A read-only task or narrow diff may still require Sol when its core
+Scope and difficulty are evaluated separately. A shell-backed cwd lookup remains an economy task at medium effort,
+unlike a fixed-string no-tool reply at low effort. A read-only task or narrow diff may still require Sol when its core
 judgment is an ambiguous retry/idempotency boundary, exploitability, authorization, shipped compatibility contract, or
 omitted-versus-default behavior. Conversely, merely mentioning OAuth, security, or pagination in a bounded checklist
 does not trigger a higher tier. Classifications join simple lookups and mechanical edits as explicitly cheap work.
 
 `gpt-5.4-mini` is deliberately ranked _below_ Luna despite costing about 3.75x more per token. Measured head-to-head it
 is dominated on all three axes at once - intelligence index 24 at $0.41 and 261s per task, against Luna's 32 at $0.04
-and 98s - so routing prefers Luna whenever both are eligible and reaches for `gpt-5.4-mini` only when no GPT-5.6 model
-is in scope. The eval suite bands it as `substandard` rather than cheap for the same reason.
+and 98s - so routing prefers Luna whenever both are eligible. The mixed-catalog eval excludes mini and the active
+classifier guidance no longer spends tokens explaining it. The legacy rank and historical eval retain mini for
+scope-only or explicit user requests: the extension never silently removes a model from a configured scope.
 
 The prompt includes approximate **GPT-5.6** Artificial Analysis Intelligence Index and benchmark-cost observations to
 explain these tradeoffs; these historical numbers are not GPT-6 scores. It explicitly says that the index is
@@ -115,10 +117,9 @@ and the extension offers no opinion at all:
 PI_SUBAGENT_ROUTING_HINTS=off pi
 ```
 
-With hints disabled the classifier prompt carries no tier guidance, no `gpt-5.4-mini` advice, and no escalation
-criteria - just the task, the context, the eligible catalog, and the request for a model and effort. The frontier
-approval prompt is also skipped, because an extension that declines to express a tier opinion should not then block a
-model on the basis of one.
+With hints disabled the classifier prompt carries no tier guidance or escalation criteria - just the task, the context,
+the eligible catalog, and the request for a model and effort. The frontier approval prompt is also skipped, because an
+extension that declines to express a tier opinion should not then block a model on the basis of one.
 
 The session model scope is a separate, independent boundary and stays enforced either way, as do explicit model and
 effort requests.
@@ -144,10 +145,10 @@ the escalation gate.
 
 ## Routing evaluation
 
-`routing-eval-cases.mjs` holds a corpus abridged from real subagent kickoffs found in local Pi subagent session logs
-(`~/.pi/agent/subagents`), spanning fixed-string liveness handshakes through read-only review, cross-layer debugging,
-and multi-file implementation. Each case allows a _band_ of defensible tiers rather than one golden answer, because
-routing is a judgment call.
+`routing-eval-cases.mjs` holds a corpus mostly abridged from real subagent kickoffs found in local Pi subagent session
+logs (`~/.pi/agent/subagents`), spanning fixed-string liveness handshakes through read-only review, cross-layer
+debugging, and multi-file implementation. The shell-backed cwd lookup is a user-requested synthetic sentinel. Each case
+allows a _band_ of defensible tiers rather than one golden answer, because routing is a judgment call.
 
 `routing-eval.mjs` scores any decision source - the classifier, a routing plugin, or a stub - through the same strict
 in-scope resolution the extension itself uses, so an eval pass cannot come from an identifier the real flow would have
@@ -172,7 +173,8 @@ GPT-5.6-only catalog for reproducibility. The new mixed-catalog evaluation is an
 npm run eval:routing-gpt6 -- --live
 ```
 
-The first mixed-catalog run passed 10/10 tier cases; its exact inputs, guidance, decisions, and rationales are stored in
+The latest mixed-catalog run passed 11/11 cases, including the tool-using cwd case, and excludes dominated mini; its
+exact inputs, guidance, decisions, and rationales are stored in
 [`routing-gpt6-eval-results.json`](routing-gpt6-eval-results.json). This is one nondeterministic CLI run, not proof that
 the extension's `completeSimple` classifier or interactive Astra dialog behaves identically.
 
