@@ -656,6 +656,29 @@ test("a bare name prefers a catalog skill over a local skill folder of the same 
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/alpha"], "remove targets the name");
 });
 
+test("removing a bare name never resolves packages, and prefers the stored catalog name", async () => {
+  const catalogAlpha = { name: "alpha", description: "catalog skill", filePath: "/pkg/alpha/SKILL.md" };
+  const { env, store } = withCatalog([catalogAlpha]);
+  withLocalSkills(env, { "/work/alpha": [{ ...catalogAlpha, filePath: "/work/alpha/SKILL.md" }] });
+  env.fs.existsSync = (path) => path === "/work/alpha" || store.has(path);
+  store.set("/agent/skills.json", JSON.stringify({ enabled: ["alpha", "/work/alpha"] }));
+  let resolutions = 0;
+  env.resolvePackageResources = () => {
+    resolutions += 1;
+    return Promise.reject(new Error("package resolution must not run during removal"));
+  };
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const removed = await runSkillsCommand(env, ["remove", "alpha", "--global"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/alpha"]);
+
+  const again = await runSkillsCommand(env, ["remove", "alpha", "--global"], options);
+  assert.equal(again.exitCode, 0, again.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, []);
+  assert.equal(resolutions, 0);
+});
+
 test("a bare source persisted as a path stays removable by its name after the path is deleted", async () => {
   const { env, store } = createEnvironment();
   withLocalSkills(env, { "/work/local-skill": [localSkill] });

@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 915d49d..2e58e98 100644
+index 915d49d..7140cfb 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -28,6 +28,45 @@ function writeJson(env, path, value) {
@@ -162,16 +162,22 @@ index 915d49d..2e58e98 100644
          return env.fs.existsSync(normalized) ? normalized : undefined;
      return (await getSkillCatalog(env, options)).find((skill) => skill.name === normalized)?.filePath;
  }
-@@ -290,7 +378,7 @@ async function runMutationCommand(env, command, rest, surface, options) {
+@@ -290,7 +378,13 @@ async function runMutationCommand(env, command, rest, surface, options) {
      if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
          throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
      }
 -    const target = normalizeSkillSource(env, source, options);
-+    const target = await normalizeSkillSource(env, source, options);
++    // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
++    // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
++    const target = command === "remove"
++        ? looksLikePath(source)
++            ? env.resolvePath(source, options.cwd, { trim: true })
++            : source
++        : await normalizeSkillSource(env, source, options);
      if (!target)
          throw new Error(`Skill source is invalid: ${source}`);
      if (command === "add" && !(await resolveSkillSource(env, source, options))) {
-@@ -298,9 +386,11 @@ async function runMutationCommand(env, command, rest, surface, options) {
+@@ -298,9 +392,11 @@ async function runMutationCommand(env, command, rest, surface, options) {
      }
      if (scope === "session")
          return { exitCode: 0, lines: [], session: { action: command, source: target } };
@@ -185,7 +191,7 @@ index 915d49d..2e58e98 100644
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
  }
  export async function runSkillsCommand(env, args, options) {
-@@ -407,7 +497,11 @@ async function applySessionSkillChange(env, session, context) {
+@@ -407,7 +503,11 @@ async function applySessionSkillChange(env, session, context) {
              additionalSkillPaths.push(resolved);
          return `Enabled ${resolved} for this session.`;
      }

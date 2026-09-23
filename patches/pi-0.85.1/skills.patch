@@ -62,10 +62,10 @@ index c5ed4d7..26254a8 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..2e58e98
+index 0000000..7140cfb
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,563 @@
+@@ -0,0 +1,569 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -446,7 +446,13 @@ index 0000000..2e58e98
 +    if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
 +        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
 +    }
-+    const target = await normalizeSkillSource(env, source, options);
++    // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
++    // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
++    const target = command === "remove"
++        ? looksLikePath(source)
++            ? env.resolvePath(source, options.cwd, { trim: true })
++            : source
++        : await normalizeSkillSource(env, source, options);
 +    if (!target)
 +        throw new Error(`Skill source is invalid: ${source}`);
 +    if (command === "add" && !(await resolveSkillSource(env, source, options))) {

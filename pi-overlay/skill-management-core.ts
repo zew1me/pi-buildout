@@ -555,7 +555,14 @@ async function runMutationCommand(
     throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
   }
 
-  const target = await normalizeSkillSource(env, source, options);
+  // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
+  // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
+  const target =
+    command === "remove"
+      ? looksLikePath(source)
+        ? env.resolvePath(source, options.cwd, { trim: true })
+        : source
+      : await normalizeSkillSource(env, source, options);
   if (!target) throw new Error(`Skill source is invalid: ${source}`);
   if (command === "add" && !(await resolveSkillSource(env, source, options))) {
     throw new Error(`Skill not found in the catalog or at an existing path: ${source}`);
