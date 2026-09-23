@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildClassifierPrompt, formatModelCatalog } from "./helpers.ts";
 import { ESCALATION_EVAL_CASES, INTENT_EVAL_CASES, ROUTING_EVAL_CASES } from "./routing-eval-cases.mjs";
+import { scoreTunedDecision } from "./routing-target-eval.mjs";
 import {
   EVAL_CANDIDATES,
   GPT6_EVAL_CANDIDATES,
@@ -48,6 +49,23 @@ test("the eval corpus is well formed and exercises the full difficulty range", (
   assert.ok(ROUTING_EVAL_CASES.some((evalCase) => evalCase.allow.includes("economy")));
   assert.ok(ROUTING_EVAL_CASES.some((evalCase) => evalCase.allow.includes("premium")));
   assert.ok(ESCALATION_EVAL_CASES.some((evalCase) => evalCase.allowEscalation));
+});
+
+test("tuned targets reject cheap review and under-effort architecture without weakening old bounds", () => {
+  const review = ROUTING_EVAL_CASES.find(({ id }) => id === "review-coderabbit-thread");
+  const architecture = ESCALATION_EVAL_CASES[0];
+  const cwd = ROUTING_EVAL_CASES.find(({ id }) => id === "lookup-cwd-with-tool");
+  assert.ok(review && architecture && cwd);
+  assert.equal(scoreTunedDecision(review, { model: "openai-codex/gpt-6-luna", effort: "high" }).ok, false);
+  for (const effort of /** @type {const} */ (["low", "medium", "high"])) {
+    const scored = scoreTunedDecision(review, { model: "openai-codex/gpt-6-sol", effort });
+    assert.equal(scored.ok, true);
+    assert.equal(scored.preferred, effort !== "low");
+  }
+  assert.equal(scoreTunedDecision(architecture, { model: "openai-codex/gpt-6-sol", effort: "medium" }).ok, false);
+  assert.equal(scoreTunedDecision(architecture, { model: "openai-codex/gpt-6-sol", effort: "high" }).ok, true);
+  assert.equal(scoreTunedDecision(architecture, { model: "openai-codex/gpt-6-astra", effort: "low" }).ok, true);
+  assert.equal(scoreTunedDecision(cwd, { model: "openai-codex/gpt-6-sol", effort: "medium" }).ok, false);
 });
 
 test("a mixed GPT-6 catalog excludes mini by default without erasing historical or explicit mini tests", () => {
