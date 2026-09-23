@@ -737,8 +737,12 @@ async function applySessionSkillChange(
     return `Enabled ${resolved} for this session.`;
   }
 
-  const matches = (path: string): boolean =>
+  const direct = (path: string): boolean =>
     path === session.source || path === normalized || (resolved !== undefined && path === resolved);
+  // A bare name added as a local path stays removable by that name after the path is deleted, but only when
+  // nothing matches it directly.
+  const localPath = looksLikePath(session.source) ? undefined : env.resolvePath(session.source, cwd, { trim: true });
+  const matches = additionalSkillPaths.some(direct) ? direct : (path: string): boolean => path === localPath;
   if (!additionalSkillPaths.some(matches)) {
     context.showError(`Skill is not enabled for this session: ${session.source}`);
     return undefined;

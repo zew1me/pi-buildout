@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 915d49d..e0db49e 100644
+index 915d49d..2e58e98 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -28,6 +28,45 @@ function writeJson(env, path, value) {
@@ -185,6 +185,19 @@ index 915d49d..e0db49e 100644
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
  }
  export async function runSkillsCommand(env, args, options) {
+@@ -407,7 +497,11 @@ async function applySessionSkillChange(env, session, context) {
+             additionalSkillPaths.push(resolved);
+         return `Enabled ${resolved} for this session.`;
+     }
+-    const matches = (path) => path === session.source || path === normalized || (resolved !== undefined && path === resolved);
++    const direct = (path) => path === session.source || path === normalized || (resolved !== undefined && path === resolved);
++    // A bare name added as a local path stays removable by that name after the path is deleted, but only when
++    // nothing matches it directly.
++    const localPath = looksLikePath(session.source) ? undefined : env.resolvePath(session.source, cwd, { trim: true });
++    const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
+     if (!additionalSkillPaths.some(matches)) {
+         context.showError(`Skill is not enabled for this session: ${session.source}`);
+         return undefined;
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 index 72a6d09..3d18e7d 100644
 --- a/dist/core/skill-management.js

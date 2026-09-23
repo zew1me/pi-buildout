@@ -126,10 +126,10 @@ index c85a0e5..26254a8 100644
          if (this.noSkills && skillPaths.length === 0) {
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..e0db49e
+index 0000000..2e58e98
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,559 @@
+@@ -0,0 +1,563 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -629,7 +629,11 @@ index 0000000..e0db49e
 +            additionalSkillPaths.push(resolved);
 +        return `Enabled ${resolved} for this session.`;
 +    }
-+    const matches = (path) => path === session.source || path === normalized || (resolved !== undefined && path === resolved);
++    const direct = (path) => path === session.source || path === normalized || (resolved !== undefined && path === resolved);
++    // A bare name added as a local path stays removable by that name after the path is deleted, but only when
++    // nothing matches it directly.
++    const localPath = looksLikePath(session.source) ? undefined : env.resolvePath(session.source, cwd, { trim: true });
++    const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
 +    if (!additionalSkillPaths.some(matches)) {
 +        context.showError(`Skill is not enabled for this session: ${session.source}`);
 +        return undefined;

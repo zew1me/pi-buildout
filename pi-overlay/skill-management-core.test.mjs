@@ -807,6 +807,24 @@ test("/skills remove --session deactivates a session skill", async () => {
   assert.deepEqual(calls.output, ["Disabled alpha for this session."]);
 });
 
+test("/skills remove --session removes a deleted local skill by its bare name", async () => {
+  const { env, store } = createEnvironment();
+  withLocalSkills(env, { "/work/local-skill": [localSkill] });
+  let pathExists = true;
+  env.fs.existsSync = (path) => (path === "/work/local-skill" ? pathExists : store.has(path));
+  const paths = ["/pkg/other/SKILL.md"];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+
+  await handleSkillsInteractive(env, "/skills add local-skill --session", context);
+  assert.deepEqual(paths, ["/pkg/other/SKILL.md", "/work/local-skill"]);
+
+  pathExists = false;
+  await handleSkillsInteractive(env, "/skills remove local-skill --session", context);
+  assert.deepEqual(calls.errors, []);
+  assert.deepEqual(paths, ["/pkg/other/SKILL.md"], "only the stale local path is removed");
+  assert.deepEqual(calls.output.at(-1), "Disabled local-skill for this session.");
+});
+
 test("/skills remove --session reports a skill that is not active", async () => {
   const { env } = withCatalog([{ name: "alpha", description: "First", filePath: "/pkg/alpha/SKILL.md" }]);
   const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: [] });
