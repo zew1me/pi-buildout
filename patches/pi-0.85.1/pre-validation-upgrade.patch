@@ -100,10 +100,10 @@ index e0153e1..26254a8 100644
          if (this.noSkills && skillPaths.length === 0) {
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..8f004f5
+index 0000000..04f3c29
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,541 @@
+@@ -0,0 +1,556 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -268,12 +268,27 @@ index 0000000..8f004f5
 +export function looksLikePath(value) {
 +    return value.includes("/") || value.includes("\\") || value.startsWith(".") || value.startsWith("~");
 +}
++/** True when `path` exists and Pi's own loader finds at least one skill in it. */
++function containsSkills(env, path, options) {
++    if (!env.fs.existsSync(path))
++        return false;
++    const { skills } = env.loadSkills({
++        cwd: options.cwd,
++        agentDir: options.agentDir,
++        skillPaths: [path],
++        includeDefaults: false,
++    });
++    return skills.length > 0;
++}
 +function normalizeSkillSource(env, source, options) {
 +    if (!source)
 +        return undefined;
-+    // A bare name that names an existing path is persisted as that path; any other bare name is a catalog name.
 +    const resolved = env.resolvePath(source, options.cwd, { trim: true });
-+    return looksLikePath(source) || env.fs.existsSync(resolved) ? resolved : source;
++    if (looksLikePath(source))
++        return resolved;
++    // A bare name is a path only when it names a folder or file holding skills. Any other bare name is a catalog
++    // name, so an unrelated local folder that happens to share a skill's name cannot shadow the catalog skill.
++    return containsSkills(env, resolved, options) ? resolved : source;
 +}
 +/**
 + * Normalizes an entry already persisted in a configuration file.

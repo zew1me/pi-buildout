@@ -118,6 +118,24 @@ function withCatalog(skills) {
 }
 
 /**
+ * Serves `local` from `loadSkills` only when it is asked about one of those paths, the way Pi's loader reads
+ * just the paths it is given. Any other call falls through to `fallback`.
+ *
+ * @param {import("./skill-management-core.ts").SkillEnvironment} env
+ * @param {Record<string, import("./skill-management-core.ts").CatalogSkill[]>} local Skills keyed by path.
+ */
+function withLocalSkills(env, local) {
+  const fallback = env.loadSkills;
+  env.loadSkills = (options) => {
+    const [path] = options.skillPaths;
+    if (options.skillPaths.length === 1 && path !== undefined && path in local) return { skills: local[path] ?? [] };
+    return fallback(options);
+  };
+}
+
+const localSkill = { name: "local-skill", description: "local skill", filePath: "/work/local-skill/SKILL.md" };
+
+/**
  * Parses a file the test just wrote, failing loudly when it is missing.
  *
  * @param {Map<string, string>} store
@@ -588,6 +606,7 @@ test("path sources resolve against the working directory before being persisted"
 
 test("a bare source naming an existing path is persisted as that path, and other bare names stay names", async () => {
   const { env, store } = withCatalog([{ name: "alpha", description: "catalog skill", filePath: "/pkg/alpha" }]);
+  withLocalSkills(env, { "/work/local-skill": [localSkill] });
   env.fs.existsSync = (path) => path === "/work/local-skill" || store.has(path);
   const options = { cwd: "/work", agentDir: "/agent" };
 
@@ -599,8 +618,28 @@ test("a bare source naming an existing path is persisted as that path, and other
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"]);
 });
 
+test("a local folder without skills does not shadow a catalog skill of the same name", async () => {
+  const { env, store } = withCatalog([{ name: "alpha", description: "catalog skill", filePath: "/pkg/alpha" }]);
+  withLocalSkills(env, { "/work/alpha": [], "/work/ghost": [] });
+  env.fs.existsSync = (path) => path === "/work/alpha" || path === "/work/ghost" || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const added = await runSkillsCommand(env, ["add", "alpha", "--global"], options);
+  assert.equal(added.exitCode, 0, added.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"], "the catalog name is persisted");
+
+  const ghost = await runSkillsCommand(env, ["add", "ghost", "--global"], options);
+  assert.equal(ghost.exitCode, 1, "a skill-less folder that is not a catalog skill is not addable");
+  assert.match(firstLine(ghost), /Skill not found in the catalog or at an existing path: ghost/);
+
+  const explicit = await runSkillsCommand(env, ["add", "./alpha", "--global"], options);
+  assert.equal(explicit.exitCode, 0, "an explicit path keeps direct path handling");
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha", "/work/alpha"]);
+});
+
 test("a bare source persisted as a path stays removable by its name after the path is deleted", async () => {
   const { env, store } = createEnvironment();
+  withLocalSkills(env, { "/work/local-skill": [localSkill] });
   let pathExists = true;
   env.fs.existsSync = (path) => (path === "/work/local-skill" ? pathExists : store.has(path));
   const options = { cwd: "/work", agentDir: "/agent" };

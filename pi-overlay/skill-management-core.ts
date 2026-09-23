@@ -278,15 +278,29 @@ export function looksLikePath(value: string): boolean {
   return value.includes("/") || value.includes("\\") || value.startsWith(".") || value.startsWith("~");
 }
 
+/** True when `path` exists and Pi's own loader finds at least one skill in it. */
+function containsSkills(env: SkillEnvironment, path: string, options: { cwd: string; agentDir: string }): boolean {
+  if (!env.fs.existsSync(path)) return false;
+  const { skills } = env.loadSkills({
+    cwd: options.cwd,
+    agentDir: options.agentDir,
+    skillPaths: [path],
+    includeDefaults: false,
+  });
+  return skills.length > 0;
+}
+
 function normalizeSkillSource(
   env: SkillEnvironment,
   source: string | undefined,
-  options: { cwd: string },
+  options: { cwd: string; agentDir: string },
 ): string | undefined {
   if (!source) return undefined;
-  // A bare name that names an existing path is persisted as that path; any other bare name is a catalog name.
   const resolved = env.resolvePath(source, options.cwd, { trim: true });
-  return looksLikePath(source) || env.fs.existsSync(resolved) ? resolved : source;
+  if (looksLikePath(source)) return resolved;
+  // A bare name is a path only when it names a folder or file holding skills. Any other bare name is a catalog
+  // name, so an unrelated local folder that happens to share a skill's name cannot shadow the catalog skill.
+  return containsSkills(env, resolved, options) ? resolved : source;
 }
 
 /**
