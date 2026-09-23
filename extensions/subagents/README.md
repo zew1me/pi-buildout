@@ -173,10 +173,14 @@ GPT-5.6-only catalog for reproducibility. The new mixed-catalog evaluation is an
 npm run eval:routing-gpt6 -- --live
 ```
 
-The latest mixed-catalog run passed 11/11 cases, including the tool-using cwd case, and excludes dominated mini; its
-exact inputs, guidance, decisions, and rationales are stored in
-[`routing-gpt6-eval-results.json`](routing-gpt6-eval-results.json). This is one nondeterministic CLI run, not proof that
-the extension's `completeSimple` classifier or interactive Astra dialog behaves identically.
+The historical mixed-catalog run passed 11/11 cases, including the tool-using cwd case, and excludes dominated mini; its
+inputs, guidance, decisions, and rationales are stored in
+[`routing-gpt6-eval-results.json`](routing-gpt6-eval-results.json). A later user-requested stricter target raised the
+adversarial recommendation review to Sol/medium and cross-repository architecture to Sol/xhigh while preserving the
+other nine case bounds in a new 11/11 live run. The six prompt iterations, failed combined trial, exact adopted text,
+and full decision reports are in [`routing-effort-experiments.md`](routing-effort-experiments.md). These are
+nondeterministic CLI runs, not proof that the extension's `completeSimple` classifier or interactive Astra dialog
+behaves identically.
 
 ## Isolation and inheritance
 
