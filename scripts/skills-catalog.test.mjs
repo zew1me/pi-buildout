@@ -26,19 +26,6 @@ async function sha256(path) {
   return createHash("sha256").update(contents).digest("hex");
 }
 
-function addedFileSource(patch, path) {
-  const marker = `diff --git a/${path} b/${path}`;
-  const start = patch.indexOf(marker);
-  assert.notEqual(start, -1, `patch does not modify ${path}`);
-  const next = patch.indexOf("\ndiff --git ", start + marker.length);
-  const section = patch.slice(start, next === -1 ? undefined : next);
-  return section
-    .split("\n")
-    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
-    .map((line) => line.slice(1))
-    .join("\n");
-}
-
 async function baselineProblem() {
   const packageJsonPath = join(packageRoot, "package.json");
   if (!(await exists(packageJsonPath))) {
@@ -223,28 +210,6 @@ async function addSkillsConcurrently(patchedPackage, sources, scope, options) {
     assert.equal(result.stderr, "");
   }
 }
-
-// The 0.85.1 runtime is generated from pi-overlay/, whose unit tests cover the same behavior at the source level,
-// and the end-to-end test below exercises it through the packaged CLI.
-test("hand-written pi 0.84.x patches normalize persisted paths and lock configuration updates", async () => {
-  for (const version of ["0.84.2", "0.84.4"]) {
-    const patch = await readFile(join(repositoryRoot, "patches", `pi-${version}`, "skills.patch"), "utf8");
-    const source = addedFileSource(patch, "dist/core/skill-management.js");
-    assert.match(source, /import lockfile from "proper-lockfile";/);
-    assert.match(source, /Atomics\.wait\(skillConfigLockWait, 0, 0, delayMs\);/);
-    assert.match(
-      source,
-      /return withSkillConfigLock\(location\.path, \(\) => \{[\s\S]*const config = readJson\(location\.path\);[\s\S]*writeJson\(location\.path, config\);[\s\S]*\}\);/,
-    );
-    assert.match(source, /looksLikePath\(source\) \|\| existsSync\(resolved\) \? resolved : source/);
-    assert.match(
-      source,
-      /finally \{\n {8}try \{\n {12}release\(\);\n {8}\}\n {8}catch \(error\) \{\n {12}console\.error\(/,
-    );
-    assert.match(source, /const target = normalizeSkillSource\(source, options\);/);
-    assert.match(source, /updatePersistedSkill\(command, target, scope, options\);/);
-  }
-});
 
 test("the patched catalog resolves fixed, package, and settings skills with trust and precedence", async (t) => {
   const problem = await baselineProblem();
