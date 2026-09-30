@@ -1,0 +1,50 @@
+{
+  "package": "@earendil-works/pi-coding-agent",
+  "version": "0.99.2",
+  "repository": "https://github.com/earendil-works/pi",
+  "packageSubpath": "packages/coding-agent",
+  "gitHead": "005af57d88ee23b33778f343a9595b32e67ff788",
+  "sourceArchive": {
+    "url": "https://github.com/earendil-works/pi/releases/download/v0.99.2/pi-0.99.2-source.tar.gz",
+    "sha256": "8b9dc31d821a2395e98aff898198d464507a8c9d66159084d8447e0c0ed72730",
+    "rootDirectory": "pi-0.99.2",
+    "checksumsUrl": "https://github.com/earendil-works/pi/releases/download/v0.99.2/SHA256SUMS"
+  },
+  "npmTarball": {
+    "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-0.99.2.tgz",
+    "sha256": "5bb197bed8e46b5352a7a940ddc868c358725b214f27f3ad4d33e77ee9832558",
+    "integrity": "sha512-6R1BZ2N77CrVcGf3eC2KovTz1Q4RYiAeydvVWQT546N2fi1nBc81aURlbOZCgruWoW9VY/UrLzDynF4YTolpoA==",
+    "rootDirectory": "package"
+  },
+  "toolchain": {
+    "node": ">=22.19.0",
+    "typescript": "7.0.2"
+  },
+  "workspaceBuildOrder": [
+    "packages/chord",
+    "packages/tui",
+    "packages/telemetry",
+    "packages/codemode",
+    "packages/mcp",
+    "packages/ai",
+    "packages/durable",
+    "packages/agent",
+    "packages/session-backends/sqlite-node",
+    "packages/protocol",
+    "packages/client",
+    "packages/server"
+  ],
+  "trackedFiles": [
+    { "path": "dist/core/resource-loader.js", "source": "built" },
+    { "path": "dist/core/slash-commands.js", "source": "built" },
+    { "path": "dist/main.js", "source": "built" },
+    { "path": "dist/modes/interactive/interactive-mode.js", "source": "built" },
+    { "path": "dist/core/skill-management.js", "source": "built", "added": true },
+    { "path": "dist/core/skill-management-core.js", "source": "built", "added": true },
+    { "path": "docs/skills.md", "source": "patched-source" },
+    { "path": "dist/bundle/cli-runtime.js", "source": "replacement" },
+    { "path": "dist/bundle/rpc-entry.js", "source": "replacement" },
+    { "path": "dist/bundle/cli.js", "source": "unchanged" }
+  ],
+  "maxUpstreamEditedLines": 48
+}

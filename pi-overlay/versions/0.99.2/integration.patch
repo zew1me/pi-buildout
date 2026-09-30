@@ -1,0 +1,233 @@
+--- a/src/core/resource-loader.ts
++++ b/src/core/resource-loader.ts
+@@ -23,6 +23,7 @@
+ import { loadPromptTemplates } from "./prompt-templates.ts";
+ import { SettingsManager } from "./settings-manager.ts";
+ import type { Skill } from "./skills.ts";
++import { resolveActiveSkillPaths } from "./skill-management.ts";
+ import { loadSkills } from "./skills.ts";
+ import { createSourceInfo, type SourceInfo } from "./source-info.ts";
+ import { resetTimings } from "./timings.ts";
+@@ -465,12 +466,24 @@
+ 		this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
+ 		this.applyExtensionSourceInfo(this.extensionsResult.extensions, metadataByPath);
+ 
+-		const skillPaths = this.noSkills
+-			? this.mergePaths(cliEnabledSkills, this.additionalSkillPaths)
+-			: this.mergePaths([...cliEnabledSkills, ...enabledSkills], this.additionalSkillPaths);
++		// Skills are opt-in: discovered, package and settings skills form a catalog but are not active
++		// unless explicitly enabled globally, for this repository, or for this session/CLI.
++		const activeSkills = this.noSkills
++			? { paths: [], diagnostics: [] }
++			: await resolveActiveSkillPaths({
++					cwd: this.cwd,
++					agentDir: this.agentDir,
++					settingsManager: this.settingsManager,
++					resolveResourcePath: (p) => this.resolveResourcePath(p),
++				});
++		const skillPaths = this.mergePaths(
++			[...cliEnabledSkills, ...activeSkills.paths],
++			this.additionalSkillPaths,
++		);
+ 
+ 		this.lastSkillPaths = skillPaths;
+ 		this.updateSkillsFromPaths(skillPaths, metadataByPath);
++		this.skillDiagnostics.push(...activeSkills.diagnostics);
+ 		for (const p of this.additionalSkillPaths) {
+ 			if (isLocalPath(p)) {
+ 				const resolved = this.resolveResourcePath(p);
+--- a/src/core/slash-commands.ts
++++ b/src/core/slash-commands.ts
+@@ -40,5 +40,6 @@
+ 	{ name: "compact", description: "Manually compact the session context" },
+ 	{ name: "resume", description: "Resume a different session" },
+ 	{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, themes, and context files" },
++	{ name: "skills", description: "List and manage active skills", argumentHint: "<active|list|search|add|remove|reload>" },
+ 	{ name: "quit", description: `Quit ${APP_NAME}` },
+ ];
+--- a/src/main.ts
++++ b/src/main.ts
+@@ -46,6 +46,7 @@
+ import type { InlineExtension } from "./core/extensions/types.ts";
+ import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
+ import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
++import { handleSkillsCli } from "./core/skill-management.ts";
+ import { ModelRuntime } from "./core/model-runtime.ts";
+ import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
+ import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
+@@ -604,6 +605,11 @@
+ 		return;
+ 	}
+ 
++	if (args[0] === "skills") {
++		await handleSkillsCli({ args: args.slice(1), cwd, agentDir, settingsManager: bootstrapSettingsManager });
++		return;
++	}
++
+ 	const parsed = parseArgs(args);
+ 	if (parsed.diagnostics.length > 0) {
+ 		for (const d of parsed.diagnostics) {
+--- a/src/modes/interactive/interactive-mode.ts
++++ b/src/modes/interactive/interactive-mode.ts
+@@ -109,6 +109,7 @@
+ 	type UsageEntry,
+ } from "../../core/session-manager.ts";
+ import type { FullscreenExitOutput, TuiMode } from "../../core/settings-manager.ts";
++import { handleSkillsInteractive } from "../../core/skill-management.ts";
+ import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
+ import type { SourceInfo } from "../../core/source-info.ts";
+ import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
+@@ -120,7 +121,7 @@
+ import { copyToClipboard, readClipboardText } from "../../utils/clipboard.ts";
+ import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
+ import { parseGitUrl } from "../../utils/git.ts";
+-import { getCwdRelativePath } from "../../utils/paths.ts";
++import { getCwdRelativePath, resolvePath } from "../../utils/paths.ts";
+ import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
+ import { killTrackedDetachedChildren } from "../../utils/shell.ts";
+ import { loadAllHighlightLanguages } from "../../utils/syntax-highlight.ts";
+@@ -3195,6 +3196,11 @@
+ 				await this.handleReloadCommand();
+ 				return;
+ 			}
++			if (text === "/skills" || text.startsWith("/skills ")) {
++				this.editor.setText("");
++				await this.handleSkillsCommand(text);
++				return;
++			}
+ 			if (text === "/debug") {
+ 				this.handleDebugCommand();
+ 				this.editor.setText("");
+@@ -6167,6 +6173,25 @@
+ 	// Command handlers
+ 	// =========================================================================
+ 
++	private async handleSkillsCommand(text: string): Promise<void> {
++		await handleSkillsInteractive(text, {
++			cwd: this.sessionManager.getCwd(),
++			agentDir: getAgentDir(),
++			settingsManager: this.settingsManager,
++			additionalSkillPaths: (this.session.resourceLoader as { additionalSkillPaths?: string[] }).additionalSkillPaths,
++			resolveResourcePath: (p) => resolvePath(p, this.sessionManager.getCwd()),
++			isBusy: () => this.session.isStreaming || this.session.isCompacting,
++			reload: () => this.handleReloadCommand(),
++			showWarning: (message) => this.showWarning(message),
++			showError: (message) => this.showError(message),
++			showOutput: (message) => {
++				this.chatContainer.addChild(new Spacer(1));
++				this.chatContainer.addChild(new Text(message, 1, 0));
++				this.ui.requestRender();
++			},
++		});
++	}
++
+ 	private async handleReloadCommand(): Promise<void> {
+ 		if (this.session.isStreaming) {
+ 			this.showWarning("Wait for the current response to finish before reloading.");
+--- a/docs/skills.md
++++ b/docs/skills.md
+@@ -40,9 +40,11 @@
+ 
+ ## Understand how skills load
+ 
+-At startup, Pi scans configured skill locations and adds each skill’s name, description, and path to the system prompt. It does not add the full instructions.
++Pi starts with no active skills. Configured skill locations form a catalog, but catalog entries are not added to the system prompt unless they are explicitly [activated](#activate-skills).
+ 
+-When a task matches, the model reads `SKILL.md` and follows its instructions. This keeps detailed guidance out of context until it is needed. A model might fail to load a relevant skill, so use `/skill:name` when you need to force it.
++At startup, Pi resolves the active skills and adds each active skill’s name, description, and path to the system prompt. It does not add the full instructions.
++
++When a task matches, the model reads `SKILL.md` and follows its instructions. This keeps detailed guidance out of context until it is needed. A model might fail to load a relevant skill, so use `/skill:name` when you need to force it. Only active skills register `/skill:name` commands.
+ 
+ Arguments after `/skill:name` are appended to the loaded instructions as a user request:
+ 
+@@ -56,14 +58,80 @@
+ 
+ ## Add it to Pi
+ 
+-Place the skill in your user or project skills directory. Directories containing `SKILL.md` are discovered recursively.
++Place the skill in your user or project skills directory to add it to the catalog. Directories containing `SKILL.md` are discovered recursively.
+ 
+ Pi also supports the Agent Skills locations `~/.agents/skills/` and `.agents/skills/`. Project `.agents/skills/` directories are discovered from the working directory through its ancestors, stopping at the repository root when one exists.
+ 
+ Pi accepts some standalone Markdown skills, but a directory containing `SKILL.md` is the portable form and should be preferred. See [Settings](settings.md#resources) and [Pi Packages](packages.md) for additional locations.
+ 
++Catalog sources are considered in this order; name collisions keep the first skill found:
++
++- Global directories: `~/.pi/agent/skills/` and `~/.agents/skills/`
++- Project directories, only after the project is trusted: `.pi/skills/` and `.agents/skills/` in the working directory and its ancestors
++- Packages: `skills/` directories or `pi.skills` entries in `package.json`; project packages require trust
++- Settings: the global `skills` array and, when trusted, the project `skills` array; entries may be files or directories and use package-manager precedence within this group
++
+ Project skills can instruct the model to run scripts or modify files. Review unfamiliar skills and their supporting files before granting project trust.
+ 
++## Activate skills
++
++A catalog skill enters the system prompt only when it is active. Active skills come from:
++
++- Session/CLI: `--skill <path>` (repeatable, additive even with `--no-skills`) or `/skills add <name> --session`
++- Global: `~/.pi/agent/skills.json`
++- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
++
++Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
++
++Enable global skills with `~/.pi/agent/skills.json`:
++
++```json
++{
++  "enabled": [
++    "~/.agents/skills/code-review-and-quality",
++    { "source": "~/.agents/skills/browser-testing-with-devtools" }
++  ]
++}
++```
++
++Enable repository-scoped skills with `~/.pi/agent/repo-skills.json`:
++
++```json
++{
++  "github.com:earendil-works/pi": {
++    "enabled": ["~/.agents/skills/pi-development"]
++  },
++  "local:~/Documents/repos/private-tool": {
++    "enabled": ["~/.agents/skills/private-tool"]
++  }
++}
++```
++
++Repository keys are resolved from git remotes in this order: `upstream`, then `origin`, then the first configured remote. Remote URLs are normalized so `git@github.com:earendil-works/pi.git`, `https://github.com/earendil-works/pi`, and `ssh://git@github.com/earendil-works/pi.git` all become `github.com:earendil-works/pi`. Non-default ports stay part of the key. If no remote exists, Pi falls back to `local:<repo-root-relative-to-$HOME>`, such as `local:~/Documents/repos/private-tool`.
++
++Manage activation with either the interactive `/skills` command or the one-shot CLI:
++
++```text
++/skills active
++/skills list
++/skills search browser
++/skills add browser-testing-with-devtools --session
++/skills add browser-testing-with-devtools --repo
++/skills remove browser-testing-with-devtools --global
++/skills reload
++
++pi skills active
++pi skills list
++pi skills search browser
++pi skills add browser-testing-with-devtools --global
++pi skills add browser-testing-with-devtools --repo
++pi skills remove browser-testing-with-devtools --repo
++```
++
++`--session` is interactive-only and lasts until the session ends. `--global` and `--repo` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global and repository entries; `/skills active` also shows session entries.
++
++Use `--no-skills` to suppress global and repository active skills; explicit `--skill` paths still load.
++
+ ## Write portable frontmatter
+ 
+ The Agent Skills specification defines these fields:
+@@ -86,7 +154,7 @@
+ 
+ ## Validate and share a skill
+ 
+-Run Pi from a location where the skill is discoverable, then inspect the startup diagnostics and `/skill:name` command. Run `/reload` after editing a skill during an active session.
++Run Pi from a location where the skill is discoverable, confirm it appears in `pi skills list`, activate it, then inspect the startup diagnostics and `/skill:name` command. Run `/reload` after editing a skill during an active session.
+ 
+ Use a [Pi package](packages.md) to distribute one or more skills through npm or git. Keep environment setup inside the skill and declare any required runtime dependencies in the package.
+ 

@@ -37,15 +37,20 @@ the shell should only bind and forward.
 
 New logic goes in `skill-management*.ts`. Upstream files get imports and a call site, nothing more.
 
-Measured against the clean 0.85.1 package, edits to pre-existing upstream files:
+Measured against each clean package, edits to pre-existing upstream files:
 
-| Pre-existing upstream file                   | Previously hand-written | Generated from this overlay |
-| -------------------------------------------- | ----------------------- | --------------------------- |
-| `dist/core/resource-loader.js`               | 55                      | 16                          |
-| `dist/core/slash-commands.js`                | 1                       | 1                           |
-| `dist/main.js`                               | 32                      | 5                           |
-| `dist/modes/interactive/interactive-mode.js` | 82                      | 25                          |
-| **Total**                                    | **170**                 | **47**                      |
+| Pre-existing upstream file                   | 0.85.1, previously hand-written | 0.85.1, generated | 0.99.2, generated |
+| -------------------------------------------- | ------------------------------- | ----------------- | ----------------- |
+| `dist/core/resource-loader.js`               | 55                              | 16                | 16                |
+| `dist/core/slash-commands.js`                | 1                               | 1                 | 1                 |
+| `dist/main.js`                               | 32                              | 5                 | 5                 |
+| `dist/modes/interactive/interactive-mode.js` | 82                              | 25                | 26                |
+| **Total**                                    | **170**                         | **47**            | **48**            |
+
+The 0.99.2 seam makes the same calls as the 0.85.1 one. Its one extra line is in `interactive-mode.ts`, which already
+imports `getCwdRelativePath` from `utils/paths.ts`; the seam extends that import with `resolvePath` instead of adding a
+second import from the same module. The shared `skill-management*.ts` needed no change for 0.99.2 and compile to
+byte-identical `dist/core/skill-management*.js` in both versions.
 
 The budget counts only files where upstream code is edited in place. Files the patch _adds_ are ours; `docs/skills.md`
 and the two bundled entrypoints are replaced wholesale rather than surgically edited, so none of them belong in a number
@@ -81,7 +86,8 @@ Pi ever exposes the resource loader to extensions.
 Per version, `versions/<version>/upstream.json` pins the inputs. Two properties make this reproducible:
 
 - **The exact upstream commit is published.** The npm registry records `gitHead` for every release, and it matches the
-  revisions in `ATTRIBUTION.md` exactly (`0.85.1` → `d981de1229ef899957bbe968bc8dcda02a21f477`).
+  revisions in `ATTRIBUTION.md` exactly (`0.85.1` → `d981de1229ef899957bbe968bc8dcda02a21f477`, `0.99.2` →
+  `005af57d88ee23b33778f343a9595b32e67ff788`).
 - **Upstream ships a deterministic source archive.** Each GitHub release carries `pi-<version>-source.tar.gz` (built by
   upstream's `scripts/create-source-archive.sh`) alongside a `SHA256SUMS`. GitHub's _auto-generated_ tag tarballs are
   not byte-stable and are deliberately not used.
@@ -93,18 +99,25 @@ no upstream source.
 ## Reproducibility
 
 Verified for 0.85.1: building the pinned source archive reproduces the published npm runtime **exactly** — 209 of 209
-unbundled `.js` files byte-identical, including every tracked file. No normalization is applied. If that ever stops
-holding, generation fails rather than emitting a patch carrying toolchain noise.
+unbundled `.js` files byte-identical, including every tracked file. Verified the same way for 0.99.2: 244 of 244. No
+normalization is applied. If that ever stops holding, generation fails rather than emitting a patch carrying toolchain
+noise.
 
 Two caveats the pipeline must respect:
 
-- `dist/bundle/` is esbuild output with content-hashed chunks and is never rebuilt. The patch replaces
-  `dist/bundle/cli.js` and `dist/bundle/rpc-entry.js` with the small wrappers in `replacements/`, so only their baseline
-  hashes are needed and those come from the npm tarball.
+- `dist/bundle/` is esbuild output with content-hashed chunks and is never rebuilt. The patch replaces the bundled
+  entrypoints with the small wrappers in `replacements/`, so only their baseline hashes are needed and those come from
+  the npm tarball. For 0.85.1 those are `dist/bundle/cli.js` and `dist/bundle/rpc-entry.js`. In 0.99.2,
+  `dist/bundle/cli.js` is a loader that enables Node's compile cache and `require()`s `dist/bundle/cli-runtime.js`, so
+  the patch replaces `cli-runtime.js` and `rpc-entry.js` and keeps the loader, declared `"source": "unchanged"` so both
+  checksum manifests pin it and the installer rejects a package whose loader would bypass the replaced runtime.
 - The source archive does not build cleanly end to end offline: `packages/ai`'s `generate-models` does not emit
   `src/providers/kimi-coding.models.ts`, so `tsgo` reports `TS2307` for that package. It still emits usable output, so
   `packages/coding-agent` is unaffected — but the pipeline must build the workspace chain explicitly and gate on the
-  artifact comparison, never on the root build's exit status.
+  artifact comparison, never on the root build's exit status. Every 0.99.2 workspace builds cleanly; the pipeline gates
+  the same way regardless. `workspaceBuildOrder` follows each release's root `build` script; 0.99.2 adds
+  `packages/codemode`, `packages/mcp`, and `packages/durable`.
 
-Upstream pins `@typescript/native-preview` to the dated dev build `7.0.0-dev.20260120.1`. If that version is withdrawn
-or its emit changes, reproducibility breaks; the scheduled drift job is the detector.
+Upstream 0.85.1 pins `@typescript/native-preview` to the dated dev build `7.0.0-dev.20260120.1`; 0.99.2 builds with the
+released `typescript` `7.0.2` (`tsc`). If a pinned compiler is withdrawn or its emit changes, reproducibility breaks;
+the scheduled drift job is the detector.

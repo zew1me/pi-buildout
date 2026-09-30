@@ -241,6 +241,7 @@ function assertBuildReproducesBaseline(builtRoot, baselineRoot, manifest) {
 async function assemblePatchedTree(target, baselineRoot, builtRoot, patchedSourceRoot, overlayDir, manifest) {
   await cp(baselineRoot, target, { recursive: true });
   for (const entry of manifest.trackedFiles) {
+    if (entry.source === "unchanged") continue;
     const destination = join(target, entry.path);
     await mkdir(dirname(destination), { recursive: true });
     if (entry.source === "built") await cp(join(builtRoot, entry.path), destination);
@@ -457,6 +458,11 @@ async function main() {
 
     const addedPaths = new Set(manifest.trackedFiles.filter((e) => e.added).map((e) => e.path));
     const files = patchedFileList(patchText);
+    const unchangedPaths = new Set(manifest.trackedFiles.filter((e) => e.source === "unchanged").map((e) => e.path));
+    const touchedUnchanged = files.filter((file) => unchangedPaths.has(file.path)).map((file) => file.path);
+    if (touchedUnchanged.length > 0) {
+      throw new Error(`Patch touches paths declared unchanged: ${touchedUnchanged.join(", ")}`);
+    }
     const expectedPaths = new Set(manifest.trackedFiles.map((entry) => entry.path));
     const unexpected = files.filter((file) => !expectedPaths.has(file.path)).map((file) => file.path);
     if (unexpected.length > 0) throw new Error(`Patch touches untracked paths: ${unexpected.join(", ")}`);
