@@ -47,7 +47,7 @@ const results = [];
 for (const evalCase of cases) {
   const prompt = buildClassifierPrompt({ task: evalCase.task, contextSummary: "", catalog }).replace(
     ROUTING_LADDER_GUIDANCE,
-    guidance,
+    () => guidance,
   );
   try {
     const { stdout } = await execFileClosedStdin(
