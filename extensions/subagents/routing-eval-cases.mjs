@@ -84,8 +84,8 @@ export const ROUTING_EVAL_CASES = [
       "Analyze CodeRabbit thread PRRT_kwDORtPMQ86S0EJS on PR #371. Create a worktree from origin. The claim is that " +
       "duplicate Intervals/Strava persistence helpers in backend/repos/supabase_repo.py should consolidate. Verify " +
       "the exact duplication, the CPD threshold, readability, and risk. Be adversarial about the claim.",
-    allow: ["economy", "standard"],
-    why: "Scoped adversarial review of one review thread; logged runs used Luna at medium and high effort.",
+    allow: ["standard", "premium"],
+    why: "User-raised target: verify an adversarial consolidation claim across evidence sources and weigh regression risk before recommending a change. Older runs used Luna, but Terra or Sol is now the desired tier.",
   },
   {
     id: "debug-sentry-504",

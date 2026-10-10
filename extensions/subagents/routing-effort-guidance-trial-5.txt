@@ -1,0 +1,3 @@
+For a review that asks you to verify a recommendation, independently test its factual premise and decide whether to accept or reject it; that evidence-based adjudication can warrant Sol at medium effort. Do not equate it with a bounded checklist that merely enumerates known concerns, which remains Luna at high or xhigh effort.
+
+For architecture work that spans system boundaries, data ownership, and rollout strategy, treat the reasoning as exceptionally demanding; choose a stronger eligible model and high or xhigh effort when justified.

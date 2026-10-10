@@ -437,7 +437,11 @@ Artificial Analysis' general Intelligence Index is a comparative benchmark score
 - Sol: low 49 / $0.20; medium 54 / $0.32; high 56 / $0.45; xhigh 58 / $0.68; max 59 / $1.03.
 These benchmark costs are not the live token prices in the catalog. They support the efficient-frontier preferences above; they are not hard thresholds. Dimension-specific benchmark charts may justify Terra max for a particular task only when Terra max is eligible and the relevant alternatives were actually evaluated on that dimension. A missing model or effort means "not evaluated", not "worse".
 
-On the separate Coding Agent Index, Astra max is about 62 at $7.08 per benchmark task; GPT-6 Sol max scores about 57 at $2.99 per task. This makes Astra roughly 2.4x the benchmark task cost, not a modest premium over today's Sol. These are comparative scores, not percentages or a linear scale. Low/medium Astra may be worth asking about when its specific reliability/capability is needed, but do not infer its task cost from max-effort data or silently launch it.`;
+On the separate Coding Agent Index, Astra max is about 62 at $7.08 per benchmark task; GPT-6 Sol max scores about 57 at $2.99 per task. This makes Astra roughly 2.4x the benchmark task cost, not a modest premium over today's Sol. These are comparative scores, not percentages or a linear scale. Low/medium Astra may be worth asking about when its specific reliability/capability is needed, but do not infer its task cost from max-effort data or silently launch it.
+
+Do not classify an evidence-based review as routine merely because it is focused, read-only, or scoped to one file. If the deliverable is to independently verify a disputed claim about code behavior and decide whether a proposed refactor is warranted after weighing evidence, thresholds, readability, and regression risk, prefer Sol medium. A bounded review that only enumerates known concerns or produces a checklist remains Luna high or xhigh; adversarial tone alone is not a trigger.
+
+For architecture work that spans system boundaries, data ownership, and rollout strategy, treat the reasoning as exceptionally demanding; choose a stronger eligible model and high or xhigh effort when justified.`;
 
 /**
  * Well-known global key another extension assigns to take over subagent routing.

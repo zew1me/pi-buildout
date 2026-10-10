@@ -414,6 +414,9 @@ test("routing ladder guidance states the calibrated efficient frontier and escal
   assert.match(ROUTING_LADDER_GUIDANCE, /shell-based environment lookup.+Luna at medium/);
   assert.match(ROUTING_LADDER_GUIDANCE, /hallucinat/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /approval/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /independently verify a disputed claim about code behavior/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /adversarial tone alone is not a trigger/i);
+  assert.match(ROUTING_LADDER_GUIDANCE, /architecture work that spans system boundaries.+high or xhigh effort/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /GPT-6 Luna.+\$0\.10.+\$0\.50/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /GPT-6 Sol.+\$2\/\$10/i);
   assert.match(ROUTING_LADDER_GUIDANCE, /Coding Agent Index is slightly lower \(41 vs 43/i);

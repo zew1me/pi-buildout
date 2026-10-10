@@ -1,0 +1,96 @@
+{
+  "generatedAt": "2026-09-23T05:18:02.987Z",
+  "classifier": "openai-codex/gpt-6-luna:low",
+  "note": "Pi CLI print mode, no extensions/skills/tools/session; empty context summary. Paid, nondeterministic; not the extension's completeSimple system environment.",
+  "guidance": "Choose the cheapest model and effort that clears the task's required intelligence; do not buy capability the task does not need. Treat model and effort as one combined choice rather than choosing a family first.\n- No-tool trivial, mechanical, classification, or direct single-file lookup work: Luna at low effort. A shell-based environment lookup that must execute and report a command (such as checking the cwd): Luna at medium effort; high is reasonable if interpreting the result needs care.\n- Ordinary implementation, focused debugging, or review: Luna at high effort.\n- Work that needs more reasoning but still fits the cheapest family: Luna at xhigh effort.\n- Never choose Terra at low or medium effort; prefer Luna high.\n- Never choose Terra at high effort; prefer Luna xhigh.\n- Never choose Terra at xhigh effort; prefer Sol medium.\n- Terra is eligible only at max effort and only for a task-specific measured strength. If max is absent from Terra's catalog entry, do not choose Terra.\n- Prefer Luna xhigh over Sol low. When Luna xhigh is insufficient, move to Sol medium, then Sol high or xhigh as needed.\n- In a mixed eligible scope, prefer GPT-6 Luna ($0.10 input/$0.50 output per million tokens) to GPT-5.6 Luna ($0.20/$1.20) for cheap work, and GPT-6 Sol ($2/$10) to GPT-5.6 Sol ($4/$20) for demanding agentic coding. These are comparative hints, not licenses to pick an out-of-scope model. GPT-6 Luna's Coding Agent Index is slightly lower (41 vs 43 at max), so GPT-5.6 Luna remains defensible when that measured difference matters; the versions are not universally capability-equivalent.\n\nThe frontier escalation tier (GPT-6 Astra) requires separate user approval. Astra still costs $10 input/$50 output per million tokens, not less than before; it is 5x GPT-6 Sol's token rate. Low or medium effort does not bypass approval or make Astra automatically cost-effective. Request escalation only when an eligible Sol configuration is materially insufficient or when factual reliability / hallucination risk specifically justifies Astra for this task and user approval. Do not request escalation merely because the task is broad or expensive.\n\nScope and difficulty are separate. \"Focused\", \"read-only\", an existing regression test, or a narrow expected diff reduces work volume but does not by itself make the reasoning ordinary. Use Sol medium when the task's core deliverable requires resolving ambiguous, high-consequence semantics: cross-layer failure behavior; retry and idempotency boundaries; security exploitability or authorization; externally shipped contracts; serialization or omitted-versus-default behavior; or production changes where a locally plausible answer can silently lose or corrupt data. Existing tests reduce implementation uncertainty, but they do not remove semantic difficulty.\n\nApply that rule to the task's required judgment, not to incidental nouns. A bounded checklist or review that merely enumerates known OAuth, security, pagination, or integration concerns remains Luna high or xhigh. A review that must decide an ambiguous failure boundary or produce concrete exploitable security findings is Sol medium. Ordinary contract-preserving implementation with a clear local solution remains Luna high or xhigh; resolving subtle omitted-versus-default or compatibility semantics is Sol medium.\n\nArtificial Analysis' general Intelligence Index is a comparative benchmark score where higher is better. It is not a percentage, probability, or score out of 100, and differences must not be assumed linear. The following approximate score / benchmark-cost-per-task observations describe GPT-5.6, not GPT-6:\n- Luna: low 33 / $0.04; medium 38 / $0.05; high 46 / $0.09; xhigh 49 / $0.13.\n- Terra: low 40 / $0.10; medium 46 / $0.13; high 49 / $0.24; xhigh 52 / $0.34; max 55 / $0.57.\n- Sol: low 49 / $0.20; medium 54 / $0.32; high 56 / $0.45; xhigh 58 / $0.68; max 59 / $1.03.\nThese benchmark costs are not the live token prices in the catalog. They support the efficient-frontier preferences above; they are not hard thresholds. Dimension-specific benchmark charts may justify Terra max for a particular task only when Terra max is eligible and the relevant alternatives were actually evaluated on that dimension. A missing model or effort means \"not evaluated\", not \"worse\".\n\nOn the separate Coding Agent Index, Astra max is about 62 at $7.08 per benchmark task; GPT-6 Sol max scores about 57 at $2.99 per task. This makes Astra roughly 2.4x the benchmark task cost, not a modest premium over today's Sol. These are comparative scores, not percentages or a linear scale. Low/medium Astra may be worth asking about when its specific reliability/capability is needed, but do not infer its task cost from max-effort data or silently launch it.\n\nDo not classify an evidence-based review as routine merely because it is focused, read-only, or scoped to one file. If the deliverable is to independently verify a disputed claim about code behavior and decide whether a proposed refactor is warranted after weighing evidence, thresholds, readability, and regression risk, prefer Sol medium. A bounded review that only enumerates known concerns or produces a checklist remains Luna high or xhigh; adversarial tone alone is not a trigger.\n\nFor architecture work that spans system boundaries, data ownership, and rollout strategy, treat the reasoning as exceptionally demanding; choose a stronger eligible model and high or xhigh effort when justified.",
+  "suffix": "Do not classify an evidence-based review as routine merely because it is focused, read-only, or scoped to one file. If the deliverable is to independently verify a disputed claim about code behavior and decide whether a proposed refactor is warranted after weighing evidence, thresholds, readability, and regression risk, prefer Sol medium. A bounded review that only enumerates known concerns or produces a checklist remains Luna high or xhigh; adversarial tone alone is not a trigger.\n\nFor architecture work that spans system boundaries, data ownership, and rollout strategy, treat the reasoning as exceptionally demanding; choose a stronger eligible model and high or xhigh effort when justified.",
+  "catalog": "- openai-codex/gpt-5.6-luna; effort=off|low|medium|high|xhigh; context=1000000; input=$0.2/M output=$1.2/M\n- openai-codex/gpt-5.6-terra; effort=off|low|medium|high|xhigh; context=1000000; input=$2/M output=$12/M\n- openai-codex/gpt-5.6-sol; effort=off|low|medium|high|xhigh; context=1000000; input=$4/M output=$20/M\n- openai-codex/gpt-6-astra; effort=off|minimal|low|medium|high; context=1000000; input=$10/M output=$50/M\n- openai-codex/gpt-6-luna; effort=off|minimal|low|medium|high|xhigh|max; context=272000; input=$0.1/M output=$0.5/M\n- openai-codex/gpt-6-sol; effort=off|minimal|low|medium|high|xhigh|max; context=272000; input=$2/M output=$10/M",
+  "cases": [
+    {
+      "id": "review-integration-checklist",
+      "task": "Review the repository's Intervals.icu integration and the official Strava docs plus GitHub issue #340. Produce a concise implementation checklist and flag Strava-specific pitfalls (OAuth/token refresh, scopes, activity mapping, pagination/rate limits, deauth/data deletion, security). Do not edit files."
+    },
+    {
+      "id": "review-coderabbit-thread",
+      "task": "Analyze CodeRabbit thread PRRT_kwDORtPMQ86S0EJS on PR #371. Create a worktree from origin. The claim is that duplicate Intervals/Strava persistence helpers in backend/repos/supabase_repo.py should consolidate. Verify the exact duplication, the CPD threshold, readability, and risk. Be adversarial about the claim."
+    },
+    {
+      "id": "debug-sentry-504",
+      "task": "Read-only review task. Independently inspect the Sentry PYTHON-FASTAPI-10 diagnosis described by the parent: postgrest-py surfaces a Supabase gateway 504 as APIError(code='504') during OAuthRepository.upsert_grant, leaving browser-token writes unchanged. Determine whether the diagnosis holds and what the correct retry and idempotency boundary is."
+    },
+    {
+      "id": "frontier-architecture",
+      "task": "Design and implement a migration from the current single-tenant Supabase schema to a multi-tenant model with row-level security, zero downtime, and a reversible rollout across every backend repository."
+    }
+  ],
+  "results": [
+    {
+      "id": "review-integration-checklist",
+      "decision": {
+        "model": "openai-codex/gpt-6-luna",
+        "effort": "high",
+        "rationale": "This bounded, read-only review requires checking documentation and repository patterns to produce a practical checklist, but not resolving an ambiguous high-consequence failure boundary."
+      },
+      "score": {
+        "id": "review-integration-checklist",
+        "ok": true,
+        "failures": [],
+        "model": "openai-codex/gpt-6-luna",
+        "tier": "economy",
+        "effort": "high",
+        "preferred": true
+      }
+    },
+    {
+      "id": "review-coderabbit-thread",
+      "decision": {
+        "model": "openai-codex/gpt-6-sol",
+        "effort": "medium",
+        "rationale": "This evidence-based review must independently verify disputed duplication and weigh CPD thresholds, readability, and regression risk before recommending a refactor."
+      },
+      "score": {
+        "id": "review-coderabbit-thread",
+        "ok": true,
+        "failures": [],
+        "model": "openai-codex/gpt-6-sol",
+        "tier": "premium",
+        "effort": "medium",
+        "preferred": true
+      }
+    },
+    {
+      "id": "debug-sentry-504",
+      "decision": {
+        "model": "openai-codex/gpt-6-sol",
+        "effort": "medium",
+        "rationale": "Determining whether the 504 diagnosis holds and where retries are safe requires resolving cross-layer failure and idempotency semantics."
+      },
+      "score": {
+        "id": "debug-sentry-504",
+        "ok": true,
+        "failures": [],
+        "model": "openai-codex/gpt-6-sol",
+        "tier": "premium",
+        "effort": "medium",
+        "preferred": true
+      }
+    },
+    {
+      "id": "frontier-architecture",
+      "decision": {
+        "model": "openai-codex/gpt-6-sol",
+        "effort": "xhigh",
+        "rationale": "This spans backend repositories, tenant data ownership, RLS security, and zero-downtime reversible rollout, requiring exceptionally demanding cross-system reasoning."
+      },
+      "score": {
+        "id": "frontier-architecture",
+        "ok": true,
+        "failures": [],
+        "model": "openai-codex/gpt-6-sol",
+        "tier": "premium",
+        "effort": "xhigh",
+        "preferred": true
+      }
+    }
+  ]
+}

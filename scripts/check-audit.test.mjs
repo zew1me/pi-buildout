@@ -6,24 +6,20 @@ const braceNodes = ["node_modules/@earendil-works/pi-coding-agent/node_modules/b
 
 function auditReport() {
   return {
-    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 4, critical: 0, total: 4 } },
+    metadata: { vulnerabilities: { info: 0, low: 0, moderate: 0, high: 6, critical: 0, total: 6 } },
     vulnerabilities: {
       "brace-expansion": {
         name: "brace-expansion",
         severity: "high",
-        nodes: braceNodes,
+        nodes: [...braceNodes],
         via: [
           {
             severity: "high",
-            url: "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp",
+            url: "https://github.com/advisories/GHSA-qhr7-859c-m2p7",
           },
           {
             severity: "high",
-            url: "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
-          },
-          {
-            severity: "high",
-            url: "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+            url: "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p",
           },
         ],
       },
@@ -34,9 +30,25 @@ function auditReport() {
         via: [
           {
             severity: "high",
-            url: "https://github.com/advisories/GHSA-4cwx-7wf7-3272",
+            url: "https://github.com/advisories/GHSA-rfgv-xxqx-mfg5",
+          },
+          {
+            severity: "high",
+            url: "https://github.com/advisories/GHSA-w293-vg96-wgc3",
           },
         ],
+      },
+      braces: {
+        name: "braces",
+        severity: "high",
+        nodes: ["node_modules/braces"],
+        via: [{ severity: "high", url: "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm" }],
+      },
+      micromatch: {
+        name: "micromatch",
+        severity: "high",
+        nodes: ["node_modules/micromatch"],
+        via: ["braces"],
       },
       minimatch: {
         name: "minimatch",
@@ -60,10 +72,11 @@ describe("evaluateAudit", () => {
 
     assert.equal(result.unexplained.length, 0);
     assert.deepEqual(result.acceptedAdvisories.map(({ advisoryUrl }) => advisoryUrl).sort(), [
-      "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp",
-      "https://github.com/advisories/GHSA-4cwx-7wf7-3272",
-      "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
-      "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
+      "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p",
+      "https://github.com/advisories/GHSA-qhr7-859c-m2p7",
+      "https://github.com/advisories/GHSA-rfgv-xxqx-mfg5",
+      "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+      "https://github.com/advisories/GHSA-w293-vg96-wgc3",
     ]);
   });
 
@@ -84,6 +97,18 @@ describe("evaluateAudit", () => {
     report.vulnerabilities["brace-expansion"].nodes.push("node_modules/new-consumer/node_modules/brace-expansion");
 
     assert.equal(evaluateAudit(report).unexplained.length, 3);
+  });
+
+  it("rejects an additional braces install and its derived findings", () => {
+    const report = auditReport();
+    report.vulnerabilities.braces.nodes.push("node_modules/new-consumer/node_modules/braces");
+
+    assert.deepEqual(
+      evaluateAudit(report)
+        .unexplained.map(({ name }) => name)
+        .sort(),
+      ["braces", "micromatch"],
+    );
   });
 
   it("rejects unsuccessful or malformed npm audit reports", () => {

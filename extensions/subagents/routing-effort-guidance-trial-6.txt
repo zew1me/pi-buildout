@@ -1,0 +1,3 @@
+Do not classify an evidence-based review as routine merely because it is focused, read-only, or scoped to one file. If the deliverable is to independently verify a disputed claim about code behavior and decide whether a proposed refactor is warranted after weighing evidence, thresholds, readability, and regression risk, prefer Sol medium. A bounded review that only enumerates known concerns or produces a checklist remains Luna high or xhigh; adversarial tone alone is not a trigger.
+
+For architecture work that spans system boundaries, data ownership, and rollout strategy, treat the reasoning as exceptionally demanding; choose a stronger eligible model and high or xhigh effort when justified.

@@ -3,7 +3,7 @@
 // of installed paths. New advisories, path changes, malformed reports, and audit transport failures
 // all fail closed.
 //
-// Review and prune this allowlist whenever ESLint or @earendil-works/pi-coding-agent is upgraded.
+// Review and prune this allowlist whenever Pi or markdownlint-cli2's glob dependencies are upgraded.
 import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,35 +14,43 @@ const BLOCKING_SEVERITIES = new Set(["high", "critical"]);
 const ALLOWLIST = [
   {
     package: "brace-expansion",
-    advisoryUrl: "https://github.com/advisories/GHSA-3jxr-9vmj-r5cp",
+    advisoryUrl: "https://github.com/advisories/GHSA-qhr7-859c-m2p7",
     nodePaths: ["node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion"],
-    recordedAt: "2026-08-06",
+    recordedAt: "2026-10-08",
     reason:
-      "Pi's published shrinkwrap pins brace-expansion 5.0.6; npm audit fix cannot update dependencies locked inside the published package.",
+      "Pi 0.85.1's published shrinkwrap pins brace-expansion 5.0.9 and ignores root overrides. Other installed copies are patched; Pi remains pinned for the versioned runtime patches.",
   },
   {
     package: "brace-expansion",
-    advisoryUrl: "https://github.com/advisories/GHSA-mh99-v99m-4gvg",
+    advisoryUrl: "https://github.com/advisories/GHSA-6j4f-fj2g-mc7p",
     nodePaths: ["node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion"],
-    recordedAt: "2026-08-06",
+    recordedAt: "2026-10-08",
     reason:
-      "Pi's published shrinkwrap pins brace-expansion 5.0.6; npm audit fix cannot update dependencies locked inside the published package.",
-  },
-  {
-    package: "brace-expansion",
-    advisoryUrl: "https://github.com/advisories/GHSA-rgw5-rvv9-x895",
-    nodePaths: ["node_modules/@earendil-works/pi-coding-agent/node_modules/brace-expansion"],
-    recordedAt: "2026-08-06",
-    reason:
-      "Pi's published shrinkwrap pins brace-expansion 5.0.6; npm audit fix cannot update dependencies locked inside the published package.",
+      "Pi 0.85.1's published shrinkwrap pins brace-expansion 5.0.9 and ignores root overrides. Other installed copies are patched; Pi remains pinned for the versioned runtime patches.",
   },
   {
     package: "undici",
-    advisoryUrl: "https://github.com/advisories/GHSA-4cwx-7wf7-3272",
+    advisoryUrl: "https://github.com/advisories/GHSA-rfgv-xxqx-mfg5",
     nodePaths: ["node_modules/@earendil-works/pi-coding-agent/node_modules/undici"],
-    recordedAt: "2026-08-06",
+    recordedAt: "2026-10-08",
     reason:
-      "Pi's published shrinkwrap pins undici 8.5.0; npm audit fix only proposes downgrading Pi and cannot update the nested dependency.",
+      "Pi 0.85.1's published shrinkwrap pins undici 8.9.0 and ignores root overrides. Updating Pi requires migrating the versioned runtime patches; CI's Pi tests use local mocks.",
+  },
+  {
+    package: "undici",
+    advisoryUrl: "https://github.com/advisories/GHSA-w293-vg96-wgc3",
+    nodePaths: ["node_modules/@earendil-works/pi-coding-agent/node_modules/undici"],
+    recordedAt: "2026-10-08",
+    reason:
+      "Pi 0.85.1's published shrinkwrap pins undici 8.9.0 and ignores root overrides. Updating Pi requires migrating the versioned runtime patches; CI's Pi tests use local mocks.",
+  },
+  {
+    package: "braces",
+    advisoryUrl: "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+    nodePaths: ["node_modules/braces"],
+    recordedAt: "2026-10-08",
+    reason:
+      "No patched braces release is published (latest is 3.0.3). The affected parser consumes glob patterns; markdownlint-cli2 uses repository-controlled patterns in local development and CI.",
   },
 ];
 
