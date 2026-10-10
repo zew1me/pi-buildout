@@ -28,7 +28,7 @@ upstream code exceed the declared budget.
 - `baseline.absent` — paths that must not exist in the clean package.
 - `patched.sha256` — checksums expected after applying `skills.patch`.
 
-Four recognized already-patched states, each with a migration onto the current patch:
+Five recognized already-patched states, each with a migration onto the current patch:
 
 | State | Manifests | What it is |
 | --- | --- | --- |
@@ -36,6 +36,7 @@ Four recognized already-patched states, each with a migration onto the current p
 | `pre-validation-` | `pre-validation-patched.sha256`, `pre-validation-absent`, `pre-validation-upgrade.patch` | the state recorded by repository commit `c8bbfc6`, before strict configuration validation and remote-port preservation |
 | `handwritten-` | `handwritten-patched.sha256`, `handwritten-absent`, `handwritten-upgrade.patch` | the last hand-authored patch, before the runtime was generated from the TypeScript overlay |
 | `pre-lock-` | `pre-lock-patched.sha256`, `pre-lock-upgrade.patch` | the first patch generated from the overlay, before serialized configuration updates and bare relative path normalization |
+| `pre-expansion-` | `pre-expansion-patched.sha256`, `pre-expansion-upgrade.patch` | the patch as shipped at repository commit `fe4aa4b`, before environment-variable expansion in skill paths |
 
 ### Regenerating the upgrade states
 
@@ -58,7 +59,7 @@ freshly generated tree and fails unless it reconstructs exactly the state it cla
 A `<state>-absent` file lists paths that must **not** exist in that state. It is the upgrade-state counterpart
 of `baseline.absent`, and it is what lets a patch that adds a new runtime file still describe the states that
 predate that file. `dist/core/skill-management-core.js` is new in the generated patch, so every state that
-predates the overlay lists it; `pre-lock-` contains every patched file and has no absent list.
+predates the overlay lists it; `pre-lock-` and `pre-expansion-` contain every patched file and have no absent list.
 
 ## How the installer uses these
 
@@ -69,7 +70,7 @@ are limited to exact full-file states previously produced by this repository; a 
 never authorizes an upgrade. A package already matching `patched.sha256` is left unchanged. Any unknown or
 mixed state is rejected and must be restored to the clean package rather than overwritten.
 
-User-provided tilde and relative skill sources, including a bare name that resolves to a path holding at least one
+User-provided tilde, relative, and `$NAME`/`${NAME}` skill sources, including a bare name that resolves to a path holding at least one
 skill and matches no catalog skill, are resolved to absolute paths before session activation or persistence. A bare name persisted that way stays
 removable by that name after its path is deleted. Any other bare name, even one naming an existing folder without
 skills, stays a catalog name. Persisted global and repository skill updates lock the applicable JSON file

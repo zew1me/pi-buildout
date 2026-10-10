@@ -186,7 +186,7 @@
  
  ### Using Skills from Other Harnesses
  
-@@ -64,18 +99,39 @@
+@@ -64,18 +99,41 @@
  
  ## How Skills Work
  
@@ -225,6 +225,8 @@
 +```
 +
 +`--session` is interactive-only and lasts until the session ends. `--global` and `--repo` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global and repository entries; `/skills active` also shows session entries.
++
++Path arguments may use `~`, `$NAME`, or `${NAME}`. `/skills` expands them itself because its arguments never pass through a shell, and `add` stores the expanded absolute path so the entry resolves the same way from any working directory. Hand-written entries in `skills.json` and `repo-skills.json` are expanded the same way when Pi loads them; a relative entry resolves against the working directory, so prefer absolute or `~` paths.
 +
 +Active skills also register as `/skill:name` commands:
 +

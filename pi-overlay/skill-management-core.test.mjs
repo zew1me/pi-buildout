@@ -4,6 +4,7 @@ import { test } from "node:test";
 import {
   configLocation,
   enabledEntries,
+  expandEnvironmentVariables,
   getActiveSkillEntries,
   getSkillCatalogDirs,
   resolveActiveSkillPaths,
@@ -26,8 +27,9 @@ import {
  * @param {Record<string, string>} [options.files] Seed file contents keyed by path.
  * @param {Record<string, string>} [options.git] Responses keyed by the joined git argument list.
  * @param {string[]} [options.catalog] Skill names to expose through the catalog.
+ * @param {Record<string, string>} [options.variables] Environment variables visible to the module.
  */
-function createEnvironment({ files = {}, git = {}, catalog = [] } = {}) {
+function createEnvironment({ files = {}, git = {}, catalog = [], variables = {} } = {}) {
   /** @type {Map<string, string>} */
   const store = new Map(Object.entries(files));
   /** @type {{ path: string; contents: string | undefined }[]} */
@@ -74,6 +76,7 @@ function createEnvironment({ files = {}, git = {}, catalog = [] } = {}) {
       sep: "/",
     },
     homedir: () => "/home/dev",
+    environmentVariable: (name) => (Object.hasOwn(variables, name) ? variables[name] : undefined),
     execFileSync: (_file, args) => {
       const key = args.slice(2).join(" ");
       const response = git[key];
@@ -91,7 +94,11 @@ function createEnvironment({ files = {}, git = {}, catalog = [] } = {}) {
     sleepSync: (milliseconds) => sleeps.push(milliseconds),
     reportError: (message) => reported.push(message),
     configDirName: ".pi",
-    resolvePath: (input, baseDir) => (input.startsWith("/") ? input : `${baseDir}/${input.replace(/^\.\//, "")}`),
+    // Mirrors Pi's `resolvePath`: `~` expands to the home directory, and only that.
+    resolvePath: (input, baseDir) => {
+      const expanded = input.replace(/^~(?=\/|$)/, "/home/dev");
+      return expanded.startsWith("/") ? expanded : `${baseDir}/${expanded.replace(/^\.\//, "")}`;
+    },
     loadSkillsFromDir: () => ({ skills: [] }),
     loadSkills: () => ({ skills: [] }),
     createSettingsManager: () => ({ isProjectTrusted: () => false }),
@@ -604,7 +611,16 @@ test("runSkillsCommand rejects extra arguments alongside a scope", async () => {
 });
 
 test("looksLikePath distinguishes paths from catalog names", () => {
-  for (const value of ["./skill", "../skill", "~/skill", "dir/skill", "dir\\skill", ".hidden"]) {
+  for (const value of [
+    "./skill",
+    "../skill",
+    "~/skill",
+    "dir/skill",
+    "dir\\skill",
+    ".hidden",
+    "$SKILL_DIR",
+    "${SKILLS}",
+  ]) {
     assert.equal(looksLikePath(value), true, value);
   }
   for (const value of ["alpha", "alpha-beta", "alpha123"]) {
@@ -623,6 +639,127 @@ test("path sources resolve against the working directory before being persisted"
 
   assert.equal(result.exitCode, 0);
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/work/skills/alpha"]);
+});
+
+test("expandEnvironmentVariables expands bare and braced references and reports unset ones", () => {
+  const { env } = createEnvironment({ variables: { HOME: "/home/dev", SKILLS: "/opt/skills", EMPTY: "" } });
+
+  assert.deepEqual(expandEnvironmentVariables(env, "$HOME/skills/alpha"), {
+    value: "/home/dev/skills/alpha",
+    unset: [],
+  });
+  assert.deepEqual(expandEnvironmentVariables(env, "${SKILLS}/alpha"), { value: "/opt/skills/alpha", unset: [] });
+  assert.deepEqual(expandEnvironmentVariables(env, "${SKILLS}x/$EMPTY/y"), { value: "/opt/skillsx//y", unset: [] });
+  assert.deepEqual(expandEnvironmentVariables(env, "$MISSING/a/${MISSING}/$OTHER"), {
+    value: "$MISSING/a/${MISSING}/$OTHER",
+    unset: ["MISSING", "OTHER"],
+  });
+  for (const literal of ["/tmp/price$", "/tmp/$1", "/tmp/${not valid}", "/tmp/plain"]) {
+    assert.deepEqual(expandEnvironmentVariables(env, literal), { value: literal, unset: [] }, literal);
+  }
+});
+
+test("~ and variable paths are expanded to absolute paths before being persisted", async () => {
+  const { env, store } = createEnvironment({ variables: { HOME: "/home/dev", REPOS: "/home/dev/repos" } });
+  const existing = new Set(["/home/dev/skills/alpha", "/home/dev/repos/app/.agents/skills/beta/SKILL.md"]);
+  env.fs.existsSync = (path) => existing.has(path) || store.has(path);
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  for (const source of ["~/skills/alpha", "$HOME/skills/alpha", "${REPOS}/app/.agents/skills/beta/SKILL.md"]) {
+    const result = await runSkillsCommand(env, ["add", source, "--global"], options);
+    assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  }
+  assert.deepEqual(
+    readStored(store, "/agent/skills.json").enabled,
+    ["/home/dev/skills/alpha", "/home/dev/repos/app/.agents/skills/beta/SKILL.md"],
+    "equivalent spellings deduplicate to one absolute entry",
+  );
+
+  const removed = await runSkillsCommand(env, ["remove", "$HOME/skills/alpha", "--global"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, [
+    "/home/dev/repos/app/.agents/skills/beta/SKILL.md",
+  ]);
+});
+
+test("adding a path with an unset variable names the variable and persists nothing", async () => {
+  const { env, store } = createEnvironment();
+
+  const result = await runSkillsCommand(env, ["add", "${SKILLS_HOME}/alpha", "--global"], {
+    cwd: "/work",
+    agentDir: "/agent",
+  });
+
+  assert.equal(result.exitCode, 1);
+  assert.equal(
+    firstLine(result),
+    "Skill not found in the catalog or at an existing path: ${SKILLS_HOME}/alpha (environment variable $SKILLS_HOME is not set)",
+  );
+  assert.equal(store.has("/agent/skills.json"), false);
+});
+
+test("a path that literally contains $ is still addable when the variable is unset", async () => {
+  const { env, store } = createEnvironment();
+  env.fs.existsSync = (path) => path === "/srv/$skills/alpha" || store.has(path);
+
+  const result = await runSkillsCommand(env, ["add", "/srv/$skills/alpha", "--global"], {
+    cwd: "/work",
+    agentDir: "/agent",
+  });
+
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["/srv/$skills/alpha"]);
+});
+
+test("persisted ~ and variable entries resolve, and unresolvable path entries explain why", async () => {
+  const { env } = createEnvironment({
+    variables: { SKILLS: "/opt/skills" },
+    files: {
+      "/agent/skills.json": JSON.stringify({
+        enabled: ["${SKILLS}/alpha", "~/skills/beta", "$UNSET_DIR/gamma", ".agents/skills/delta/SKILL.md", "/gone"],
+      }),
+      "/opt/skills/alpha": "",
+      "/home/dev/skills/beta": "",
+    },
+  });
+
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/elsewhere",
+    agentDir: "/agent",
+    resolvedSkillResources: [],
+    resolveResourcePath: (path) => env.resolvePath(path, "/elsewhere", { trim: true }),
+  });
+
+  assert.deepEqual(result.paths, ["/opt/skills/alpha", "/home/dev/skills/beta"]);
+  assert.deepEqual(result.diagnostics, [
+    {
+      type: "warning",
+      message: "Active skill could not be resolved: environment variable $UNSET_DIR is not set",
+      path: "$UNSET_DIR/gamma",
+    },
+    {
+      type: "warning",
+      message:
+        "Active skill could not be resolved: relative paths resolve against the working directory; remove it, then add it again to store its absolute path",
+      path: ".agents/skills/delta/SKILL.md",
+    },
+    { type: "warning", message: "Active skill could not be resolved", path: "/gone" },
+  ]);
+});
+
+test("removing an absolute path also removes an entry stored with an equivalent variable spelling", async () => {
+  const { env, store } = createEnvironment({
+    variables: { HOME: "/home/dev" },
+    files: { "/agent/skills.json": JSON.stringify({ enabled: ["$HOME/skills/alpha", "other"] }) },
+  });
+
+  const result = await runSkillsCommand(env, ["remove", "/home/dev/skills/alpha", "--global"], {
+    cwd: "/work",
+    agentDir: "/agent",
+  });
+
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["other"]);
 });
 
 test("a bare source naming an existing path is persisted as that path, and other bare names stay names", async () => {
@@ -876,6 +1013,22 @@ test("/skills remove --session matches resolved path inputs without resolving pa
   assert.deepEqual(paths, []);
   assert.deepEqual(calls.errors, []);
   assert.deepEqual(calls.output, ["Disabled /work/alpha for this session."]);
+});
+
+test("/skills add and remove --session expand variables in path inputs", async () => {
+  const { env } = createEnvironment({ variables: { SKILLS: "/opt/skills" } });
+  env.fs.existsSync = (path) => path === "/opt/skills/alpha";
+  /** @type {string[]} */
+  const paths = [];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+
+  await handleSkillsInteractive(env, "/skills add ${SKILLS}/alpha --session", context);
+  assert.deepEqual(calls.errors, []);
+  assert.deepEqual(paths, ["/opt/skills/alpha"]);
+
+  await handleSkillsInteractive(env, "/skills remove $SKILLS/alpha --session", context);
+  assert.deepEqual(calls.errors, []);
+  assert.deepEqual(paths, []);
 });
 
 test("/skills remove --session removes a deleted local skill by its bare name", async () => {
