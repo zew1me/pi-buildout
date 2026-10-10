@@ -124,7 +124,7 @@ function testEnvironment(overrides = {}) {
   return env;
 }
 
-async function runPatchedCli(target, args, { agentDir, cwd, home = process.env.HOME }) {
+async function runPatchedCli(target, args, { agentDir, cwd, home = process.env.HOME, env = {} }) {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [join(target, "dist", "bundle", "cli.js"), ...args], {
       cwd,
@@ -133,6 +133,7 @@ async function runPatchedCli(target, args, { agentDir, cwd, home = process.env.H
         PI_CODING_AGENT_DIR: agentDir,
         PI_OFFLINE: "1",
         PI_SKIP_VERSION_CHECK: "1",
+        ...env,
       }),
       stdio: ["ignore", "pipe", "pipe"],
     });
@@ -292,6 +293,15 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
     assert.equal(preLockResult.code, 0, preLockResult.stderr);
     assert.match(preLockResult.stdout, /Upgrading a previously applied \/skills patch/u);
     await verifyManifest(preLockPackage, "patched.sha256");
+
+    const preExpansionPackage = join(temporaryRoot, "pre-expansion-package");
+    await createPatchedPackage(preExpansionPackage);
+    await applyPatch(preExpansionPackage, join(patchDirectory, "pre-expansion-upgrade.patch"), true);
+    await verifyManifest(preExpansionPackage, "pre-expansion-patched.sha256");
+    const preExpansionResult = await runInstaller(preExpansionPackage, join(temporaryRoot, "pre-expansion-agent"));
+    assert.equal(preExpansionResult.code, 0, preExpansionResult.stderr);
+    assert.match(preExpansionResult.stdout, /Upgrading a previously applied \/skills patch/u);
+    await verifyManifest(preExpansionPackage, "patched.sha256");
 
     await Promise.all([
       writeSkill(join(agentDir, "skills", "fixed"), "fixed-choice", "global fixed directory"),
@@ -481,6 +491,40 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
     assert.equal(repoConfig[repoKey].enabled.length, seededEntries.length + concurrentSources.length);
     assert.deepEqual(new Set(repoConfig[repoKey].enabled), new Set([...seededEntries, ...concurrentSources]));
     assert.equal(await exists(`${repoConfigPath}.lock`), false);
+
+    // `/skills` arguments never pass through a shell, so the module expands variables itself and persists the
+    // absolute path rather than one that would resolve against whichever directory Pi later runs in.
+    const variableRoot = join(fixtureRoot, "variable-paths");
+    const variableSkill = join(variableRoot, "skills", "expanded");
+    await writeSkill(variableSkill, "expanded-variable", "variable fixture");
+    const variableAgentDir = join(variableRoot, "agent");
+    const variableOptions = {
+      agentDir: variableAgentDir,
+      cwd,
+      env: { PI_SKILLS_FIXTURE: join(variableRoot, "skills") },
+    };
+    const variableAdd = await runPatchedCli(
+      patchedPackage,
+      ["skills", "add", "${PI_SKILLS_FIXTURE}/expanded", "--global"],
+      variableOptions,
+    );
+    assert.equal(variableAdd.code, 0, variableAdd.stderr);
+    const variableConfig = JSON.parse(await readFile(join(variableAgentDir, "skills.json"), "utf8"));
+    assert.deepEqual(variableConfig.enabled, [variableSkill]);
+    const variableRemove = await runPatchedCli(
+      patchedPackage,
+      ["skills", "remove", "$PI_SKILLS_FIXTURE/expanded", "--global"],
+      variableOptions,
+    );
+    assert.equal(variableRemove.code, 0, variableRemove.stderr);
+    assert.deepEqual(JSON.parse(await readFile(join(variableAgentDir, "skills.json"), "utf8")).enabled, []);
+    const unsetVariable = await runPatchedCli(
+      patchedPackage,
+      ["skills", "add", "$PI_SKILLS_UNSET_FIXTURE/expanded", "--global"],
+      variableOptions,
+    );
+    assert.equal(unsetVariable.code, 1);
+    assert.match(unsetVariable.stderr, /environment variable \$PI_SKILLS_UNSET_FIXTURE is not set/u);
 
     // Entry resolution lives in the skill-management module, so DefaultResourceLoader keeps no skill API.
     const entryContext = { cwd, agentDir, settingsManager, resolveResourcePath: (path) => path };

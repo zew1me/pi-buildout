@@ -56,6 +56,8 @@ export type SkillEnvironment = {
   fs: FileSystemSeam;
   path: PathSeam;
   homedir: () => string;
+  /** Reads one environment variable, mirroring `process.env[name]`. */
+  environmentVariable: (name: string) => string | undefined;
   /** Runs a subprocess and returns stdout, mirroring `child_process.execFileSync`. */
   execFileSync: (
     file: string,
@@ -282,7 +284,62 @@ export function configLocation(
 }
 
 export function looksLikePath(value: string): boolean {
-  return value.includes("/") || value.includes("\\") || value.startsWith(".") || value.startsWith("~");
+  return (
+    value.includes("/") ||
+    value.includes("\\") ||
+    value.startsWith(".") ||
+    value.startsWith("~") ||
+    value.startsWith("$")
+  );
+}
+
+const environmentVariableReference = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
+
+/**
+ * Expands `$NAME` and `${NAME}` references in a skill path.
+ *
+ * `/skills` arguments never pass through a shell, so without this a path such as `$HOME/skills/x` would be
+ * resolved against the working directory. An unset variable is left as written rather than removed: a path
+ * that genuinely contains `$` still resolves, and callers can name the variable when the path does not exist.
+ */
+export function expandEnvironmentVariables(env: SkillEnvironment, input: string): { value: string; unset: string[] } {
+  const unset: string[] = [];
+  const value = input.replace(environmentVariableReference, (reference, braced?: string, bare?: string) => {
+    const name = braced ?? bare ?? "";
+    const expanded = env.environmentVariable(name);
+    if (expanded !== undefined) return expanded;
+    if (!unset.includes(name)) unset.push(name);
+    return reference;
+  });
+  return { value, unset };
+}
+
+/** Resolves a path-like skill source to the absolute path it names, expanding variables and `~`. */
+function resolveSkillPath(env: SkillEnvironment, source: string, cwd: string): string {
+  return env.resolvePath(expandEnvironmentVariables(env, source).value, cwd, { trim: true });
+}
+
+/** Explains why a path-like source could not be found, beyond its simply not existing. */
+function unresolvedPathHint(env: SkillEnvironment, source: string): string | undefined {
+  if (!looksLikePath(source)) return undefined;
+  const { value, unset } = expandEnvironmentVariables(env, source);
+  if (unset.length > 0) {
+    const names = unset.map((name) => `$${name}`).join(", ");
+    return `environment variable ${names} ${unset.length === 1 ? "is" : "are"} not set`;
+  }
+  const trimmed = value.trim();
+  if (env.path.isAbsolute(trimmed) || trimmed.startsWith("~") || trimmed.startsWith("file:")) return undefined;
+  return "relative paths resolve against the working directory; remove it, then add it again to store its absolute path";
+}
+
+function skillNotFoundMessage(env: SkillEnvironment, source: string): string {
+  const hint = unresolvedPathHint(env, source);
+  return `Skill not found in the catalog or at an existing path: ${source}${hint ? ` (${hint})` : ""}`;
+}
+
+function unresolvedSkillDiagnostic(env: SkillEnvironment, source: string): SkillDiagnostic {
+  const hint = unresolvedPathHint(env, source);
+  return { type: "warning", message: `Active skill could not be resolved${hint ? `: ${hint}` : ""}`, path: source };
 }
 
 /** True when `path` exists and Pi's own loader finds at least one skill in it. */
@@ -310,7 +367,7 @@ function normalizePersistedSource(
   options: { cwd: string },
 ): string | undefined {
   if (!source) return undefined;
-  return looksLikePath(source) ? env.resolvePath(source, options.cwd, { trim: true }) : source;
+  return looksLikePath(source) ? resolveSkillPath(env, source, options.cwd) : source;
 }
 
 export function updatePersistedSkill(
@@ -467,10 +524,11 @@ async function resolveSkillSource(
   source: string,
   options: SkillCatalogOptions,
 ): Promise<{ normalized: string; resolved: string | undefined }> {
-  const resolvedPath = env.resolvePath(source, options.cwd, { trim: true });
   if (looksLikePath(source)) {
+    const resolvedPath = resolveSkillPath(env, source, options.cwd);
     return { normalized: resolvedPath, resolved: env.fs.existsSync(resolvedPath) ? resolvedPath : undefined };
   }
+  const resolvedPath = env.resolvePath(source, options.cwd, { trim: true });
 
   // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
   // resolve the selected skill. A bare local folder is retained as a path only when no catalog entry wins.
@@ -559,12 +617,12 @@ async function runMutationCommand(
   const target =
     command === "remove"
       ? looksLikePath(source)
-        ? env.resolvePath(source, options.cwd, { trim: true })
+        ? resolveSkillPath(env, source, options.cwd)
         : source
       : resolution?.normalized;
   if (!target) throw new Error(`Skill source is invalid: ${source}`);
   if (command === "add" && !resolution?.resolved) {
-    throw new Error(`Skill not found in the catalog or at an existing path: ${source}`);
+    throw new Error(skillNotFoundMessage(env, source));
   }
 
   if (scope === "session") return { exitCode: 0, lines: [], session: { action: command, source: target } };
@@ -655,7 +713,9 @@ export async function resolveActiveSkillPaths(
     const source = sourceOf(entry);
     if (!source) continue;
 
-    const normalized = looksLikePath(source) ? resolveResourcePath(source) : source;
+    const normalized = looksLikePath(source)
+      ? resolveResourcePath(expandEnvironmentVariables(env, source).value)
+      : source;
     const resolved = looksLikePath(source)
       ? env.fs.existsSync(normalized)
         ? normalized
@@ -665,7 +725,7 @@ export async function resolveActiveSkillPaths(
     if (resolved) {
       paths.push(resolved);
     } else {
-      diagnostics.push({ type: "warning", message: "Active skill could not be resolved", path: source });
+      diagnostics.push(unresolvedSkillDiagnostic(env, source));
     }
   }
 
@@ -687,7 +747,7 @@ export async function resolveSkillEntryPath(
   const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
 
   if (looksLikePath(source)) {
-    const normalized = resolveResourcePath(source);
+    const normalized = resolveResourcePath(expandEnvironmentVariables(env, source).value);
     return { normalized, resolved: env.fs.existsSync(normalized) ? normalized : undefined };
   }
 
@@ -751,7 +811,9 @@ async function applySessionSkillChange(
 
   // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
   // paths after applying the same resolution used by the resource loader.
-  const normalized = looksLikePath(session.source) ? resolveResourcePath(session.source) : session.source;
+  const normalized = looksLikePath(session.source)
+    ? resolveResourcePath(expandEnvironmentVariables(env, session.source).value)
+    : session.source;
   const skillPaths = looksLikePath(session.source)
     ? []
     : env

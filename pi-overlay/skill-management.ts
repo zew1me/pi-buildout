@@ -54,6 +54,7 @@ const env: SkillEnvironment = {
   fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
   path: { dirname, isAbsolute, join, relative, resolve, sep },
   homedir,
+  environmentVariable: (name) => process.env[name],
   execFileSync,
   processId: () => process.pid,
   lockSync: (directory, options) => lockfile.lockSync(directory, options),

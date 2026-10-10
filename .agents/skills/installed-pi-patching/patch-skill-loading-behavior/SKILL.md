@@ -153,6 +153,13 @@ requiring that path to exist, so an entry persisted as a path stays removable af
 bare entries literally: user input is normalized before it is stored, so a stored bare value is a catalog name, not a
 path relative to the current directory.
 
+`/skills` arguments never pass through a shell, so expand `$NAME` and `${NAME}` references in path sources before
+`resolvePath()`, and treat a source starting with `$` as a path (Agent Skills names cannot contain `$`). Leave an unset
+variable as written so a path that genuinely contains `$` still resolves, and name the unset variable when the path is
+not found. Apply the same expansion to persisted entries when resolving and matching them, and explain an unresolvable
+relative persisted entry: patches before 0.85.1 stored path sources verbatim, so such entries resolve against whichever
+directory Pi happens to run in.
+
 Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
 synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without
 busy-spinning, and release in `finally` so concurrent CLI processes cannot overwrite one another's updates.
@@ -165,7 +172,8 @@ Create temp skills and temp agent dirs. Exercise these behaviors without network
 - `additionalSkillPaths` loads a session skill
 - `agentDir/skills.json` enables a global skill
 - `agentDir/repo-skills.json` enables a repo skill by normalized upstream URL
-- tilde and relative sources are persisted as absolute paths and can be removed through their original spelling
+- tilde, relative, and `$NAME`/`${NAME}` sources are persisted as absolute paths and can be removed through their
+  original spelling
 - non-default remote ports stay distinct while explicit default ports retain canonical repository keys
 - non-object top-level JSON values fail strict configuration reads
 - concurrent global and repository updates preserve every requested change and clean up their lock files
