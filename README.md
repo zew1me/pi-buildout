@@ -9,7 +9,7 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 | `extensions/effort`                    | `/effort`: select and persist thinking effort                                               | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
 | `extensions/subagents`                 | Natural-language creation and control of isolated, recursively nestable Pi subagents        | [`extensions/subagents/README.md`](extensions/subagents/README.md)                   |
 | `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
-| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-1.0.4/README.md`](patches/pi-1.0.4/README.md)                           |
+| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-1.1.0/README.md`](patches/pi-1.1.0/README.md)                           |
 | `pi-overlay`                           | Authored TypeScript the newest `/skills` patch is generated from                            | [`pi-overlay/README.md`](pi-overlay/README.md)                                       |
 
 ## Installation
@@ -42,8 +42,8 @@ settings. Use `--skip-skill-loading-patch` to install only the extensions.
 ### Where the `/skills` patch comes from
 
 From pi 0.85.1 the patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overlay`](pi-overlay) is the
-source of truth; `patches/pi-0.85.1/*`, `patches/pi-0.99.2/*`, `patches/pi-1.0.3/*`, and `patches/pi-1.0.4/*` are
-produced from it:
+source of truth; `patches/pi-0.85.1/*`, `patches/pi-0.99.2/*`, `patches/pi-1.0.3/*`, `patches/pi-1.0.4/*`, and
+`patches/pi-1.1.0/*` are produced from it:
 
 ```bash
 npm run patches:build                                    # regenerate every versioned patch and its checksum manifests
@@ -51,6 +51,7 @@ npm run patches:check                                    # check every versioned
 node scripts/build-pi-patch.mjs --version 0.99.2 --check # check only the 0.99.2 patch
 node scripts/build-pi-patch.mjs --version 1.0.3 --check  # check only the 1.0.3 patch
 node scripts/build-pi-patch.mjs --version 1.0.4 --check  # check only the 1.0.4 patch
+node scripts/build-pi-patch.mjs --version 1.1.0 --check  # check only the 1.1.0 patch
 ```
 
 The pipeline fetches the pinned upstream release source archive and npm tarball, verifies both against checksums

@@ -1,0 +1,50 @@
+{
+  "package": "@earendil-works/pi-coding-agent",
+  "version": "1.1.0",
+  "repository": "https://github.com/earendil-works/pi",
+  "packageSubpath": "packages/coding-agent",
+  "gitHead": "abe508e1b89912adde45528136c3221eb69acdd7",
+  "sourceArchive": {
+    "url": "https://github.com/earendil-works/pi/releases/download/v1.1.0/pi-1.1.0-source.tar.gz",
+    "sha256": "63b17b48b855e36e64c5013523acd48131ffcfa90ae48fe2f3e6fa9fe3d0da32",
+    "rootDirectory": "pi-1.1.0",
+    "checksumsUrl": "https://github.com/earendil-works/pi/releases/download/v1.1.0/SHA256SUMS"
+  },
+  "npmTarball": {
+    "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.1.0.tgz",
+    "sha256": "09cd8a0a43dbb1d81a67346b09400b439ce71d818caba4e963ea958846a1aed4",
+    "integrity": "sha512-SeEi/4hdcHNgA9UWlefZl7ZZpm3dzi2OoxNjDHsBJ9o298LNOtbL4DGKgitlEj6uCTccvtw6f2hlCkTPVJ2RXg==",
+    "rootDirectory": "package"
+  },
+  "toolchain": {
+    "node": ">=22.19.0",
+    "typescript": "7.0.2"
+  },
+  "workspaceBuildOrder": [
+    "packages/chord",
+    "packages/tui",
+    "packages/telemetry",
+    "packages/codemode",
+    "packages/mcp",
+    "packages/ai",
+    "packages/durable",
+    "packages/env",
+    "packages/agent",
+    "packages/protocol",
+    "packages/client",
+    "packages/server"
+  ],
+  "trackedFiles": [
+    { "path": "dist/core/resource-loader.js", "source": "built" },
+    { "path": "dist/core/slash-commands.js", "source": "built" },
+    { "path": "dist/main.js", "source": "built" },
+    { "path": "dist/modes/interactive/interactive-mode.js", "source": "built" },
+    { "path": "dist/core/skill-management.js", "source": "built", "added": true },
+    { "path": "dist/core/skill-management-core.js", "source": "built", "added": true },
+    { "path": "docs/skills.md", "source": "patched-source" },
+    { "path": "dist/bundle/cli-runtime.js", "source": "replacement" },
+    { "path": "dist/bundle/rpc-entry.js", "source": "replacement" },
+    { "path": "dist/bundle/cli.js", "source": "unchanged" }
+  ],
+  "maxUpstreamEditedLines": 48
+}
