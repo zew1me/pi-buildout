@@ -41,17 +41,16 @@ settings. Use `--skip-skill-loading-patch` to install only the extensions.
 
 ### Where the `/skills` patch comes from
 
-From pi 0.85.1 the patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overlay`](pi-overlay) is the
-source of truth; `patches/pi-0.85.1/*`, `patches/pi-0.99.2/*`, `patches/pi-1.0.3/*`, `patches/pi-1.0.4/*`, and
-`patches/pi-1.1.0/*` are produced from it:
+The patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overlay`](pi-overlay) is the source of truth;
+`patches/pi-1.0.3/*`, `patches/pi-1.0.4/*`, and `patches/pi-1.1.0/*` are produced from it. Patches for pi versions
+before 1.0.0 are no longer maintained, and the installer refuses to patch those releases:
 
 ```bash
-npm run patches:build                                    # regenerate every versioned patch and its checksum manifests
-npm run patches:check                                    # check every versioned patch in pi-overlay/versions
-node scripts/build-pi-patch.mjs --version 0.99.2 --check # check only the 0.99.2 patch
-node scripts/build-pi-patch.mjs --version 1.0.3 --check  # check only the 1.0.3 patch
-node scripts/build-pi-patch.mjs --version 1.0.4 --check  # check only the 1.0.4 patch
-node scripts/build-pi-patch.mjs --version 1.1.0 --check  # check only the 1.1.0 patch
+npm run patches:build                                   # regenerate every versioned patch and its checksum manifests
+npm run patches:check                                   # check every versioned patch in pi-overlay/versions
+node scripts/build-pi-patch.mjs --version 1.0.3 --check # check only the 1.0.3 patch
+node scripts/build-pi-patch.mjs --version 1.0.4 --check # check only the 1.0.4 patch
+node scripts/build-pi-patch.mjs --version 1.1.0 --check # check only the 1.1.0 patch
 ```
 
 The pipeline fetches the pinned upstream release source archive and npm tarball, verifies both against checksums
@@ -66,7 +65,7 @@ Use Node.js 22.19 or newer. The authored extensions, overlay, and scripts suppor
 tested against the minimum supported release, Pi `1.0.1`, with every `@earendil-works/*` package held at `1.0.1`. Pi
 1.0.0 is not supported: its published `npm-shrinkwrap.json` pins a vulnerable `brace-expansion` 5.0.9. Do not use Pi
 APIs introduced after 1.0.1. The version-specific `/skills` patches are separate: the installed-baseline tests for the
-0.85.1 patch run against a pinned `pi-coding-agent-0.85.1` npm alias rather than the development Pi. Install
+1.1.0 patch run against a pinned `pi-coding-agent-1.1.0` npm alias rather than the development Pi. Install
 [ShellCheck](https://www.shellcheck.net/) and the pinned npm dependencies, which also installs the repository's Git
 hooks:
 

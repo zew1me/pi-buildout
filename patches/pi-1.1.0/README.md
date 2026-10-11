@@ -18,12 +18,6 @@ The pinned release archive, published checksum, npm tarball, source revision, wo
 
 ## Runtime behavior tests
 
-The catalog integration suite runs against a clean, unpatched Pi package of the matching version. If Pi 1.1.0 is not installed as the repository's development dependency, provide a clean package directory with `package.json`, `dist/`, `docs/`, and resolvable `node_modules/`:
-
-```bash
-PI_SKILLS_TEST_PACKAGES=/path/to/pi-1.1.0/package npm test
-```
-
-The directory must match the Pi 1.1.0 checksums in `baseline.sha256` and paths in `baseline.absent`. The suite copies the package to a temporary directory, applies the patch there, and exercises the CLI; it does not modify the supplied package. Multiple package directories can be separated with the platform path delimiter.
+The catalog integration suite runs against a clean, unpatched Pi 1.1.0 package, installed as the `pi-coding-agent-1.1.0` development dependency (an npm alias of `@earendil-works/pi-coding-agent@1.1.0`). The package must match the checksums in `baseline.sha256` and the paths in `baseline.absent`; if it does not, the suite reports a skip with the reason. The suite copies the package to a temporary directory, applies the patch there, and exercises the CLI, so the installed package is never modified.
 
 The opt-in behavior preserves explicit `--skill` with `--no-skills`, supports session/global/repository activation, and serializes persisted configuration updates. See the patched `docs/skills.md` for commands and configuration format.

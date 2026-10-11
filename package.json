@@ -27,7 +27,7 @@
     "@earendil-works/pi-codemode@>=1.0.0": "1.0.1",
     "@earendil-works/pi-mcp@>=1.0.0": "1.0.1",
     "@earendil-works/pi-telemetry@>=1.0.0": "1.0.1",
-    "pi-coding-agent-0.85.1": {
+    "pi-coding-agent-1.1.0": {
       "undici": "8.11.2"
     },
     "katex": "0.18.11"
@@ -65,7 +65,7 @@
     "knip": "^6.27.0",
     "lefthook": "^2.1.10",
     "markdownlint-cli2": "^0.23.0",
-    "pi-coding-agent-0.85.1": "npm:@earendil-works/pi-coding-agent@0.85.1",
+    "pi-coding-agent-1.1.0": "npm:@earendil-works/pi-coding-agent@1.1.0",
     "prettier": "^3.6.0",
     "prettier-plugin-sh": "^0.19.0",
     "secretlint": "^13.0.2",
