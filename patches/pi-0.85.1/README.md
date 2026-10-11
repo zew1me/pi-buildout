@@ -71,7 +71,9 @@ never authorizes an upgrade. A package already matching `patched.sha256` is left
 mixed state is rejected and must be restored to the clean package rather than overwritten.
 
 User-provided tilde, relative, and `$NAME`/`${NAME}` skill sources, including a bare name that resolves to a path holding at least one
-skill and matches no catalog skill, are resolved to absolute paths before session activation or persistence. A bare name persisted that way stays
+skill and matches no catalog skill, are resolved before session activation. For persistence, a repository path inside the
+checkout is stored relative to the repository root, a `~` or `$NAME` spelling is kept as typed, and any other path is stored
+absolute; stored paths are expanded each time skills load. A bare name persisted that way stays
 removable by that name after its path is deleted. Any other bare name, even one naming an existing folder without
 skills, stays a catalog name. Persisted global and repository skill updates lock the applicable JSON file
 across the complete read-modify-write transaction, so concurrent CLI processes cannot discard one another's

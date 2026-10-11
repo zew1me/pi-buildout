@@ -156,9 +156,12 @@ path relative to the current directory.
 `/skills` arguments never pass through a shell, so expand `$NAME` and `${NAME}` references in path sources before
 `resolvePath()`, and treat a source starting with `$` as a path (Agent Skills names cannot contain `$`). Leave an unset
 variable as written so a path that genuinely contains `$` still resolves, and name the unset variable when the path is
-not found. Apply the same expansion to persisted entries when resolving and matching them, and explain an unresolvable
-relative persisted entry: patches before 0.85.1 stored path sources verbatim, so such entries resolve against whichever
-directory Pi happens to run in.
+not found. Expand persisted paths when skills load, not when they are added: with `--repo`, store a path inside the
+current checkout relative to the repository root, because one `repo-skills.json` entry serves every clone and worktree
+with the same remote; otherwise keep a `~` or `$NAME` spelling as typed and store any other path absolute, under `~`
+when it is in the home directory. Resolve relative repository entries against the current checkout root and relative
+global entries against the working directory, and compare entries by the real path they name so equivalent spellings
+match. Patches before 0.85.1 stored path sources verbatim, so explain an unresolvable relative global entry.
 
 Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
 synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without
@@ -172,8 +175,9 @@ Create temp skills and temp agent dirs. Exercise these behaviors without network
 - `additionalSkillPaths` loads a session skill
 - `agentDir/skills.json` enables a global skill
 - `agentDir/repo-skills.json` enables a repo skill by normalized upstream URL
-- tilde, relative, and `$NAME`/`${NAME}` sources are persisted as absolute paths and can be removed through their
-  original spelling
+- repository paths inside the checkout persist relative to its root and resolve in another clone of the same remote
+- `~` and `$NAME`/`${NAME}` sources persist as typed, other paths persist absolute, and all can be removed through any
+  equivalent spelling
 - non-default remote ports stay distinct while explicit default ports retain canonical repository keys
 - non-object top-level JSON values fail strict configuration reads
 - concurrent global and repository updates preserve every requested change and clean up their lock files

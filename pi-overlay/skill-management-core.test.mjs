@@ -659,7 +659,7 @@ test("expandEnvironmentVariables expands bare and braced references and reports 
   }
 });
 
-test("~ and variable paths are expanded to absolute paths before being persisted", async () => {
+test("~ and variable spellings are persisted as typed and deduplicate by the path they name", async () => {
   const { env, store } = createEnvironment({ variables: { HOME: "/home/dev", REPOS: "/home/dev/repos" } });
   const existing = new Set(["/home/dev/skills/alpha", "/home/dev/repos/app/.agents/skills/beta/SKILL.md"]);
   env.fs.existsSync = (path) => existing.has(path) || store.has(path);
@@ -671,15 +671,148 @@ test("~ and variable paths are expanded to absolute paths before being persisted
   }
   assert.deepEqual(
     readStored(store, "/agent/skills.json").enabled,
-    ["/home/dev/skills/alpha", "/home/dev/repos/app/.agents/skills/beta/SKILL.md"],
-    "equivalent spellings deduplicate to one absolute entry",
+    ["~/skills/alpha", "${REPOS}/app/.agents/skills/beta/SKILL.md"],
+    "spellings are kept for expansion at load time, and an equivalent spelling is not added twice",
   );
 
   const removed = await runSkillsCommand(env, ["remove", "$HOME/skills/alpha", "--global"], options);
   assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
-  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, [
-    "/home/dev/repos/app/.agents/skills/beta/SKILL.md",
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["${REPOS}/app/.agents/skills/beta/SKILL.md"]);
+});
+
+test("other global paths are persisted absolute, under ~ when they are in the home directory", async () => {
+  const { env, store } = createEnvironment({
+    git: { "rev-parse --show-toplevel": "/home/dev/repos/app" },
+  });
+  const existing = new Set(["/home/dev/work/skills/alpha", "/home/dev/repos/app/.agents/skills/beta", "/srv/gamma"]);
+  env.fs.existsSync = (path) => existing.has(path) || store.has(path);
+
+  /** @type {[cwd: string, source: string][]} */
+  const cases = [
+    ["/home/dev/work", "./skills/alpha"],
+    ["/home/dev/repos/app", ".agents/skills/beta"],
+    ["/srv", "./gamma"],
+  ];
+  for (const [cwd, source] of cases) {
+    const result = await runSkillsCommand(env, ["add", source, "--global"], { cwd, agentDir: "/agent" });
+    assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  }
+  assert.deepEqual(
+    readStored(store, "/agent/skills.json").enabled,
+    ["~/work/skills/alpha", "~/repos/app/.agents/skills/beta", "/srv/gamma"],
+    "a global path inside a repository is not stored repository-relative",
+  );
+});
+
+/**
+ * Stubs git for a repository whose checkouts live at different roots, as clones and worktrees do.
+ *
+ * @param {import("./skill-management-core.ts").SkillEnvironment} env
+ * @param {Record<string, string>} roots Checkout root keyed by every working directory used in the test.
+ */
+function withCheckouts(env, roots) {
+  env.execFileSync = (_file, args) => {
+    const [, cwd = "", ...rest] = args;
+    const command = rest.join(" ");
+    if (command === "remote get-url upstream") return "git@github.com:team/app.git";
+    if (command === "rev-parse --show-toplevel" && roots[cwd] !== undefined) return roots[cwd];
+    throw new Error(`no stubbed git response for: ${cwd} ${command}`);
+  };
+}
+
+test("a repository path inside the checkout is persisted relative to the checkout root", async () => {
+  const { env, store } = createEnvironment();
+  withCheckouts(env, { "/home/dev/app": "/home/dev/app", "/home/dev/app/docs": "/home/dev/app" });
+  const existing = new Set([
+    "/home/dev/app/.agents/skills/alpha",
+    "/home/dev/app/beta",
+    "/home/dev/shared/gamma",
+    "/home/dev/app/docs/delta",
   ]);
+  env.fs.existsSync = (path) => existing.has(path) || store.has(path);
+
+  /** @type {[cwd: string, source: string][]} */
+  const cases = [
+    ["/home/dev/app", ".agents/skills/alpha"],
+    ["/home/dev/app", "~/app/beta"],
+    ["/home/dev/app", "~/shared/gamma"],
+    ["/home/dev/app/docs", "./delta"],
+  ];
+  for (const [cwd, source] of cases) {
+    const result = await runSkillsCommand(env, ["add", source, "--repo"], { cwd, agentDir: "/agent" });
+    assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  }
+
+  assert.deepEqual(readStored(store, "/agent/repo-skills.json")["github.com:team/app"].enabled, [
+    ".agents/skills/alpha",
+    "./beta",
+    "~/shared/gamma",
+    "docs/delta",
+  ]);
+});
+
+test("a repository-relative entry resolves in, and is removable from, any checkout of the repository", async () => {
+  const { env, store } = createEnvironment({
+    files: {
+      "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: [".agents/skills/alpha"] } }),
+      "/home/dev/worktrees/feature/.agents/skills/alpha": "",
+    },
+  });
+  withCheckouts(env, {
+    "/home/dev/worktrees/feature": "/home/dev/worktrees/feature",
+    "/home/dev/worktrees/feature/src": "/home/dev/worktrees/feature",
+  });
+
+  const resolved = await resolveActiveSkillPaths(env, {
+    cwd: "/home/dev/worktrees/feature/src",
+    agentDir: "/agent",
+    resolvedSkillResources: [],
+    resolveResourcePath: (path) => env.resolvePath(path, "/home/dev/worktrees/feature/src", { trim: true }),
+  });
+  assert.deepEqual(resolved, { paths: ["/home/dev/worktrees/feature/.agents/skills/alpha"], diagnostics: [] });
+
+  const removed = await runSkillsCommand(
+    env,
+    ["remove", "/home/dev/worktrees/feature/.agents/skills/alpha", "--repo"],
+    {
+      cwd: "/home/dev/worktrees/feature/src",
+      agentDir: "/agent",
+    },
+  );
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/repo-skills.json")["github.com:team/app"].enabled, []);
+});
+
+test("an unresolvable repository-relative entry says what it resolves against", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: ["skills/missing"] } }),
+    },
+  });
+  withCheckouts(env, { "/home/dev/app": "/home/dev/app" });
+
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/home/dev/app",
+    agentDir: "/agent",
+    resolvedSkillResources: [],
+    resolveResourcePath: (path) => env.resolvePath(path, "/home/dev/app", { trim: true }),
+  });
+
+  assert.deepEqual(result.diagnostics, [
+    {
+      type: "warning",
+      message:
+        "Active skill could not be resolved: relative repository paths resolve against the root of the current checkout",
+      path: "skills/missing",
+    },
+  ]);
+});
+
+test("adding a missing relative path reports it without blaming relative resolution", async () => {
+  const { env } = createEnvironment();
+  const result = await runSkillsCommand(env, ["add", "./missing", "--global"], { cwd: "/work", agentDir: "/agent" });
+  assert.equal(result.exitCode, 1);
+  assert.equal(firstLine(result), "Skill not found in the catalog or at an existing path: ./missing");
 });
 
 test("adding a path with an unset variable names the variable and persists nothing", async () => {
