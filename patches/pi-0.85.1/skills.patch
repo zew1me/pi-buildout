@@ -62,10 +62,10 @@ index c5ed4d7..26254a8 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..0a1c38e
+index 0000000..0b4ae56
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,714 @@
+@@ -0,0 +1,719 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -296,10 +296,15 @@ index 0000000..0a1c38e
 +    const home = pathInside(env, env.homedir(), resolvedPath);
 +    return home === undefined ? resolvedPath : home === "" ? "~" : `~/${home}`;
 +}
++/** Variables naming a working directory: a path spelled with them means the directory it named at add time. */
++const directoryVariables = new Set(["PWD", "OLDPWD"]);
++function referencesDirectoryVariable(typed) {
++    return [...typed.matchAll(environmentVariableReference)].some((match) => directoryVariables.has(match[1] ?? match[2] ?? ""));
++}
 +/** True for a `~` or `$NAME` path that resolves the same way from any directory in the current environment. */
 +function isPortableSpelling(env, typed) {
 +    const spelled = typed === "~" || typed.startsWith("~/") || typed.search(environmentVariableReference) !== -1;
-+    if (!spelled || !looksLikePath(typed))
++    if (!spelled || !looksLikePath(typed) || referencesDirectoryVariable(typed))
 +        return false;
 +    const { value, unset } = expandEnvironmentVariables(env, typed);
 +    return unset.length === 0 && isAnchoredPath(env, value.trim());

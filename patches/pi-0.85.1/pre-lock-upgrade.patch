@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 915d49d..0a1c38e 100644
+index 915d49d..0b4ae56 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -28,6 +28,45 @@ function writeJson(env, path, value) {
@@ -48,7 +48,7 @@ index 915d49d..0a1c38e 100644
  function git(env, cwd, args) {
      try {
          return env
-@@ -121,34 +160,186 @@ export function configLocation(env, scope, cwd, agentDir) {
+@@ -121,34 +160,191 @@ export function configLocation(env, scope, cwd, agentDir) {
      return {};
  }
  export function looksLikePath(value) {
@@ -91,7 +91,8 @@ index 915d49d..0a1c38e 100644
 +/** The checkout root for `cwd`; relative repository entries resolve against it. */
 +function findRepoRoot(env, cwd) {
 +    return git(env, cwd, ["rev-parse", "--show-toplevel"]);
-+}
+ }
+-function normalizeSkillSource(env, source, options) {
 +/** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
 +function pathInside(env, root, path) {
 +    const real = (value) => (env.fs.existsSync(value) ? env.fs.realpathSync(value) : value);
@@ -121,10 +122,15 @@ index 915d49d..0a1c38e 100644
 +    const home = pathInside(env, env.homedir(), resolvedPath);
 +    return home === undefined ? resolvedPath : home === "" ? "~" : `~/${home}`;
 +}
++/** Variables naming a working directory: a path spelled with them means the directory it named at add time. */
++const directoryVariables = new Set(["PWD", "OLDPWD"]);
++function referencesDirectoryVariable(typed) {
++    return [...typed.matchAll(environmentVariableReference)].some((match) => directoryVariables.has(match[1] ?? match[2] ?? ""));
++}
 +/** True for a `~` or `$NAME` path that resolves the same way from any directory in the current environment. */
 +function isPortableSpelling(env, typed) {
 +    const spelled = typed === "~" || typed.startsWith("~/") || typed.search(environmentVariableReference) !== -1;
-+    if (!spelled || !looksLikePath(typed))
++    if (!spelled || !looksLikePath(typed) || referencesDirectoryVariable(typed))
 +        return false;
 +    const { value, unset } = expandEnvironmentVariables(env, typed);
 +    return unset.length === 0 && isAnchoredPath(env, value.trim());
@@ -172,8 +178,7 @@ index 915d49d..0a1c38e 100644
 +        includeDefaults: false,
 +    });
 +    return skills.length > 0;
- }
--function normalizeSkillSource(env, source, options) {
++}
 +/**
 + * Normalizes an entry already persisted in a configuration file, for comparison.
 + *
@@ -256,7 +261,7 @@ index 915d49d..0a1c38e 100644
  }
  export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
      const entries = [];
-@@ -210,7 +401,7 @@ export function getSkillCatalogDirs(env, { cwd, agentDir, projectTrusted = false
+@@ -210,7 +406,7 @@ export function getSkillCatalogDirs(env, { cwd, agentDir, projectTrusted = false
      }
      return dirs;
  }
@@ -265,7 +270,7 @@ index 915d49d..0a1c38e 100644
      const manager = settingsManager ?? env.createSettingsManager(cwd, agentDir);
      const found = new Map();
      const addSkills = (skills) => {
-@@ -222,22 +413,27 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager }) {
+@@ -222,22 +418,27 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager }) {
      for (const dir of getSkillCatalogDirs(env, { cwd, agentDir, projectTrusted: manager.isProjectTrusted() })) {
          addSkills(env.loadSkillsFromDir({ dir, source: "path" }).skills);
      }
@@ -302,7 +307,7 @@ index 915d49d..0a1c38e 100644
  }
  function commandName(allowSession = false) {
      return allowSession ? "/skills" : "pi skills";
-@@ -281,6 +477,16 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -281,6 +482,16 @@ async function runCatalogCommand(env, command, rest, surface, options) {
              : [query ? "No matching skills." : "No catalog skills found."],
      };
  }
@@ -319,7 +324,7 @@ index 915d49d..0a1c38e 100644
  async function runMutationCommand(env, command, rest, surface, options) {
      const scopeList = `--global|--repo${options.allowSession ? "|--session" : ""}`;
      const source = rest.find((arg) => !arg.startsWith("--"));
-@@ -290,17 +496,26 @@ async function runMutationCommand(env, command, rest, surface, options) {
+@@ -290,17 +501,26 @@ async function runMutationCommand(env, command, rest, surface, options) {
      if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
          throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
      }
@@ -351,7 +356,7 @@ index 915d49d..0a1c38e 100644
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
  }
  export async function runSkillsCommand(env, args, options) {
-@@ -324,12 +539,16 @@ export async function runSkillsCommand(env, args, options) {
+@@ -324,12 +544,16 @@ export async function runSkillsCommand(env, args, options) {
  /**
   * Resolves the skills that are explicitly active for this session into concrete paths.
   *
@@ -372,7 +377,7 @@ index 915d49d..0a1c38e 100644
      const paths = [];
      const diagnostics = [];
      const entries = getActiveSkillEntries(env, {
-@@ -339,28 +558,38 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -339,28 +563,38 @@ export async function resolveActiveSkillPaths(env, context) {
      });
      let catalogPathsByName;
      const findCatalogSkillPath = async (name) => {
@@ -428,7 +433,7 @@ index 915d49d..0a1c38e 100644
      }
      return { paths, diagnostics };
  }
-@@ -372,15 +601,16 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -372,15 +606,16 @@ export async function resolveActiveSkillPaths(env, context) {
   * session list, and the resolved path to add.
   */
  export async function resolveSkillEntryPath(env, context, source) {
@@ -447,7 +452,7 @@ index 915d49d..0a1c38e 100644
      });
      return { normalized: source, resolved: catalog.find((skill) => skill.name === source)?.filePath };
  }
-@@ -396,9 +626,9 @@ async function applySessionSkillChange(env, session, context) {
+@@ -396,9 +631,9 @@ async function applySessionSkillChange(env, session, context) {
          context.showError("Session skill activation is unavailable for this resource loader.");
          return undefined;
      }
@@ -459,7 +464,7 @@ index 915d49d..0a1c38e 100644
          if (!resolved) {
              context.showError(`Skill not found in the catalog: ${session.source}`);
              return undefined;
-@@ -407,7 +637,22 @@ async function applySessionSkillChange(env, session, context) {
+@@ -407,7 +642,22 @@ async function applySessionSkillChange(env, session, context) {
              additionalSkillPaths.push(resolved);
          return `Enabled ${resolved} for this session.`;
      }

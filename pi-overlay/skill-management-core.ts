@@ -362,10 +362,19 @@ function persistedForm(env: SkillEnvironment, source: string, resolvedPath: stri
   return home === undefined ? resolvedPath : home === "" ? "~" : `~/${home}`;
 }
 
+/** Variables naming a working directory: a path spelled with them means the directory it named at add time. */
+const directoryVariables = new Set(["PWD", "OLDPWD"]);
+
+function referencesDirectoryVariable(typed: string): boolean {
+  return [...typed.matchAll(environmentVariableReference)].some((match) =>
+    directoryVariables.has(match[1] ?? match[2] ?? ""),
+  );
+}
+
 /** True for a `~` or `$NAME` path that resolves the same way from any directory in the current environment. */
 function isPortableSpelling(env: SkillEnvironment, typed: string): boolean {
   const spelled = typed === "~" || typed.startsWith("~/") || typed.search(environmentVariableReference) !== -1;
-  if (!spelled || !looksLikePath(typed)) return false;
+  if (!spelled || !looksLikePath(typed) || referencesDirectoryVariable(typed)) return false;
   const { value, unset } = expandEnvironmentVariables(env, typed);
   return unset.length === 0 && isAnchoredPath(env, value.trim());
 }

@@ -680,6 +680,21 @@ test("~ and variable spellings are persisted as typed and deduplicate by the pat
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["${REPOS}/app/.agents/skills/beta/SKILL.md"]);
 });
 
+test("a $PWD or $OLDPWD spelling is persisted as the absolute path it named", async () => {
+  const { env, store } = createEnvironment({ variables: { PWD: "/srv/project", OLDPWD: "/srv/previous" } });
+  env.fs.existsSync = (path) =>
+    path === "/srv/project/skills/alpha" || path === "/srv/previous/beta" || store.has(path);
+
+  for (const source of ["$PWD/skills/alpha", "${OLDPWD}/beta"]) {
+    const result = await runSkillsCommand(env, ["add", source, "--global"], { cwd: "/work", agentDir: "/agent" });
+    assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  }
+  assert.deepEqual(readStored(store, "/agent/skills.json").enabled, [
+    "/srv/project/skills/alpha",
+    "/srv/previous/beta",
+  ]);
+});
+
 test("other global paths are persisted absolute, under ~ when they are in the home directory", async () => {
   const { env, store } = createEnvironment({
     git: { "rev-parse --show-toplevel": "/home/dev/repos/app" },
