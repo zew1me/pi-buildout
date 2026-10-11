@@ -14,7 +14,7 @@ import { fileURLToPath } from "node:url";
  * copy of the logic. The behaviour itself is covered by `pi-overlay/skill-management-core.test.mjs` at the
  * TypeScript level and by `scripts/skills-catalog.test.mjs` against a really patched package.
  */
-const patchPath = fileURLToPath(new URL("../patches/pi-1.1.0/skills.patch", import.meta.url));
+const patchPath = fileURLToPath(new URL("../patches/pi-1.0.3/skills.patch", import.meta.url));
 
 /**
  * Returns the lines the patch adds to a given file.
@@ -81,8 +81,8 @@ test("the resource loader asks the shared module for active skills and keeps no 
 });
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-// The repository develops against Pi 1.0.1; the 1.1.0 baseline is installed under a pinned npm alias.
-const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-1.1.0");
+// The repository develops against Pi 1.0.1; the 1.0.3 baseline is installed under a pinned npm alias.
+const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-1.0.3");
 
 async function exists(path) {
   try {
@@ -121,14 +121,14 @@ async function applyPatchTo(target) {
 }
 
 /**
- * Applies the patch to the installed 1.1.0 baseline and asserts against the complete resulting files.
+ * Applies the patch to the installed 1.0.3 baseline and asserts against the complete resulting files.
  *
  * The negative claims above are checked against added lines only, so they would also hold if an
  * implementation survived untouched in the baseline. This is the check that actually rules that out.
  */
 test("the applied patch leaves no relocated implementation behind", async (t) => {
   if (!(await exists(join(packageRoot, "package.json")))) {
-    t.skip("the pinned pi-coding-agent-1.1.0 baseline package is unavailable");
+    t.skip("the pinned pi-coding-agent-1.0.3 baseline package is unavailable");
     return;
   }
 

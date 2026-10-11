@@ -18,6 +18,6 @@ The pinned release archive, published checksum, npm tarball, source revision, wo
 
 ## Runtime behavior tests
 
-The catalog integration suite runs against a clean, unpatched Pi 1.1.0 package, installed as the `pi-coding-agent-1.1.0` development dependency (an npm alias of `@earendil-works/pi-coding-agent@1.1.0`). The package must match the checksums in `baseline.sha256` and the paths in `baseline.absent`; if it does not, the suite reports a skip with the reason. The suite copies the package to a temporary directory, applies the patch there, and exercises the CLI, so the installed package is never modified.
+The end-to-end catalog and dispatch suites run against the lowest retained patch, Pi 1.0.3, not this one; see [`patches/pi-1.0.3/README.md`](../pi-1.0.3/README.md). The `skill-management*.js` modules this patch adds are byte-identical to 1.0.3's, so that run exercises the same logic. This patch's seams and bundled entrypoints are checked by the manifest tests in `scripts/skills-patch-103.test.mjs` and by the scheduled regeneration job.
 
 The opt-in behavior preserves explicit `--skill` with `--no-skills`, supports session/global/repository activation, and serializes persisted configuration updates. See the patched `docs/skills.md` for commands and configuration format.

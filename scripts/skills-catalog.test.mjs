@@ -20,10 +20,10 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-const patchDirectory = join(repositoryRoot, "patches", "pi-1.1.0");
+const patchDirectory = join(repositoryRoot, "patches", "pi-1.0.3");
 const patchPath = join(patchDirectory, "skills.patch");
-// The repository develops against Pi 1.0.1; the 1.1.0 baseline is installed under a pinned npm alias.
-const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-1.1.0");
+// The repository develops against Pi 1.0.1; the 1.0.3 baseline is installed under a pinned npm alias.
+const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-1.0.3");
 
 async function exists(path) {
   try {
@@ -42,14 +42,14 @@ async function sha256(path) {
 async function baselineProblem() {
   const packageJsonPath = join(packageRoot, "package.json");
   if (!(await exists(packageJsonPath))) {
-    return "the pinned pi-coding-agent-1.1.0 baseline package is unavailable";
+    return "the pinned pi-coding-agent-1.0.3 baseline package is unavailable";
   }
   if (!(await exists(join(packageRoot, "node_modules")))) {
     return "the installed pi package dependencies are unavailable";
   }
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
-  if (packageJson.version !== "1.1.0") {
-    return `the installed pi package is ${String(packageJson.version)}, not 1.1.0`;
+  if (packageJson.version !== "1.0.3") {
+    return `the installed pi package is ${String(packageJson.version)}, not 1.0.3`;
   }
   const manifest = await readFile(join(patchDirectory, "baseline.sha256"), "utf8");
   for (const line of manifest.trim().split("\n")) {
@@ -62,7 +62,7 @@ async function baselineProblem() {
       !(await exists(baselinePath)) ||
       (await sha256(baselinePath)) !== expected
     ) {
-      return `the installed pi package does not match the 1.1.0 baseline at ${relativePath ?? "an unknown path"}`;
+      return `the installed pi package does not match the 1.0.3 baseline at ${relativePath ?? "an unknown path"}`;
     }
   }
   const absentManifest = await readFile(join(patchDirectory, "baseline.absent"), "utf8");
@@ -71,7 +71,7 @@ async function baselineProblem() {
     .map((line) => line.trim())
     .filter(Boolean)) {
     if (await exists(join(packageRoot, relativePath))) {
-      return `the installed pi package does not match the 1.1.0 baseline at ${relativePath}`;
+      return `the installed pi package does not match the 1.0.3 baseline at ${relativePath}`;
     }
   }
   return undefined;
@@ -500,9 +500,9 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
   }
 });
 
-// A clean 1.1.0 package must take the patch exactly once, and a rerun must recognise the applied result rather than
+// A clean 1.0.3 package must take the patch exactly once, and a rerun must recognise the applied result rather than
 // patch it again.
-test("the installer applies the 1.1.0 patch to a clean package once and then reports it applied", async (t) => {
+test("the installer applies the 1.0.3 patch to a clean package once and then reports it applied", async (t) => {
   const problem = await baselineProblem();
   if (problem) {
     t.skip(problem);
@@ -517,12 +517,12 @@ test("the installer applies the 1.1.0 patch to a clean package once and then rep
 
     const applied = await runInstaller(cleanPackage, agentDirectory);
     assert.equal(applied.code, 0, applied.stderr);
-    assert.match(applied.stdout, /Applied \/skills patch for pi 1\.1\.0/u);
+    assert.match(applied.stdout, /Applied \/skills patch for pi 1\.0\.3/u);
     await verifyManifest(cleanPackage, "patched.sha256");
 
     const rerun = await runInstaller(cleanPackage, agentDirectory);
     assert.equal(rerun.code, 0, rerun.stderr);
-    assert.match(rerun.stdout, /\/skills patch for pi 1\.1\.0 is already applied\./u);
+    assert.match(rerun.stdout, /\/skills patch for pi 1\.0\.3 is already applied\./u);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }

@@ -42,8 +42,15 @@ settings. Use `--skip-skill-loading-patch` to install only the extensions.
 ### Where the `/skills` patch comes from
 
 The patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overlay`](pi-overlay) is the source of truth;
-`patches/pi-1.0.3/*`, `patches/pi-1.0.4/*`, and `patches/pi-1.1.0/*` are produced from it. Patches for pi versions
-before 1.0.0 are no longer maintained, and the installer refuses to patch those releases:
+each `patches/pi-<version>/*` is produced from it.
+
+The repository keeps the latest patched pi release and at most four previous patched releases, so at most five
+`patches/pi-<version>` directories exist. Today those are 1.1.0 (latest), 1.0.4, and 1.0.3. When a new patch would make
+a sixth, the oldest patch directory and its `pi-overlay/versions/<version>` inputs are deleted in the same change. The
+installer refuses to patch any pi release without a patch directory; use `--skip-skill-loading-patch` to install only
+the extensions for those releases.
+
+Regenerate or check a patch with:
 
 ```bash
 npm run patches:build                                   # regenerate every versioned patch and its checksum manifests
@@ -64,10 +71,12 @@ workspace packages, so it runs in its own scheduled CI job rather than on every 
 Use Node.js 22.19 or newer. The authored extensions, overlay, and scripts support Pi >= 1.0.1 and are developed and
 tested against the minimum supported release, Pi `1.0.1`, with every `@earendil-works/*` package held at `1.0.1`. Pi
 1.0.0 is not supported: its published `npm-shrinkwrap.json` pins a vulnerable `brace-expansion` 5.0.9. Do not use Pi
-APIs introduced after 1.0.1. The version-specific `/skills` patches are separate: the installed-baseline tests for the
-1.1.0 patch run against a pinned `pi-coding-agent-1.1.0` npm alias rather than the development Pi. Install
-[ShellCheck](https://www.shellcheck.net/) and the pinned npm dependencies, which also installs the repository's Git
-hooks:
+APIs introduced after 1.0.1. The version-specific `/skills` patches are separate: the installed-baseline tests run
+against the lowest supported patch, Pi `1.0.3`, through a pinned `pi-coding-agent-1.0.3` npm alias rather than the
+development Pi. When that patch is retired under the retention rule above, move the alias and the baseline version named
+in `scripts/skills-catalog.test.mjs` and `scripts/skills-patch-dispatch.test.mjs` to the new lowest retained patch in
+the same change. Install [ShellCheck](https://www.shellcheck.net/) and the pinned npm dependencies, which also installs
+the repository's Git hooks:
 
 ```bash
 brew install shellcheck # macOS; use the equivalent package on other platforms
