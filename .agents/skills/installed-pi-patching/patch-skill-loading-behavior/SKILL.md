@@ -54,13 +54,13 @@ Include any such entrypoint files in the patch and checksum manifests when a rel
 Source maps may exist, but the editable runtime is `dist/*.js`. Prefer changing the smallest runtime surface that proves
 the behavior.
 
-Since 0.85.1 the patch also ships `dist/core/skill-management-core.js` beside `dist/core/skill-management.js`. The core
-file holds the logic and imports nothing; the other binds pi's modules to it.
+The patch also ships `dist/core/skill-management-core.js` beside `dist/core/skill-management.js`. The core file holds
+the logic and imports nothing; the other binds pi's modules to it.
 
 ## Preferred Process: Author TypeScript, Generate the Patch
 
-For pi 0.85.1 and later this repository no longer hand-edits generated JavaScript. The authored source is the TypeScript
-overlay in [`pi-overlay/`](../../../../pi-overlay), and `patches/pi-<version>/*` is generated from it by
+For every supported pi version this repository no longer hand-edits generated JavaScript. The authored source is the
+TypeScript overlay in [`pi-overlay/`](../../../../pi-overlay), and `patches/pi-<version>/*` is generated from it by
 `npm run patches:build`. Prefer that route whenever the change belongs in a shipped patch:
 
 1. Put new logic in `pi-overlay/skill-management-core.ts`, which imports nothing and is unit-tested directly by
@@ -115,19 +115,18 @@ all become:
 github.com:earendil-works/pi-mono
 ```
 
-Starting with the 0.85.1 patch, preserve non-default remote ports in repository keys. Normalize explicit default SSH
-port `22` (and Git protocol port `9418`) to the same key as the port-omitted and SCP-like forms. Do not retrofit this
-repository-key change into earlier versioned patches unless explicitly requested.
+The patch preserves non-default remote ports in repository keys. Normalize explicit default SSH port `22` (and Git
+protocol port `9418`) to the same key as the port-omitted and SCP-like forms. Do not retrofit this repository-key change
+into earlier versioned patches unless explicitly requested.
 
-Starting with the 0.85.1 patch, valid JSON with a non-object top-level value in `skills.json` or `repo-skills.json` is a
-configuration error rather than an empty configuration. Strict command paths report that error; loader paths warn and
-ignore it.
+Valid JSON with a non-object top-level value in `skills.json` or `repo-skills.json` is a configuration error rather than
+an empty configuration. Strict command paths report that error; loader paths warn and ignore it.
 
 ## Interactive and CLI Skill Management
 
-The command surfaces are deliberately thin wrappers around `dist/core/skill-management.js`. Since 0.85.1 the interactive
-body lives in the shared module too, as `handleSkillsInteractive`, and `DefaultResourceLoader` carries no skill-specific
-methods at all — it calls `resolveActiveSkillPaths` and nothing else:
+The command surfaces are deliberately thin wrappers around `dist/core/skill-management.js`. The interactive body lives
+in the shared module too, as `handleSkillsInteractive`, and `DefaultResourceLoader` carries no skill-specific methods at
+all — it calls `resolveActiveSkillPaths` and nothing else:
 
 - interactive: `/skills active|list|search|add|remove|reload`
 - `/skills reload` takes no arguments; anything after it is a usage error, not a reload
@@ -143,15 +142,15 @@ Catalog resolution is asynchronous. It keeps fixed global and trusted-project di
 precedence behavior. Both `runSkillsCommand()` callers must await it and pass the active `SettingsManager`; name-based
 activation in `DefaultResourceLoader` awaits that same catalog so package and settings names resolve consistently.
 
-Starting with the 0.85.1 patch, normalize user-provided local skill sources with Pi's `resolvePath()` before storing or
-adding them to a session, so tilde and explicit relative forms become stable absolute paths. A bare relative name
-becomes an absolute path only when that path holds at least one skill, as found by Pi's own `loadSkills()`; otherwise it
-stays a catalog name, including when it names an existing folder without skills. A catalog skill of the same name always
-wins, so a local folder never shadows one; reach such a folder through an explicit `./` path. Use the same normalization
-when matching an existing entry for removal, and when a bare name matches nothing, retry with its resolved path without
-requiring that path to exist, so an entry persisted as a path stays removable after the path is deleted. Compare stored
-bare entries literally: user input is normalized before it is stored, so a stored bare value is a catalog name, not a
-path relative to the current directory.
+Normalize user-provided local skill sources with Pi's `resolvePath()` before storing or adding them to a session, so
+tilde and explicit relative forms become stable absolute paths. A bare relative name becomes an absolute path only when
+that path holds at least one skill, as found by Pi's own `loadSkills()`; otherwise it stays a catalog name, including
+when it names an existing folder without skills. A catalog skill of the same name always wins, so a local folder never
+shadows one; reach such a folder through an explicit `./` path. Use the same normalization when matching an existing
+entry for removal, and when a bare name matches nothing, retry with its resolved path without requiring that path to
+exist, so an entry persisted as a path stays removable after the path is deleted. Compare stored bare entries literally:
+user input is normalized before it is stored, so a stored bare value is a catalog name, not a path relative to the
+current directory.
 
 `/skills` arguments never pass through a shell, so expand `$NAME` and `${NAME}` references in path sources before
 `resolvePath()`, and treat a source starting with `$` as a path (Agent Skills names cannot contain `$`). Leave an unset

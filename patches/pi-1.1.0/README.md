@@ -18,12 +18,6 @@ The pinned release archive, published checksum, npm tarball, source revision, wo
 
 ## Runtime behavior tests
 
-The catalog integration suite runs against a clean, unpatched Pi package of the matching version. If Pi 1.1.0 is not installed as the repository's development dependency, provide a clean package directory with `package.json`, `dist/`, `docs/`, and resolvable `node_modules/`:
-
-```bash
-PI_SKILLS_TEST_PACKAGES=/path/to/pi-1.1.0/package npm test
-```
-
-The directory must match the Pi 1.1.0 checksums in `baseline.sha256` and paths in `baseline.absent`. The suite copies the package to a temporary directory, applies the patch there, and exercises the CLI; it does not modify the supplied package. Multiple package directories can be separated with the platform path delimiter.
+The end-to-end catalog and dispatch suites run against the lowest retained patch, Pi 1.0.3, not this one; see [`patches/pi-1.0.3/README.md`](../pi-1.0.3/README.md). The `skill-management*.js` modules this patch adds are byte-identical to 1.0.3's, so that run exercises the same logic. This patch's seams and bundled entrypoints are checked by the manifest tests in `scripts/skills-patch-103.test.mjs` and by the scheduled regeneration job.
 
 The opt-in behavior preserves explicit `--skill` with `--no-skills`, supports session/global/repository activation, and serializes persisted configuration updates. See the patched `docs/skills.md` for commands and configuration format.

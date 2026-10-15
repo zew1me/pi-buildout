@@ -20,10 +20,10 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-const patchDirectory = join(repositoryRoot, "patches", "pi-0.85.1");
+const patchDirectory = join(repositoryRoot, "patches", "pi-1.0.3");
 const patchPath = join(patchDirectory, "skills.patch");
-// The repository develops against a newer Pi; the 0.85.1 baseline is installed under a pinned npm alias.
-const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-0.85.1");
+// The repository develops against Pi 1.0.1; the 1.0.3 baseline is installed under a pinned npm alias.
+const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-1.0.3");
 
 async function exists(path) {
   try {
@@ -42,14 +42,14 @@ async function sha256(path) {
 async function baselineProblem() {
   const packageJsonPath = join(packageRoot, "package.json");
   if (!(await exists(packageJsonPath))) {
-    return "the pinned pi-coding-agent-0.85.1 baseline package is unavailable";
+    return "the pinned pi-coding-agent-1.0.3 baseline package is unavailable";
   }
   if (!(await exists(join(packageRoot, "node_modules")))) {
     return "the installed pi package dependencies are unavailable";
   }
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
-  if (packageJson.version !== "0.85.1") {
-    return `the installed pi package is ${String(packageJson.version)}, not 0.85.1`;
+  if (packageJson.version !== "1.0.3") {
+    return `the installed pi package is ${String(packageJson.version)}, not 1.0.3`;
   }
   const manifest = await readFile(join(patchDirectory, "baseline.sha256"), "utf8");
   for (const line of manifest.trim().split("\n")) {
@@ -62,7 +62,7 @@ async function baselineProblem() {
       !(await exists(baselinePath)) ||
       (await sha256(baselinePath)) !== expected
     ) {
-      return `the installed pi package does not match the 0.85.1 baseline at ${relativePath ?? "an unknown path"}`;
+      return `the installed pi package does not match the 1.0.3 baseline at ${relativePath ?? "an unknown path"}`;
     }
   }
   const absentManifest = await readFile(join(patchDirectory, "baseline.absent"), "utf8");
@@ -71,7 +71,7 @@ async function baselineProblem() {
     .map((line) => line.trim())
     .filter(Boolean)) {
     if (await exists(join(packageRoot, relativePath))) {
-      return `the installed pi package does not match the 0.85.1 baseline at ${relativePath}`;
+      return `the installed pi package does not match the 1.0.3 baseline at ${relativePath}`;
     }
   }
   return undefined;
@@ -180,13 +180,17 @@ async function linkDependencies(target) {
   }
 }
 
-async function createPatchedPackage(target) {
+async function copyCleanPackage(target) {
   await mkdir(target, { recursive: true });
   await Promise.all([
     cp(join(packageRoot, "dist"), join(target, "dist"), { recursive: true }),
     cp(join(packageRoot, "docs"), join(target, "docs"), { recursive: true }),
     copyFile(join(packageRoot, "package.json"), join(target, "package.json")),
   ]);
+}
+
+async function createPatchedPackage(target) {
+  await copyCleanPackage(target);
   await linkDependencies(target);
   await applyPatch(target);
   await verifyManifest(target, "patched.sha256");
@@ -275,24 +279,6 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       }
       throw error;
     }
-
-    const preValidationPackage = join(temporaryRoot, "pre-validation-package");
-    await createPatchedPackage(preValidationPackage);
-    await applyPatch(preValidationPackage, join(patchDirectory, "pre-validation-upgrade.patch"), true);
-    await verifyManifest(preValidationPackage, "pre-validation-patched.sha256");
-    const preValidationResult = await runInstaller(preValidationPackage, join(temporaryRoot, "pre-validation-agent"));
-    assert.equal(preValidationResult.code, 0, preValidationResult.stderr);
-    assert.match(preValidationResult.stdout, /Upgrading a previously applied \/skills patch/u);
-    await verifyManifest(preValidationPackage, "patched.sha256");
-
-    const preLockPackage = join(temporaryRoot, "pre-lock-package");
-    await createPatchedPackage(preLockPackage);
-    await applyPatch(preLockPackage, join(patchDirectory, "pre-lock-upgrade.patch"), true);
-    await verifyManifest(preLockPackage, "pre-lock-patched.sha256");
-    const preLockResult = await runInstaller(preLockPackage, join(temporaryRoot, "pre-lock-agent"));
-    assert.equal(preLockResult.code, 0, preLockResult.stderr);
-    assert.match(preLockResult.stdout, /Upgrading a previously applied \/skills patch/u);
-    await verifyManifest(preLockPackage, "patched.sha256");
 
     const preExpansionPackage = join(temporaryRoot, "pre-expansion-package");
     await createPatchedPackage(preExpansionPackage);
@@ -584,6 +570,34 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
     } else {
       process.env.HOME = previousHome;
     }
+    await rm(temporaryRoot, { recursive: true, force: true });
+  }
+});
+
+// A clean 1.0.3 package must take the patch exactly once, and a rerun must recognise the applied result rather than
+// patch it again.
+test("the installer applies the 1.0.3 patch to a clean package once and then reports it applied", async (t) => {
+  const problem = await baselineProblem();
+  if (problem) {
+    t.skip(problem);
+    return;
+  }
+
+  const temporaryRoot = await mkdtemp(join(tmpdir(), "pi-skills-install-"));
+  try {
+    const cleanPackage = join(temporaryRoot, "package");
+    await copyCleanPackage(cleanPackage);
+    const agentDirectory = join(temporaryRoot, "agent");
+
+    const applied = await runInstaller(cleanPackage, agentDirectory);
+    assert.equal(applied.code, 0, applied.stderr);
+    assert.match(applied.stdout, /Applied \/skills patch for pi 1\.0\.3/u);
+    await verifyManifest(cleanPackage, "patched.sha256");
+
+    const rerun = await runInstaller(cleanPackage, agentDirectory);
+    assert.equal(rerun.code, 0, rerun.stderr);
+    assert.match(rerun.stdout, /\/skills patch for pi 1\.0\.3 is already applied\./u);
+  } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
 });
