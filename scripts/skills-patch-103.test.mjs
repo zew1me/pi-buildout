@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { countUpstreamEditedLines, patchedFileList } from "./build-pi-patch.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-for (const version of ["1.0.3", "1.0.4", "1.1.0"]) {
+for (const version of ["1.0.3", "1.0.4", "1.1.0", "1.3.0"]) {
   const manifest = JSON.parse(await readFile(join(root, `pi-overlay/versions/${version}/upstream.json`), "utf8"));
   const patchDir = join(root, `patches/pi-${version}`);
 
