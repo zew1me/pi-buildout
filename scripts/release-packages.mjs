@@ -81,7 +81,8 @@ export function packPackages(output, root = ROOT, run = execFileSync) {
   mkdirSync(output, { recursive: true });
   const archives = readPackages(root).map((entry) => {
     const result = JSON.parse(
-      run("npm", ["pack", "--json", "--pack-destination", resolve(output)], {
+      // prepack stages dist/; a user or global ignore-scripts=true must not yield an unstaged archive.
+      run("npm", ["pack", "--json", "--pack-destination", resolve(output), "--ignore-scripts=false"], {
         cwd: join(root, entry.directory),
         encoding: "utf8",
         stdio: ["ignore", "pipe", "inherit"],

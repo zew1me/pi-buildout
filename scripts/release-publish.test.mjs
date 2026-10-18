@@ -249,6 +249,7 @@ test("packPackages validates npm pack output and writes release-assets.json", (c
     calls.push({ command, args, options });
     assert.equal(command, "npm");
     assert.deepEqual(args.slice(0, 2), ["pack", "--json"]);
+    assert.ok(args.includes("--ignore-scripts=false"), "prepack must run despite user or global ignore-scripts");
     const destination = args[args.indexOf("--pack-destination") + 1];
     const manifest = JSON.parse(readFileSync(join(options.cwd, "package.json"), "utf8"));
     const filename = `${manifest.name.slice(1).replace("/", "-")}-${manifest.version}.tgz`;
