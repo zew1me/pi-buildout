@@ -109,16 +109,20 @@ async function applyPatch(target, source = patchPath, reverse = false) {
   });
 }
 
+// Git exports these to hooks, so `npm run check` from pre-push would otherwise point fixture git commands at
+// this repository instead of the fixture checkout.
+const repositoryGitEnvironment = [
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+  "GIT_INDEX_FILE",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+];
+
 function testEnvironment(overrides = {}) {
   const env = { ...process.env, ...overrides };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_INDEX_FILE",
-    "GIT_OBJECT_DIRECTORY",
-    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  ]) {
+  for (const key of repositoryGitEnvironment) {
     delete env[key];
   }
   return env;
@@ -267,9 +271,14 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
   const projectConfig = join(cwd, ".pi");
   const agentDir = join(fixtureRoot, "agent");
   const previousHome = process.env.HOME;
+  // In-process loaders inherit this process's environment rather than testEnvironment().
+  const previousGitEnvironment = repositoryGitEnvironment.map((key) => [key, process.env[key]]);
 
   try {
     process.env.HOME = join(fixtureRoot, "home");
+    for (const key of repositoryGitEnvironment) {
+      delete process.env[key];
+    }
     try {
       await createPatchedPackage(patchedPackage);
     } catch (error) {
@@ -569,6 +578,9 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       delete process.env.HOME;
     } else {
       process.env.HOME = previousHome;
+    }
+    for (const [key, value] of previousGitEnvironment) {
+      if (value !== undefined) process.env[key] = value;
     }
     await rm(temporaryRoot, { recursive: true, force: true });
   }

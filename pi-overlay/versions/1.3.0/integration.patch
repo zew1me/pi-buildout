@@ -16,7 +16,7 @@ index 19d2bf2..a6adcc6 100644
  
  Arguments after `/skill:name` are appended to the loaded instructions as a user request:
  
-@@ -56,14 +58,80 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
+@@ -56,14 +58,82 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
  
  ## Add it to Pi
  
@@ -93,12 +93,14 @@ index 19d2bf2..a6adcc6 100644
 +
 +`--session` is interactive-only and lasts until the session ends. `--global` and `--repo` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global and repository entries; `/skills active` also shows session entries.
 +
++Path arguments may use `~`, `$NAME`, or `${NAME}`; `/skills` expands them itself because its arguments never pass through a shell. With `--repo`, a path inside the current checkout is stored relative to the repository root, so the entry works in every clone and worktree with the same remote. Otherwise `add` keeps a `~` or `$NAME` spelling as typed and stores any other path as an absolute path, under `~` when it is in your home directory. Stored paths are expanded whenever Pi loads skills: at startup, after `/skills add` or `/skills remove`, and on `/reload` or `/skills reload`. Other relative entries resolve against the repository root in `repo-skills.json` and against the working directory in `skills.json`, so prefer absolute, `~`, or `$NAME` paths in `skills.json`.
++
 +Use `--no-skills` to suppress global and repository active skills; explicit `--skill` paths still load.
 +
  ## Write portable frontmatter
  
  The Agent Skills specification defines these fields:
-@@ -86,7 +154,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
+@@ -86,7 +156,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
  
  ## Validate and share a skill
  
