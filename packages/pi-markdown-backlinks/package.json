@@ -1,0 +1,40 @@
+{
+  "name": "@zew1me/pi-markdown-backlinks",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi Markdown backlinks extension",
+  "license": "SEE LICENSE IN dist/LICENSE",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "markdown",
+    "backlinks"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zew1me/pi-buildout.git",
+    "directory": "packages/pi-markdown-backlinks"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/extensions/markdown-backlinks/index.ts"
+    ]
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/stage-release-package.mjs markdown-backlinks"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

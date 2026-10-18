@@ -1,0 +1,33 @@
+{
+  "name": "@zew1me/pi-skills-patch",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Version-checked /skills runtime patch installer for supported Pi versions",
+  "license": "SEE LICENSE IN dist/LICENSE",
+  "keywords": [
+    "pi",
+    "skills",
+    "patch"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zew1me/pi-buildout.git",
+    "directory": "packages/pi-skills-patch"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "bin": {
+    "pi-skills-patch": "dist/scripts/install-extensions.sh"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/stage-release-package.mjs skills-patch"
+  }
+}

@@ -13,6 +13,8 @@ export default tseslint.config(
     ignores: [
       "node_modules/**",
       "coverage/**",
+      "packages/*/dist/**",
+      "release-artifacts/**",
       "patches/**",
       "pi-overlay/versions/**",
       // Type-checked by upstream's tsgo inside a Pi source tree, where its imports resolve.

@@ -1,5 +1,7 @@
 node_modules/
 coverage/
+packages/*/dist/
+release-artifacts/
 patches/
 .serena/project.yml
 pi-overlay/versions/

@@ -1,0 +1,39 @@
+{
+  "name": "@zew1me/pi-clear",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi /clear extension with fresh-context disclosure",
+  "license": "SEE LICENSE IN dist/LICENSE",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "clear"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zew1me/pi-buildout.git",
+    "directory": "packages/pi-clear"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/extensions/clear/index.ts"
+    ]
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/stage-release-package.mjs clear"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  }
+}

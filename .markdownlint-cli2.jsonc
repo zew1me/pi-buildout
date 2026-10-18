@@ -9,5 +9,5 @@
     },
     "no-inline-html": false,
   },
-  "ignores": ["node_modules/**", "patches/**"],
+  "ignores": ["node_modules/**", "patches/**", "packages/*/dist/**", "release-artifacts/**"],
 }

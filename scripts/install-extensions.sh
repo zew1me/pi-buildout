@@ -1,11 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+ROOT_DIR=$(cd "$(dirname "$(realpath "${BASH_SOURCE[0]}")")/.." && pwd)
 AGENT_DIR=${PI_AGENT_DIR:-"${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}"}
 EXTENSION_DIR="$AGENT_DIR/extensions"
 APPLY_SKILLS_PATCH=1
+INSTALL_EXTENSIONS=1
 EXTENSIONS=(clear effort markdown-backlinks subagents)
+# The standalone npm package exposes this script as a `pi-skills-patch` bin symlink.
+# Resolve data paths from BASH_SOURCE but use the invocation name to default to patch-only mode.
+if [[ "$(basename "$0")" == "pi-skills-patch" ]]; then
+  set -- --skip-extensions "$@"
+fi
 PATCH_FILES=()
 UPGRADE_SUMS=()
 UPGRADE_PATCHES=()
@@ -110,8 +116,15 @@ find_global_pi_package() {
 for arg in "$@"; do
   case "$arg" in
     --skip-skill-loading-patch) APPLY_SKILLS_PATCH=0 ;;
+    --skip-extensions) INSTALL_EXTENSIONS=0 ;;
     -h | --help)
-      printf 'Usage: %s [--skip-skill-loading-patch]\n' "$(basename "$0")"
+      if ((!INSTALL_EXTENSIONS)); then
+        printf 'Usage: pi-skills-patch [--help]\n'
+        printf '  Apply only the version-checked /skills runtime patch to the installed Pi package.\n'
+      else
+        printf 'Usage: %s [--skip-skill-loading-patch] [--skip-extensions]\n' "$(basename "$0")"
+        printf '  --skip-extensions  apply only the /skills patch.\n'
+      fi
       exit 0
       ;;
     *)
@@ -121,16 +134,23 @@ for arg in "$@"; do
   esac
 done
 
-for extension in "${EXTENSIONS[@]}"; do
-  if [[ ! -f "$ROOT_DIR/extensions/$extension/index.ts" ]]; then
-    printf 'Missing packaged extension entrypoint: %s\n' "$ROOT_DIR/extensions/$extension/index.ts" >&2
-    exit 1
-  fi
-  if [[ ! -f "$ROOT_DIR/extensions/$extension/helpers.ts" ]]; then
-    printf 'Missing packaged extension helper: %s\n' "$ROOT_DIR/extensions/$extension/helpers.ts" >&2
-    exit 1
-  fi
-done
+if ((!INSTALL_EXTENSIONS && !APPLY_SKILLS_PATCH)); then
+  printf 'Both the patch and extensions were skipped; nothing to install.\n' >&2
+  exit 2
+fi
+
+if ((INSTALL_EXTENSIONS)); then
+  for extension in "${EXTENSIONS[@]}"; do
+    if [[ ! -f "$ROOT_DIR/extensions/$extension/index.ts" ]]; then
+      printf 'Missing packaged extension entrypoint: %s\n' "$ROOT_DIR/extensions/$extension/index.ts" >&2
+      exit 1
+    fi
+    if [[ ! -f "$ROOT_DIR/extensions/$extension/helpers.ts" ]]; then
+      printf 'Missing packaged extension helper: %s\n' "$ROOT_DIR/extensions/$extension/helpers.ts" >&2
+      exit 1
+    fi
+  done
+fi
 
 if ((APPLY_SKILLS_PATCH)); then
   PI_PACKAGE_DIR=${PI_PACKAGE_DIR:-}
@@ -291,43 +311,45 @@ if ((APPLY_SKILLS_PATCH)); then
   fi
 fi
 
-mkdir -p "$EXTENSION_DIR"
-for extension in "${EXTENSIONS[@]}"; do
-  EXTENSION_STAGE_DIR=$(mktemp -d "$EXTENSION_DIR/.${extension}.XXXXXX")
-  while IFS= read -r -d '' source_file; do
-    relative_file=${source_file#"$ROOT_DIR/extensions/$extension/"}
-    mkdir -p "$EXTENSION_STAGE_DIR/$(dirname "$relative_file")"
-    cp "$source_file" "$EXTENSION_STAGE_DIR/$relative_file"
-  done < <(find "$ROOT_DIR/extensions/$extension" -type f -name '*.ts' ! -name '*.test.*' -print0)
+if ((INSTALL_EXTENSIONS)); then
+  mkdir -p "$EXTENSION_DIR"
+  for extension in "${EXTENSIONS[@]}"; do
+    EXTENSION_STAGE_DIR=$(mktemp -d "$EXTENSION_DIR/.${extension}.XXXXXX")
+    while IFS= read -r -d '' source_file; do
+      relative_file=${source_file#"$ROOT_DIR/extensions/$extension/"}
+      mkdir -p "$EXTENSION_STAGE_DIR/$(dirname "$relative_file")"
+      cp "$source_file" "$EXTENSION_STAGE_DIR/$relative_file"
+    done < <(find "$ROOT_DIR/extensions/$extension" -type f -name '*.ts' ! -name '*.test.*' -print0)
 
-  EXTENSION_TARGET="$EXTENSION_DIR/$extension"
-  EXTENSION_BACKUP="$EXTENSION_STAGE_DIR.backup"
-  EXTENSION_COMMIT_IN_PROGRESS=1
-  if [[ -e "$EXTENSION_TARGET" || -L "$EXTENSION_TARGET" ]]; then
-    mv "$EXTENSION_TARGET" "$EXTENSION_BACKUP"
-  fi
-  if ! mv "$EXTENSION_STAGE_DIR" "$EXTENSION_TARGET"; then
-    printf 'Could not install %s; restoring its previous extension tree.\n' "$extension" >&2
-    rm -rf "$EXTENSION_TARGET"
-    if [[ -e "$EXTENSION_BACKUP" || -L "$EXTENSION_BACKUP" ]]; then
-      mv "$EXTENSION_BACKUP" "$EXTENSION_TARGET"
+    EXTENSION_TARGET="$EXTENSION_DIR/$extension"
+    EXTENSION_BACKUP="$EXTENSION_STAGE_DIR.backup"
+    EXTENSION_COMMIT_IN_PROGRESS=1
+    if [[ -e "$EXTENSION_TARGET" || -L "$EXTENSION_TARGET" ]]; then
+      mv "$EXTENSION_TARGET" "$EXTENSION_BACKUP"
     fi
+    if ! mv "$EXTENSION_STAGE_DIR" "$EXTENSION_TARGET"; then
+      printf 'Could not install %s; restoring its previous extension tree.\n' "$extension" >&2
+      rm -rf "$EXTENSION_TARGET"
+      if [[ -e "$EXTENSION_BACKUP" || -L "$EXTENSION_BACKUP" ]]; then
+        mv "$EXTENSION_BACKUP" "$EXTENSION_TARGET"
+      fi
+      EXTENSION_COMMIT_IN_PROGRESS=0
+      exit 1
+    fi
+    EXTENSION_STAGE_DIR=
+    rm -rf "$EXTENSION_BACKUP"
+    EXTENSION_BACKUP=
+    EXTENSION_TARGET=
     EXTENSION_COMMIT_IN_PROGRESS=0
-    exit 1
-  fi
-  EXTENSION_STAGE_DIR=
-  rm -rf "$EXTENSION_BACKUP"
-  EXTENSION_BACKUP=
-  EXTENSION_TARGET=
-  EXTENSION_COMMIT_IN_PROGRESS=0
-done
+  done
 
-# Pi discovers both extensions/name.ts and extensions/name/index.ts. After every
-# managed directory replacement succeeds, remove any same-name top-level entrypoint
-# left by the legacy layout so each extension loads exactly once.
-for extension in "${EXTENSIONS[@]}"; do
-  rm -f "$EXTENSION_DIR/$extension.ts" "$EXTENSION_DIR/$extension.test.mjs"
-done
+  # Pi discovers both extensions/name.ts and extensions/name/index.ts. After every
+  # managed directory replacement succeeds, remove any same-name top-level entrypoint
+  # left by the legacy layout so each extension loads exactly once.
+  for extension in "${EXTENSIONS[@]}"; do
+    rm -f "$EXTENSION_DIR/$extension.ts" "$EXTENSION_DIR/$extension.test.mjs"
+  done
+fi
 
 if [[ -n "$PATCH_STAGE_DIR" ]]; then
   PATCH_COMMIT_IN_PROGRESS=1
@@ -345,6 +367,8 @@ if [[ -n "$PATCH_STAGE_DIR" ]]; then
   printf 'Applied /skills patch for pi %s\n' "$PI_VERSION"
 fi
 
-printf 'Installed pi extensions from %s\n' "$ROOT_DIR/extensions"
-printf 'Destination: %s\n' "$EXTENSION_DIR"
-printf 'Run /reload in an active pi session to load changes.\n'
+if ((INSTALL_EXTENSIONS)); then
+  printf 'Installed pi extensions from %s\n' "$ROOT_DIR/extensions"
+  printf 'Destination: %s\n' "$EXTENSION_DIR"
+  printf 'Run /reload in an active pi session to load changes.\n'
+fi

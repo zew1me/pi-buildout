@@ -1,0 +1,40 @@
+{
+  "name": "@zew1me/pi-effort",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Pi thinking-effort extension",
+  "license": "SEE LICENSE IN dist/LICENSE",
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-extension",
+    "effort"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zew1me/pi-buildout.git",
+    "directory": "packages/pi-effort"
+  },
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "pi": {
+    "extensions": [
+      "./dist/extensions/effort/index.ts"
+    ]
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "scripts": {
+    "prepack": "node ../../scripts/stage-release-package.mjs effort"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*"
+  }
+}
