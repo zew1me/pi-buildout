@@ -19,8 +19,10 @@ import {
 } from "./release-packages.mjs";
 
 function git(cwd, args) {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
   return execFileSync("git", args, {
     cwd,
+    env,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
   }).trim();
