@@ -10,7 +10,9 @@ permissions:
 
 concurrency:
   group: quality-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Do not cancel a publish or replace a pending version-bump release.
+  cancel-in-progress: false
+  queue: max
 
 jobs:
   check:
@@ -20,14 +22,87 @@ jobs:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           persist-credentials: false
+      - name: Install actionlint 1.8.0 (zew1me fork)
+        env:
+          ACTIONLINT_SHA256: 1cc41d4e9ffe3f1dd04fb38b87a8a59440767a5dcab5e9d581cf1a89eca802c6
+        run: |
+          archive=actionlint-zew1me_1.8.0_linux_amd64.tar.gz
+          curl --fail --location --silent --show-error \
+            "https://github.com/zew1me/actionlint/releases/download/v1.8.0/$archive" \
+            --output "$RUNNER_TEMP/$archive"
+          echo "$ACTIONLINT_SHA256  $RUNNER_TEMP/$archive" | sha256sum --check --status
+          mkdir "$RUNNER_TEMP/actionlint"
+          tar -xzf "$RUNNER_TEMP/$archive" -C "$RUNNER_TEMP/actionlint" actionlint
+          echo "$RUNNER_TEMP/actionlint" >> "$GITHUB_PATH"
+      - name: Lint GitHub Actions workflows
+        run: actionlint -color
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24
           cache: npm
           registry-url: https://registry.npmjs.org
+      - name: Use repository-pinned npm
+        run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org/
       - name: Install pinned dependencies
         run: npm ci --ignore-scripts --registry=https://registry.npmjs.org/
       - name: Check formatting, lint, types, and tests
         run: npm run check
       - name: Audit dependencies
         run: npm run audit
+
+  packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Use repository-pinned npm
+        run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org/
+      - name: Validate and preview version-driven release candidates
+        env:
+          RELEASE_BASE: ${{ github.event.before || github.event.pull_request.base.sha }}
+        run: npm run release:packages -- plan --base "$RELEASE_BASE"
+      - name: Pack all public packages without publishing credentials
+        run: npm run release:packages -- pack --artifacts "$RUNNER_TEMP/pi-packages"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: npm-packages
+          path: ${{ runner.temp }}/pi-packages/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    needs: [check, packages]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'zew1me/pi-buildout'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Use repository-pinned npm
+        run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org/
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: npm-packages
+          path: ${{ runner.temp }}/pi-packages/
+      - name: Publish only increased package versions via npm trusted publishing
+        env:
+          RELEASE_BASE: ${{ github.event.before }}
+        run: npm run release:packages -- publish --base "$RELEASE_BASE" --artifacts "$RUNNER_TEMP/pi-packages"

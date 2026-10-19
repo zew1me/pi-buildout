@@ -1,5 +1,31 @@
 # Attribution
 
+## Public npm packaging and release automation
+
+- Source: `nigel-upstart/pi-buildout`
+- Canonical URL: <https://github.com/nigel-upstart/pi-buildout>
+- Revision reviewed: `5ed4c390ee13fd8c491d964008cf37b459b621d9`
+- Declared license: MIT (Nigel Stuke, 2026); the root `LICENSE` preserves that notice.
+
+The separate per-extension package directories, explicit Pi entrypoints, host-provided peer dependencies, minimal
+`prepack` staging, inclusion of license/attribution files, and separate patch-only CLI were informed by the fork's
+`packages/`, `scripts/stage-release-package.mjs`, and package tests. The staging helper structure and portions of the
+archive assertions are modified adaptations of that MIT-licensed code, reduced to this repository's extension set and
+installer; the root `LICENSE` preserves its notice. Public manifests and version-driven release planning/publishing
+logic are authored here. No router, OTel, telemetry defaults, private package names, CodeArtifact endpoints, AWS
+credentials, internal documentation, or manual-only alpha-release restriction are adopted.
+
+- Pi package documentation: <https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/packages.md>
+  (installed `@earendil-works/pi-coding-agent@1.3.0`; MIT).
+- npm trusted publishing guidance: <https://docs.npmjs.com/trusted-publishers/>
+- GitHub Actions concurrency guidance:
+  <https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency>
+
+These documentation sources informed explicit resource manifests, runtime/host dependency separation, npm OIDC
+permissions and provenance, and queued non-cancelling release runs. Their prose and example workflows were not copied;
+the workflow extends this repository's existing quality gate. Token-based publishing, git-tag-triggered releases, and Pi
+runtime patching during npm installation were intentionally not adopted.
+
 ## Subagent implementations
 
 The subagent extension in [`extensions/subagents`](extensions/subagents) was informed by the two implementations

@@ -14,6 +14,10 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 
 ## Installation
 
+Public npm packages are defined under [`packages/`](packages/README.md), one per extension plus a separate, explicitly
+invoked `/skills` patch CLI. See that guide for npm installation commands, the version-bump-driven CI release policy,
+and the required npm trusted-publisher setup. Packages become installable after their first publish.
+
 From this repository, install the packaged extensions into the default pi extension directory:
 
 ```bash

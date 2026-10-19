@@ -25,6 +25,11 @@ coverage/
 *.tsbuildinfo
 npm-debug.log*
 
+# Staged public npm payloads and local release archives
+packages/*/dist/
+release-artifacts/
+*.tgz
+
 # Local credentials
 .env
 .env.*
