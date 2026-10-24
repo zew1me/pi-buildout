@@ -9,7 +9,7 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 | `extensions/effort`                    | `/effort`: select and persist thinking effort                                               | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
 | `extensions/subagents`                 | Natural-language creation and control of isolated, recursively nestable Pi subagents        | [`extensions/subagents/README.md`](extensions/subagents/README.md)                   |
 | `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
-| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-1.3.0/README.md`](patches/pi-1.3.0/README.md)                           |
+| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-1.4.0/README.md`](patches/pi-1.4.0/README.md)                           |
 | `pi-overlay`                           | Authored TypeScript the newest `/skills` patch is generated from                            | [`pi-overlay/README.md`](pi-overlay/README.md)                                       |
 
 ## Installation
@@ -49,9 +49,9 @@ The patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overl
 each `patches/pi-<version>/*` is produced from it.
 
 The repository supports pi 1.0.3 and newer. It keeps the latest patched pi release and at most four previous patched
-releases, so at most five `patches/pi-<version>` directories exist. Today those are 1.3.0 (latest), 1.1.0, 1.0.4, and
-1.0.3. When a new patch would make a sixth, the oldest patch directory and its `pi-overlay/versions/<version>` inputs
-are deleted in the same change. The installer refuses to patch any pi release without a patch directory; use
+releases, so at most five `patches/pi-<version>` directories exist. Today those are 1.4.0 (latest), 1.3.0, 1.1.0, 1.0.4,
+and 1.0.3. When a new patch would make a sixth, the oldest patch directory and its `pi-overlay/versions/<version>`
+inputs are deleted in the same change. The installer refuses to patch any pi release without a patch directory; use
 `--skip-skill-loading-patch` to install only the extensions for those releases.
 
 Regenerate or check a patch with:
@@ -63,6 +63,7 @@ node scripts/build-pi-patch.mjs --version 1.0.3 --check # check only the 1.0.3 p
 node scripts/build-pi-patch.mjs --version 1.0.4 --check # check only the 1.0.4 patch
 node scripts/build-pi-patch.mjs --version 1.1.0 --check # check only the 1.1.0 patch
 node scripts/build-pi-patch.mjs --version 1.3.0 --check # check only the 1.3.0 patch
+node scripts/build-pi-patch.mjs --version 1.4.0 --check # check only the 1.4.0 patch
 ```
 
 The pipeline fetches the pinned upstream release source archive and npm tarball, verifies both against checksums

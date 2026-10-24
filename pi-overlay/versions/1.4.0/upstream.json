@@ -1,0 +1,47 @@
+{
+  "package": "@earendil-works/pi-coding-agent",
+  "version": "1.4.0",
+  "repository": "https://github.com/earendil-works/pi",
+  "packageSubpath": "packages/coding-agent",
+  "gitHead": "4a080252f06caf63a525d7873c5d94d3c23887e0",
+  "sourceArchive": {
+    "url": "https://github.com/earendil-works/pi/releases/download/v1.4.0/pi-1.4.0-source.tar.gz",
+    "sha256": "12b14a5d812e049a0b22449e2589ee7647c31f00f93bb97d8d25aff0e71920da",
+    "rootDirectory": "pi-1.4.0",
+    "checksumsUrl": "https://github.com/earendil-works/pi/releases/download/v1.4.0/SHA256SUMS"
+  },
+  "npmTarball": {
+    "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.4.0.tgz",
+    "sha256": "d155c16ef6fa00960fbf58b2911536e80b05f33700e0b14fbd08967ede0c7428",
+    "integrity": "sha512-Z41LpZ3yYHSC/UUps6Mr39UMFPwH8elhJBG9DY1P7kuzsE5qSK/6eMj2EHzO5evJRQWLbKSqUMw+4nCNtIyiQg==",
+    "rootDirectory": "package"
+  },
+  "toolchain": {
+    "node": ">=22.19.0",
+    "typescript": "7.0.2"
+  },
+  "workspaceBuildOrder": [
+    "packages/telemetry",
+    "packages/chord",
+    "packages/tui",
+    "packages/codemode",
+    "packages/mcp",
+    "packages/ai",
+    "packages/durable",
+    "packages/env",
+    "packages/agent"
+  ],
+  "trackedFiles": [
+    { "path": "dist/core/resource-loader.js", "source": "built" },
+    { "path": "dist/core/slash-commands.js", "source": "built" },
+    { "path": "dist/main.js", "source": "built" },
+    { "path": "dist/modes/interactive/interactive-mode.js", "source": "built" },
+    { "path": "dist/core/skill-management.js", "source": "built", "added": true },
+    { "path": "dist/core/skill-management-core.js", "source": "built", "added": true },
+    { "path": "docs/skills.md", "source": "patched-source" },
+    { "path": "dist/bundle/cli-runtime.js", "source": "replacement" },
+    { "path": "dist/bundle/rpc-entry.js", "source": "replacement" },
+    { "path": "dist/bundle/cli.js", "source": "unchanged" }
+  ],
+  "maxUpstreamEditedLines": 48
+}
