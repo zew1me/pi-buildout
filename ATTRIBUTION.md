@@ -296,3 +296,10 @@ supported versions from the overlay directories and exercise dispatch assertions
 repository reuses its existing `overlayVersions()` discovery instead of copying the fork's package-discovery
 implementation. No fork code was copied. The fork's package publishing, router, telemetry extensions, additional
 baseline aliases, and newer development-version floor were not adopted; the development baseline here is Pi 1.0.3.
+Installer discovery is same-author internal synchronization across accounts: exact Pi identity, managed active-release
+lookup, and ordinary wrapper/shim fallback, implemented here without copying the fork's installer.
+
+Pi's official launcher signatures and managed marker fields informed nonexecuting managed-install recognition:
+<https://github.com/earendil-works/pi>, local source revision `741fb3a686f8dcc075f12ea77f985967ced59e21`
+(`packages/coding-agent/src/package-manager-cli.ts`; MIT), plus the installed official launcher. These are behavioral
+references only; no launcher code, execution, installation, or self-update machinery was copied or adopted.

@@ -30,6 +30,16 @@ Use `PI_AGENT_DIR` to select another pi agent directory:
 PI_AGENT_DIR=/tmp/pi-agent ./scripts/install-extensions.sh
 ```
 
+For patching, discovery checks the exact `@earendil-works/pi-coding-agent` package identity. It supports direct CLI
+links, Homebrew wrappers, and direct or symlinked managed launchers in `<agent>/bin/pi` using
+`<agent>/install/current-version`. Managed discovery requires either both literal launcher signatures
+`PI_MANAGED_INSTALL_ROOT=` and `/install/current-version`, or `install/managed-install.json` with
+`kind: pi-managed-install`, numeric `schemaVersion: 1`, and `layout: releases-v1`. Launchers are inspected, never
+executed. A recognized but broken managed installation (even a missing install directory) stops discovery instead of
+patching an unrelated npm-global Pi; the active package's version must match the pointer. Unrelated sibling `install`
+paths, pointers, and releases do not change ordinary wrapper lookup or version-manager shims' npm-global fallback.
+Extension-only installation does not require Pi discovery.
+
 For a custom pi installation whose package path cannot be derived from `pi`, point `PI_PACKAGE_DIR` to the directory
 containing pi's `package.json`:
 
