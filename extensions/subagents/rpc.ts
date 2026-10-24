@@ -493,26 +493,53 @@ export class ManagedSubagent {
   }
 
   private request(command: Record<string, unknown>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Record<string, unknown>> {
+    const commandName = String(command.type);
     if (this.proc.stdin.destroyed || this.proc.exitCode !== null) {
-      return Promise.reject(new Error(`Subagent ${this.id} process is not running.`));
+      return Promise.reject(this.rpcFailure("write failure", commandName, "the child process is not running"));
     }
     const id = `${this.id}-${String(++this.requestSequence)}`;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pending.delete(id);
-        reject(new Error(`Timed out waiting for subagent RPC command ${String(command.type)}.`));
+        reject(this.rpcFailure("timeout", commandName, `no response after ${String(timeoutMs)}ms`));
       }, timeoutMs);
       timer.unref();
-      this.pending.set(id, { command: String(command.type), resolve, reject, timer });
-      this.proc.stdin.write(`${JSON.stringify({ id, ...command })}\n`, (error) => {
+      this.pending.set(id, { command: commandName, resolve, reject, timer });
+      const onWrite = (error?: Error | null) => {
         if (!error) return;
         const pending = this.pending.get(id);
         if (!pending) return;
         clearTimeout(pending.timer);
         this.pending.delete(id);
-        pending.reject(error);
-      });
+        pending.reject(this.rpcFailure("write failure", pending.command, error.message));
+      };
+      try {
+        this.proc.stdin.write(`${JSON.stringify({ id, ...command })}\n`, onWrite);
+      } catch (error) {
+        onWrite(error instanceof Error ? error : new Error(String(error)));
+      }
     });
+  }
+
+  private childDiagnostics(code = this.proc.exitCode, signal = this.proc.signalCode): string {
+    const stderr = this.stderr.trim();
+    return [
+      `child=${this.id}`,
+      `pid=${String(this.proc.pid ?? "unknown")}`,
+      `model=${this.model}`,
+      // A signal-terminated child has a null exit code but is not still running.
+      `exitCode=${String(code ?? (signal ? "none" : "pending"))}`,
+      `signal=${signal ?? "none"}`,
+      ...(stderr ? [`stderr=${JSON.stringify(stderr.slice(-4_000))}`] : []),
+    ].join(", ");
+  }
+
+  private rpcFailure(kind: string, command: string, detail: string): Error {
+    return new Error(`Subagent RPC ${kind} for ${JSON.stringify(command)}: ${detail} (${this.childDiagnostics()}).`);
+  }
+
+  private processCloseFailure(code: number | null, signal: NodeJS.Signals | null): Error {
+    return new Error(`Subagent process closed unexpectedly (${this.childDiagnostics(code, signal)}).`);
   }
 
   private attachStreams(): void {
@@ -560,19 +587,20 @@ export class ManagedSubagent {
       this.touch();
     });
     this.proc.on("error", (error) => {
-      this.fail(error.message);
+      this.fail(`Subagent process error: ${error.message} (${this.childDiagnostics()}).`);
     });
     this.proc.on("close", (code, signal) => {
       this.stopTreeMonitor?.();
       this.stopTreeMonitor = undefined;
+      const closeError = this.processCloseFailure(code, signal);
       if (this.stoppedIntentionally) this.state = "stopped";
       else {
-        if (this.state !== "failed") this.fail(`Child process exited (${String(signal ?? code ?? "unknown")}).`);
+        if (this.state !== "failed") this.fail(closeError.message);
         // The root may have crashed while tools or recursively-created children
         // were still alive. Sweep the process tree observed during its lifetime.
         this.terminateProcess();
       }
-      this.rejectPending(new Error(this.error ?? "Subagent process closed."));
+      this.rejectPending(this.error ? new Error(this.error) : closeError);
       this.touch();
     });
     this.proc.stdin.on("error", () => {

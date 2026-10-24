@@ -301,4 +301,6 @@ Same-author synchronization also adapts `extensions/subagents/rpc.ts` and its te
 owned Unix process-group liveness and ESRCH-only absence checks retain escalation for unsampled descendants.
 Socket-based fixtures establish signal-handler readiness and observe execution termination without depending on PID
 reaping. These are modified code adaptations, not separate authorship; the existing MIT notice applies. Dependency
-updates, router, OTel, and release changes were not included.
+updates, router, OTel, and release changes were not included. The subsequent RPC diagnostics adaptation adds child
+identity, process exit/signal details, and a bounded stderr tail to RPC failures, with synchronous-write cleanup and
+regression tests; it does not introduce logging/export infrastructure or change model selection.

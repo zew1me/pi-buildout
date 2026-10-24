@@ -76,6 +76,146 @@ test("managed child starts, streams a bounded transcript, accepts more work, and
   assert.equal(child.snapshot().state, "stopped");
 });
 
+test("RPC timeouts include child diagnostics and stderr", async (t) => {
+  const child = new ManagedSubagent({
+    id: "timeout123",
+    name: "timeout-child",
+    task: "do the task",
+    model: "test/model",
+    effort: "off",
+    contextSummary: "",
+    cwd: process.cwd(),
+    command: process.execPath,
+    args: [mockPath],
+    env: { ...process.env },
+    classification: "explicit",
+  });
+  t.after(async () => child.stop());
+  await child.start();
+
+  const testOnlyChild =
+    /** @type {{ request: (command: Record<string, unknown>, timeoutMs: number) => Promise<unknown> }} */ (
+      /** @type {unknown} */ (child)
+    );
+  await assert.rejects(testOnlyChild.request({ type: "timeout" }, 100), (error) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /RPC timeout/);
+    assert.match(error.message, /child=timeout123/);
+    assert.match(error.message, /pid=\d+/);
+    assert.match(error.message, /model=test\/model/);
+    assert.match(error.message, /exitCode=pending/);
+    assert.match(error.message, /signal=none/);
+    assert.match(error.message, /mock timeout diagnostic/);
+    return true;
+  });
+});
+
+test("synchronous RPC write failures include diagnostics and retire the pending request", async (t) => {
+  const child = new ManagedSubagent({
+    id: "write123",
+    name: "write-failure-child",
+    task: "do the task",
+    model: "test/model",
+    effort: "off",
+    contextSummary: "",
+    cwd: process.cwd(),
+    command: process.execPath,
+    args: [mockPath],
+    env: { ...process.env },
+    classification: "explicit",
+  });
+  t.after(async () => child.stop());
+  await child.start();
+
+  const testOnlyChild =
+    /** @type {{
+     * request: (command: Record<string, unknown>, timeoutMs: number) => Promise<unknown>,
+     * proc: import("node:child_process").ChildProcessWithoutNullStreams,
+     * pending: Map<string, unknown>
+     * }} */ (/** @type {unknown} */ (child));
+  for (const failure of [new Error("mock synchronous write failure"), "mock non-Error write failure"]) {
+    const write = t.mock.method(testOnlyChild.proc.stdin, "write", () => {
+      throw failure;
+    });
+    try {
+      await assert.rejects(testOnlyChild.request({ type: "get_state" }, 1_000), (error) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /RPC write failure for "get_state"/);
+        assert.match(error.message, /mock .*write failure/);
+        assert.match(error.message, /child=write123/);
+        assert.match(error.message, /pid=\d+/);
+        assert.match(error.message, /model=test\/model/);
+        assert.match(error.message, /exitCode=pending/);
+        assert.match(error.message, /signal=none/);
+        return true;
+      });
+      assert.equal(testOnlyChild.pending.size, 0, "a failed write must not leave a request waiting for timeout");
+    } finally {
+      write.mock.restore();
+    }
+  }
+  await child.refresh();
+  assert.equal(child.snapshot().error, undefined, "a write failure alone must not fail the child");
+});
+
+test("unexpected child exits include process diagnostics and stderr", async (t) => {
+  const child = new ManagedSubagent({
+    id: "exit123",
+    name: "exit-child",
+    task: "EXIT_UNEXPECTED",
+    model: "test/model",
+    effort: "off",
+    contextSummary: "",
+    cwd: process.cwd(),
+    command: process.execPath,
+    args: [mockPath],
+    env: { ...process.env },
+    classification: "explicit",
+  });
+  t.after(async () => child.stop());
+
+  await assert.rejects(child.start(), (error) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /process closed unexpectedly/);
+    assert.match(error.message, /child=exit123/);
+    assert.match(error.message, /pid=\d+/);
+    assert.match(error.message, /model=test\/model/);
+    assert.match(error.message, /exitCode=17/);
+    assert.match(error.message, /signal=none/);
+    assert.match(error.message, /mock child fatal diagnostic/);
+    return true;
+  });
+  assert.match(child.snapshot().error ?? "", /process closed unexpectedly/);
+  assert.match(child.snapshot().stderr ?? "", /mock child fatal diagnostic/);
+});
+
+test("signal-terminated child exits do not report a pending exit code", async (t) => {
+  const child = new ManagedSubagent({
+    id: "signal123",
+    name: "signal-child",
+    task: "SIGNAL_UNEXPECTED",
+    model: "test/model",
+    effort: "off",
+    contextSummary: "",
+    cwd: process.cwd(),
+    command: process.execPath,
+    args: [mockPath],
+    env: { ...process.env },
+    classification: "explicit",
+  });
+  t.after(async () => child.stop());
+
+  await assert.rejects(child.start(), (error) => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /process closed unexpectedly/);
+    assert.match(error.message, /exitCode=none/);
+    assert.match(error.message, /signal=SIGKILL/);
+    assert.doesNotMatch(error.message, /exitCode=pending/);
+    assert.match(error.message, /mock child signal diagnostic/);
+    return true;
+  });
+});
+
 test("managed child accepts Pi-sized image event lines above four MiB", async (t) => {
   const child = new ManagedSubagent({
     id: "large123",
