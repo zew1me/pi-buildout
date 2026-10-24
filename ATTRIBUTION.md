@@ -291,6 +291,11 @@ patterns.
 - Revision reviewed: `107f1c7418fe9e3a4de739615c3cde0360f04903`
 - License: MIT, copyright (c) 2026 Nigel Stuke (same notice as this repository's `LICENSE`)
 
+Same-author installer ownership checks adapt the reviewed revision's exact-content legacy-file checks and pre-deletion
+recheck. Unknown files, symlinks, and directories require manual review instead of deletion. Tests and documentation are
+extended here; router/OTel installation, runtime dependency management, and publishing changes were not adopted. The
+existing MIT notice applies.
+
 Conceptual inspiration from `scripts/skills-patch-packages.mjs` and `scripts/skills-patch-dispatch.test.mjs`: discover
 supported versions from the overlay directories and exercise dispatch assertions for each retained patch. This
 repository reuses its existing `overlayVersions()` discovery instead of copying the fork's package-discovery
