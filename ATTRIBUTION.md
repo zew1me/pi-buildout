@@ -179,21 +179,45 @@ are reused byte-for-byte from 1.1.0 because Pi 1.3.0's `src/cli.ts`, `src/rpc-en
 unchanged. The published `dist/bundle/cli.js` loader remains unchanged and checksum-pinned. Upstream changes elsewhere
 in 1.3.0, including those near the seams, were not adopted. No complete Pi source checkout is committed.
 
+## Pi 1.4.0 `/skills` runtime patch
+
+- Source: `@earendil-works/pi-coding-agent@1.4.0`
+- Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
+- Upstream revision reviewed: `4a080252f06caf63a525d7873c5d94d3c23887e0` (`v1.4.0`), the commit referenced by the
+  lightweight release tag; the npm registry publishes no `gitHead`, and GitHub reports the commit as unsigned
+- Source archive: `pi-1.4.0-source.tar.gz`, verified against the release's published `SHA256SUMS`
+- npm tarball: `pi-coding-agent-1.4.0.tgz`, pinned by SHA-256 and registry integrity
+- License declared by the package: MIT
+
+[`pi-overlay/versions/1.4.0/integration.patch`](pi-overlay/versions/1.4.0/integration.patch) adapts the existing seam
+against Pi 1.4.0's MIT-licensed TypeScript sources and documentation. The modified-code patch retains the same additions
+and removals as 1.3.0; the interactive-mode hunk positions and blob indexes are refreshed. The generated
+[`skills.patch`](patches/pi-1.4.0/skills.patch) changes the resource loader, slash-command list, CLI/interactive
+dispatch, and skill documentation within the same 48-line generated-runtime seam budget. It adds this repository's
+original skill-management modules unchanged, reusing Pi's package discovery, project trust, path, and locking APIs
+rather than copying its skill implementation. The original CLI/RPC wrappers are reused byte-for-byte from 1.3.0 after
+reviewing 1.4.0's unchanged entrypoint sources and setup. The unchanged compile-cache loader is checksum-pinned. The
+build order follows 1.4.0's root build, with telemetry first. Pi's automatic activation of all discovered skills and
+unrelated runtime changes are intentionally not adopted into the overlay; unrelated package files and bundled chunks are
+left unchanged. No complete Pi source checkout is committed.
+
 ## Pi `/skills` TypeScript overlay
 
 - Source: `@earendil-works/pi-coding-agent@1.0.3`, `@earendil-works/pi-coding-agent@1.0.4`,
-  `@earendil-works/pi-coding-agent@1.1.0`, and `@earendil-works/pi-coding-agent@1.3.0`
+  `@earendil-works/pi-coding-agent@1.1.0`, `@earendil-works/pi-coding-agent@1.3.0`, and
+  `@earendil-works/pi-coding-agent@1.4.0`
 - Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
 - Upstream revisions reviewed: `d78dc83d633229d12f8b79631384c4c2717c399f` (`v1.0.3`) and
   `7c10bd4337495ee613f2224843ecdf349b80d1df` (`v1.0.4`), taken from the npm registry's `gitHead`; and
-  `abe508e1b89912adde45528136c3221eb69acdd7` (`v1.1.0`) and `71023aec1546d6d677a65669c5665c0927ce0dd0` (`v1.3.0`), the
-  commits the release tags point to, because the registry publishes no `gitHead` for those releases
-- Source acquired from the 1.0.3, 1.0.4, 1.1.0, and 1.3.0 release archives and verified against each release's published
-  `SHA256SUMS`
+  `abe508e1b89912adde45528136c3221eb69acdd7` (`v1.1.0`), `71023aec1546d6d677a65669c5665c0927ce0dd0` (`v1.3.0`), and
+  `4a080252f06caf63a525d7873c5d94d3c23887e0` (`v1.4.0`), the commits the release tags point to, because the registry
+  publishes no `gitHead` for those releases
+- Source acquired from the 1.0.3, 1.0.4, 1.1.0, 1.3.0, and 1.4.0 release archives and verified against each release's
+  published `SHA256SUMS`
 - License declared by the package: MIT
 
 [`pi-overlay`](pi-overlay) is the authored form of the `/skills` runtime patch; the artifacts under `patches/pi-1.0.3/`,
-`patches/pi-1.0.4/`, `patches/pi-1.1.0/`, and `patches/pi-1.3.0/` are generated from it.
+`patches/pi-1.0.4/`, `patches/pi-1.1.0/`, `patches/pi-1.3.0/`, and `patches/pi-1.4.0/` are generated from it.
 
 `pi-overlay/skill-management-core.ts` and `pi-overlay/skill-management.ts` are original code for this repository. They
 are a TypeScript reimplementation of the `dist/core/skill-management.js` previously authored here as JavaScript,

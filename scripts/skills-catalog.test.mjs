@@ -20,10 +20,14 @@ import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-const patchDirectory = join(repositoryRoot, "patches", "pi-1.0.3");
+// Default to the minimum supported development dependency. Explicit fixtures let release verification run
+// the same behavior suite against a clean, isolated npm install without touching the live Pi package.
+const version = process.env.PI_SKILLS_TEST_VERSION ?? "1.0.3";
+const patchDirectory = join(repositoryRoot, "patches", `pi-${version}`);
 const patchPath = join(patchDirectory, "skills.patch");
-// Use the minimum supported Pi development dependency as the clean patch baseline.
-const packageRoot = join(repositoryRoot, "node_modules", "@earendil-works", "pi-coding-agent");
+const packageRoot =
+  process.env.PI_SKILLS_TEST_PACKAGE_DIR ?? join(repositoryRoot, "node_modules", "@earendil-works", "pi-coding-agent");
+const hoistedDependencies = join(packageRoot, "..", "..");
 
 async function exists(path) {
   try {
@@ -42,14 +46,14 @@ async function sha256(path) {
 async function baselineProblem() {
   const packageJsonPath = join(packageRoot, "package.json");
   if (!(await exists(packageJsonPath))) {
-    return "the pinned Pi 1.0.3 baseline package is unavailable";
+    return `the pinned Pi ${version} baseline package is unavailable`;
   }
-  if (!(await exists(join(packageRoot, "node_modules")))) {
+  if (!(await exists(hoistedDependencies))) {
     return "the installed pi package dependencies are unavailable";
   }
   const packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
-  if (packageJson.version !== "1.0.3") {
-    return `the installed pi package is ${String(packageJson.version)}, not 1.0.3`;
+  if (packageJson.version !== version) {
+    return `the installed pi package is ${String(packageJson.version)}, not ${version}`;
   }
   const manifest = await readFile(join(patchDirectory, "baseline.sha256"), "utf8");
   for (const line of manifest.trim().split("\n")) {
@@ -62,7 +66,7 @@ async function baselineProblem() {
       !(await exists(baselinePath)) ||
       (await sha256(baselinePath)) !== expected
     ) {
-      return `the installed pi package does not match the 1.0.3 baseline at ${relativePath ?? "an unknown path"}`;
+      return `the installed pi package does not match the ${version} baseline at ${relativePath ?? "an unknown path"}`;
     }
   }
   const absentManifest = await readFile(join(patchDirectory, "baseline.absent"), "utf8");
@@ -71,7 +75,7 @@ async function baselineProblem() {
     .map((line) => line.trim())
     .filter(Boolean)) {
     if (await exists(join(packageRoot, relativePath))) {
-      return `the installed pi package does not match the 1.0.3 baseline at ${relativePath}`;
+      return `the installed pi package does not match the ${version} baseline at ${relativePath}`;
     }
   }
   return undefined;
@@ -169,7 +173,8 @@ async function linkOnce(source, destination) {
 async function linkDependencies(target) {
   const destination = join(target, "node_modules");
   await mkdir(destination, { recursive: true });
-  for (const layer of [join(packageRoot, "node_modules"), join(repositoryRoot, "node_modules")]) {
+  for (const layer of [join(packageRoot, "node_modules"), hoistedDependencies]) {
+    if (!(await exists(layer))) continue;
     for (const entry of await readdir(layer, { withFileTypes: true })) {
       if (entry.name.startsWith(".")) continue;
       if (!entry.name.startsWith("@")) {
@@ -257,9 +262,10 @@ async function addSkillsConcurrently(patchedPackage, sources, scope, options) {
   }
 }
 
-test("the patched catalog resolves fixed, package, and settings skills with trust and precedence", async (t) => {
+test(`pi ${version}: the patched catalog resolves fixed, package, and settings skills with trust and precedence`, async (t) => {
   const problem = await baselineProblem();
   if (problem) {
+    assert.ok(!process.env.PI_SKILLS_TEST_PACKAGE_DIR && !process.env.PI_SKILLS_TEST_VERSION, problem);
     t.skip(problem);
     return;
   }
@@ -289,14 +295,17 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       throw error;
     }
 
-    const preExpansionPackage = join(temporaryRoot, "pre-expansion-package");
-    await createPatchedPackage(preExpansionPackage);
-    await applyPatch(preExpansionPackage, join(patchDirectory, "pre-expansion-upgrade.patch"), true);
-    await verifyManifest(preExpansionPackage, "pre-expansion-patched.sha256");
-    const preExpansionResult = await runInstaller(preExpansionPackage, join(temporaryRoot, "pre-expansion-agent"));
-    assert.equal(preExpansionResult.code, 0, preExpansionResult.stderr);
-    assert.match(preExpansionResult.stdout, /Upgrading a previously applied \/skills patch/u);
-    await verifyManifest(preExpansionPackage, "patched.sha256");
+    // New release patches have no historical patched state to migrate.
+    if (await exists(join(patchDirectory, "pre-expansion-upgrade.patch"))) {
+      const preExpansionPackage = join(temporaryRoot, "pre-expansion-package");
+      await createPatchedPackage(preExpansionPackage);
+      await applyPatch(preExpansionPackage, join(patchDirectory, "pre-expansion-upgrade.patch"), true);
+      await verifyManifest(preExpansionPackage, "pre-expansion-patched.sha256");
+      const preExpansionResult = await runInstaller(preExpansionPackage, join(temporaryRoot, "pre-expansion-agent"));
+      assert.equal(preExpansionResult.code, 0, preExpansionResult.stderr);
+      assert.match(preExpansionResult.stdout, /Upgrading a previously applied \/skills patch/u);
+      await verifyManifest(preExpansionPackage, "patched.sha256");
+    }
 
     await Promise.all([
       writeSkill(join(agentDir, "skills", "fixed"), "fixed-choice", "global fixed directory"),
@@ -558,6 +567,29 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
       assert.equal(resolved, catalogByName.get(name)?.filePath, name);
     }
 
+    const inactiveAgentDir = join(fixtureRoot, "inactive-agent");
+    const sessionSkill = join(inactiveAgentDir, "skills", "session");
+    await writeSkill(sessionSkill, "session-skill", "explicit session fixture");
+    const inactiveLoader = new DefaultResourceLoader({ cwd, agentDir: inactiveAgentDir, noExtensions: true });
+    await inactiveLoader.reload();
+    assert.deepEqual(inactiveLoader.getSkills().skills, [], "discovered skills are inactive by default");
+    const sessionLoader = new DefaultResourceLoader({
+      cwd,
+      agentDir: inactiveAgentDir,
+      noExtensions: true,
+      noSkills: true,
+      additionalSkillPaths: [sessionSkill],
+    });
+    await sessionLoader.reload();
+    assert.deepEqual(
+      sessionLoader.getSkills().skills.map((skill) => skill.name),
+      ["session-skill"],
+      "explicit session skills still load with --no-skills",
+    );
+    const suppressedLoader = new DefaultResourceLoader({ cwd, agentDir, settingsManager, noSkills: true });
+    await suppressedLoader.reload();
+    assert.deepEqual(suppressedLoader.getSkills().skills, [], "--no-skills suppresses persisted activation");
+
     const loader = new DefaultResourceLoader({ cwd, agentDir, settingsManager });
     await loader.reload();
     assert.deepEqual(
@@ -586,11 +618,11 @@ test("the patched catalog resolves fixed, package, and settings skills with trus
   }
 });
 
-// A clean 1.0.3 package must take the patch exactly once, and a rerun must recognise the applied result rather than
-// patch it again.
-test("the installer applies the 1.0.3 patch to a clean package once and then reports it applied", async (t) => {
+// A clean package must take its version's patch exactly once, and a rerun must recognise the applied result.
+test(`pi ${version}: the installer applies the patch to a clean package once and then reports it applied`, async (t) => {
   const problem = await baselineProblem();
   if (problem) {
+    assert.ok(!process.env.PI_SKILLS_TEST_PACKAGE_DIR && !process.env.PI_SKILLS_TEST_VERSION, problem);
     t.skip(problem);
     return;
   }
@@ -603,12 +635,12 @@ test("the installer applies the 1.0.3 patch to a clean package once and then rep
 
     const applied = await runInstaller(cleanPackage, agentDirectory);
     assert.equal(applied.code, 0, applied.stderr);
-    assert.match(applied.stdout, /Applied \/skills patch for pi 1\.0\.3/u);
+    assert.ok(applied.stdout.includes(`Applied /skills patch for pi ${version}`), applied.stdout);
     await verifyManifest(cleanPackage, "patched.sha256");
 
     const rerun = await runInstaller(cleanPackage, agentDirectory);
     assert.equal(rerun.code, 0, rerun.stderr);
-    assert.match(rerun.stdout, /\/skills patch for pi 1\.0\.3 is already applied\./u);
+    assert.ok(rerun.stdout.includes(`/skills patch for pi ${version} is already applied.`), rerun.stdout);
   } finally {
     await rm(temporaryRoot, { recursive: true, force: true });
   }
