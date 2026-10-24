@@ -138,7 +138,7 @@ export function findRequestedModel(
 export function supportedThinkingLevels(model: ModelLike): ThinkingLevel[] {
   if (model.reasoning === false) return ["off"];
   // OpenAI's direct GPT-5.6 endpoint currently rejects `minimal` and `max`
-  // even though pi 0.80.6's generated metadata leaves minimal implicit and
+  // even though Pi's generated metadata leaves minimal implicit and
   // maps max. Keep routing from selecting values the live API rejects.
   if (model.provider.toLowerCase() === "openai" && /^gpt-5\.6(?:[-.]|$)/i.test(model.id)) {
     return ["off", "low", "medium", "high", "xhigh"];

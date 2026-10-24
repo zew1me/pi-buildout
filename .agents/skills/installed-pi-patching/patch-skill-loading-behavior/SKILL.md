@@ -32,7 +32,7 @@ pi --version
 ls /opt/homebrew/Cellar/pi-coding-agent
 ```
 
-Important files in the installed pi 0.80.6 package were, at the time this was written:
+Supported Pi releases start at 1.0.3. Important runtime files include:
 
 ```text
 dist/core/resource-loader.js      # resource discovery/loading, skills/prompts/themes/extensions
@@ -47,9 +47,9 @@ docs/skills.md                    # skill docs
 README.md                         # high-level docs and CLI table
 ```
 
-Pi 0.84.4 and later dispatch the installed `pi` command and RPC entrypoint through `dist/bundle/`; versioned patches for
-those releases therefore also replace those two bundled entrypoints with wrappers around the patched unbundled runtime.
-Include any such entrypoint files in the patch and checksum manifests when a release switches its package bin layout.
+Supported Pi releases dispatch the installed `pi` command and RPC entrypoint through `dist/bundle/`; versioned patches
+therefore replace those two bundled entrypoints with wrappers around the patched unbundled runtime. Include any such
+entrypoint files in the patch and checksum manifests when a release switches its package bin layout.
 
 Source maps may exist, but the editable runtime is `dist/*.js`. Prefer changing the smallest runtime surface that proves
 the behavior.
@@ -160,7 +160,7 @@ current checkout relative to the repository root, because one `repo-skills.json`
 with the same remote; otherwise keep a `~` or `$NAME` spelling as typed and store any other path absolute, under `~`
 when it is in the home directory. Resolve relative repository entries against the current checkout root and relative
 global entries against the working directory, and compare entries by the real path they name so equivalent spellings
-match. Patches before 0.85.1 stored path sources verbatim, so explain an unresolvable relative global entry.
+match. Explain an unresolvable relative global entry.
 
 Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
 synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without

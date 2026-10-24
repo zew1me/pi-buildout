@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { DynamicBorder, getAgentDir, VERSION } from "@earendil-works/pi-coding-agent";
+import { DynamicBorder, getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Container, Key, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import {
   cycleApplyMode,
@@ -43,7 +43,7 @@ export default function effortExtension(pi: ExtensionAPI) {
         return;
       }
 
-      const thinkingLevels = getThinkingLevelsForModel(VERSION, ctx.model);
+      const thinkingLevels = getThinkingLevelsForModel(ctx.model);
 
       const argument = parseThinkingLevelArgument(_args);
       if (argument.kind === "level") {

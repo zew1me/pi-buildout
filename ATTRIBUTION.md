@@ -259,3 +259,16 @@ Major pieces intentionally not adopted include Pi's full interactive mode, sessi
 workflows, custom provider implementations, and bundled role-based subagent profiles. No Pi source file or example was
 copied verbatim; the extension is original code using Pi's published APIs and adapting the documented architectural
 patterns.
+
+## Nigel-upstart pi-buildout maintenance patterns
+
+- Source: `nigel-upstart/pi-buildout`
+- Canonical repository: <https://github.com/nigel-upstart/pi-buildout>
+- Revision reviewed: `107f1c7418fe9e3a4de739615c3cde0360f04903`
+- License: MIT, copyright (c) 2026 Nigel Stuke (same notice as this repository's `LICENSE`)
+
+Conceptual inspiration from `scripts/skills-patch-packages.mjs` and `scripts/skills-patch-dispatch.test.mjs`: discover
+supported versions from the overlay directories and exercise dispatch assertions for each retained patch. This
+repository reuses its existing `overlayVersions()` discovery instead of copying the fork's package-discovery
+implementation. No fork code was copied. The fork's package publishing, router, telemetry extensions, additional
+baseline aliases, and newer development-version floor were not adopted; the development baseline here is Pi 1.0.3.

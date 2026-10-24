@@ -3,8 +3,9 @@
 The authored form of the `/skills` runtime patch. Reviewed TypeScript here is the source of truth; the artifacts under
 `patches/pi-<version>/` are generated from it.
 
-Only the latest patched pi release and up to four previous ones keep a `versions/<version>/` directory here (see the
-root README). Retiring a version removes that directory and its `patches/pi-<version>/` artifacts in the same change.
+Pi releases before 1.0.3 are unsupported. Only the latest patched pi release and up to four previous ones keep a
+`versions/<version>/` directory here (see the root README). Retiring a version removes that directory and its
+`patches/pi-<version>/` artifacts in the same change.
 
 ## Layout
 

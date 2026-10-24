@@ -5,7 +5,6 @@ import {
   cycleApplyMode,
   getThinkingLevelsForModel,
   parseThinkingLevelArgument,
-  supportsVerifiedThinkingLevels,
   updateDefaultThinkingLevelJson,
 } from "./helpers.ts";
 
@@ -13,33 +12,14 @@ import {
 // public contract of the /effort argument parser.
 const ALL_THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 
-describe("supportsVerifiedThinkingLevels", () => {
-  it("gates provider-verified metadata at pi 0.82.0", () => {
-    assert.equal(supportsVerifiedThinkingLevels("0.81.1"), false);
-    assert.equal(supportsVerifiedThinkingLevels("0.82.0"), true);
-    assert.equal(supportsVerifiedThinkingLevels("1.0.0"), true);
-  });
-
-  it("falls back safely for malformed versions", () => {
-    assert.equal(supportsVerifiedThinkingLevels("unknown"), false);
-    assert.equal(supportsVerifiedThinkingLevels("0.82.0garbage"), false);
-  });
-});
-
 describe("getThinkingLevelsForModel", () => {
-  it("keeps all historical choices below pi 0.82.0", () => {
-    assert.deepEqual(
-      getThinkingLevelsForModel("0.81.1", {
-        reasoning: true,
-        thinkingLevelMap: { off: null, low: "low", high: "high" },
-      }),
-      ["off", "minimal", "low", "medium", "high", "xhigh", "max"],
-    );
+  it("offers all choices when no model is selected", () => {
+    assert.deepEqual(getThinkingLevelsForModel(undefined), ALL_THINKING_LEVELS);
   });
 
   it("filters choices using provider-verified model metadata", () => {
     assert.deepEqual(
-      getThinkingLevelsForModel("0.82.0", {
+      getThinkingLevelsForModel({
         reasoning: true,
         thinkingLevelMap: {
           off: "none",
@@ -56,17 +36,11 @@ describe("getThinkingLevelsForModel", () => {
   });
 
   it("only offers off for models without reasoning support", () => {
-    assert.deepEqual(getThinkingLevelsForModel("0.82.0", { reasoning: false }), ["off"]);
+    assert.deepEqual(getThinkingLevelsForModel({ reasoning: false }), ["off"]);
   });
 
   it("does not infer xhigh or max without model metadata", () => {
-    assert.deepEqual(getThinkingLevelsForModel("0.82.0", { reasoning: true }), [
-      "off",
-      "minimal",
-      "low",
-      "medium",
-      "high",
-    ]);
+    assert.deepEqual(getThinkingLevelsForModel({ reasoning: true }), ["off", "minimal", "low", "medium", "high"]);
   });
 });
 
