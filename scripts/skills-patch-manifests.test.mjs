@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { countUpstreamEditedLines, patchedFileList } from "./build-pi-patch.mjs";
+import { countUpstreamEditedLines, overlayVersions, patchedFileList } from "./build-pi-patch.mjs";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
-for (const version of ["1.0.3", "1.0.4", "1.1.0", "1.3.0"]) {
+for (const version of overlayVersions()) {
   const manifest = JSON.parse(await readFile(join(root, `pi-overlay/versions/${version}/upstream.json`), "utf8"));
   const patchDir = join(root, `patches/pi-${version}`);
 
@@ -48,3 +48,17 @@ function checksum(text, path) {
   assert.ok(line, `${path} missing from checksum manifest`);
   return line.split(/\s+/u)[0];
 }
+
+test("retained patches and overlays agree and support only Pi 1.0.3 or newer", async () => {
+  const versions = overlayVersions();
+  assert.ok(versions.length > 0);
+  assert.ok(versions.length <= 5, "retain at most five patch versions");
+  const patches = (await readdir(join(root, "patches"))).filter((name) => name.startsWith("pi-"));
+  assert.deepEqual(new Set(patches), new Set(versions.map((version) => `pi-${version}`)));
+  for (const version of versions) {
+    const [major, minor, patch] = version.split(".").map(Number);
+    assert.ok(major > 1 || (major === 1 && (minor > 0 || patch >= 3)), `unsupported Pi ${version}`);
+  }
+  const { devDependencies } = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
+  assert.equal(devDependencies["@earendil-works/pi-coding-agent"], versions[0]);
+});

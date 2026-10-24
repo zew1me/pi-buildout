@@ -100,7 +100,7 @@ function throwIfAborted(signal: AbortSignal | undefined): void {
 }
 
 function modelRuntimeFromContext(ctx: ExtensionContext): ModelRuntime {
-  // Pi 0.84.1 exposes a compatibility ModelRegistry facade to extensions while
+  // Pi exposes a compatibility ModelRegistry facade to extensions while
   // createAgentSession accepts its underlying canonical ModelRuntime.
   const runtime = Reflect.get(ctx.modelRegistry, "runtime") as unknown;
   if (!runtime) throw new Error("Pi did not expose the active model runtime.");

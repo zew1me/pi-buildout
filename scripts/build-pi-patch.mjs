@@ -384,7 +384,7 @@ function assertUpgradeStatesRoundTrip(workDir, patchedRoot, outputDir) {
 }
 
 /** Every Pi version with a committed overlay, oldest first. */
-function overlayVersions() {
+export function overlayVersions() {
   const versionsDir = join(repositoryRoot, "pi-overlay", "versions");
   const numeric = (version) => version.split(".").map(Number);
   return readdirSync(versionsDir, { withFileTypes: true })

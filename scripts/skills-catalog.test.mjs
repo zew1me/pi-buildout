@@ -22,8 +22,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
 const patchDirectory = join(repositoryRoot, "patches", "pi-1.0.3");
 const patchPath = join(patchDirectory, "skills.patch");
-// The repository develops against Pi 1.0.1; the 1.0.3 baseline is installed under a pinned npm alias.
-const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-1.0.3");
+// Use the minimum supported Pi development dependency as the clean patch baseline.
+const packageRoot = join(repositoryRoot, "node_modules", "@earendil-works", "pi-coding-agent");
 
 async function exists(path) {
   try {
@@ -42,7 +42,7 @@ async function sha256(path) {
 async function baselineProblem() {
   const packageJsonPath = join(packageRoot, "package.json");
   if (!(await exists(packageJsonPath))) {
-    return "the pinned pi-coding-agent-1.0.3 baseline package is unavailable";
+    return "the pinned Pi 1.0.3 baseline package is unavailable";
   }
   if (!(await exists(join(packageRoot, "node_modules")))) {
     return "the installed pi package dependencies are unavailable";

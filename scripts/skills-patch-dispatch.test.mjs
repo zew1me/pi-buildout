@@ -6,6 +6,8 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
+import { overlayVersions } from "./build-pi-patch.mjs";
+
 /**
  * Guards the wiring the patch installs, not the behaviour behind it.
  *
@@ -37,52 +39,56 @@ function addedLinesFor(patchText, file) {
   return added.join("\n");
 }
 
+for (const version of overlayVersions()) {
+  const patchText = await readFile(new URL(`../patches/pi-${version}/skills.patch`, import.meta.url), "utf8");
+
+  test(`pi ${version}: the builtin command list registers /skills with its argument hint`, () => {
+    const added = addedLinesFor(patchText, "dist/core/slash-commands.js");
+    assert.match(added, /name: "skills"/u);
+    assert.match(added, /argumentHint: "<active\|list\|search\|add\|remove\|reload>"/u);
+  });
+
+  test(`pi ${version}: interactive mode delegates /skills to the shared module`, () => {
+    const added = addedLinesFor(patchText, "dist/modes/interactive/interactive-mode.js");
+    assert.match(added, /import \{ handleSkillsInteractive \} from "\.\.\/\.\.\/core\/skill-management\.js"/u);
+    assert.match(added, /async handleSkillsCommand\(text\)/u);
+    assert.match(added, /await handleSkillsInteractive\(text, \{/u);
+    // Defining the handler is not enough: pi dispatches slash commands through an explicit `if (text === ...)`
+    // chain, and BUILTIN_SLASH_COMMANDS carries only metadata. Without this branch the method is dead code and
+    // `/skills` is submitted to the model as an ordinary message.
+    assert.match(added, /if \(text === "\/skills" \|\| text\.startsWith\("\/skills "\)\) \{/u);
+    assert.match(added, /await this\.handleSkillsCommand\(text\);/u);
+    assert.doesNotMatch(added, /runSkillsCommand\(/u, "interactive mode must not re-implement the dispatch");
+  });
+
+  test(`pi ${version}: interactive mode forwards the session skill list so session scope can mutate it`, () => {
+    const added = addedLinesFor(patchText, "dist/modes/interactive/interactive-mode.js");
+    assert.match(added, /additionalSkillPaths: this\.session\.resourceLoader\.additionalSkillPaths/u);
+    assert.match(added, /reload: \(\) => this\.handleReloadCommand\(\)/u);
+  });
+
+  test(`pi ${version}: the one-shot CLI delegates pi skills to the shared module`, () => {
+    const added = addedLinesFor(patchText, "dist/main.js");
+    assert.match(added, /import \{ handleSkillsCli \} from "\.\/core\/skill-management\.js"/u);
+    assert.match(added, /if \(args\[0\] === "skills"\)/u);
+    assert.match(added, /await handleSkillsCli\(\{/u);
+  });
+
+  test(`pi ${version}: the resource loader asks the shared module for active skills and keeps no skill API of its own`, () => {
+    const added = addedLinesFor(patchText, "dist/core/resource-loader.js");
+    assert.match(added, /import \{ resolveActiveSkillPaths \} from "\.\/skill-management\.js"/u);
+    assert.match(added, /await resolveActiveSkillPaths\(\{/u);
+    for (const removed of ["getActiveSkillPaths", "resolveSkillEntry", "findCatalogSkillPath"]) {
+      assert.doesNotMatch(added, new RegExp(`${removed}\\(`, "u"), `${removed} belongs in skill-management`);
+    }
+  });
+}
+
 const patchText = await readFile(patchPath, "utf8");
 
-test("the builtin command list registers /skills with its argument hint", () => {
-  const added = addedLinesFor(patchText, "dist/core/slash-commands.js");
-  assert.match(added, /name: "skills"/u);
-  assert.match(added, /argumentHint: "<active\|list\|search\|add\|remove\|reload>"/u);
-});
-
-test("interactive mode delegates /skills to the shared module", () => {
-  const added = addedLinesFor(patchText, "dist/modes/interactive/interactive-mode.js");
-  assert.match(added, /import \{ handleSkillsInteractive \} from "\.\.\/\.\.\/core\/skill-management\.js"/u);
-  assert.match(added, /async handleSkillsCommand\(text\)/u);
-  assert.match(added, /await handleSkillsInteractive\(text, \{/u);
-  // Defining the handler is not enough: pi dispatches slash commands through an explicit `if (text === ...)`
-  // chain, and BUILTIN_SLASH_COMMANDS carries only metadata. Without this branch the method is dead code and
-  // `/skills` is submitted to the model as an ordinary message.
-  assert.match(added, /if \(text === "\/skills" \|\| text\.startsWith\("\/skills "\)\) \{/u);
-  assert.match(added, /await this\.handleSkillsCommand\(text\);/u);
-  assert.doesNotMatch(added, /runSkillsCommand\(/u, "interactive mode must not re-implement the dispatch");
-});
-
-test("interactive mode forwards the session skill list so session scope can mutate it", () => {
-  const added = addedLinesFor(patchText, "dist/modes/interactive/interactive-mode.js");
-  assert.match(added, /additionalSkillPaths: this\.session\.resourceLoader\.additionalSkillPaths/u);
-  assert.match(added, /reload: \(\) => this\.handleReloadCommand\(\)/u);
-});
-
-test("the one-shot CLI delegates pi skills to the shared module", () => {
-  const added = addedLinesFor(patchText, "dist/main.js");
-  assert.match(added, /import \{ handleSkillsCli \} from "\.\/core\/skill-management\.js"/u);
-  assert.match(added, /if \(args\[0\] === "skills"\)/u);
-  assert.match(added, /await handleSkillsCli\(\{/u);
-});
-
-test("the resource loader asks the shared module for active skills and keeps no skill API of its own", () => {
-  const added = addedLinesFor(patchText, "dist/core/resource-loader.js");
-  assert.match(added, /import \{ resolveActiveSkillPaths \} from "\.\/skill-management\.js"/u);
-  assert.match(added, /await resolveActiveSkillPaths\(\{/u);
-  for (const removed of ["getActiveSkillPaths", "resolveSkillEntry", "findCatalogSkillPath"]) {
-    assert.doesNotMatch(added, new RegExp(`${removed}\\(`, "u"), `${removed} belongs in skill-management`);
-  }
-});
-
 const repositoryRoot = fileURLToPath(new URL("..", import.meta.url));
-// The repository develops against Pi 1.0.1; the 1.0.3 baseline is installed under a pinned npm alias.
-const packageRoot = join(repositoryRoot, "node_modules", "pi-coding-agent-1.0.3");
+// Use the minimum supported Pi development dependency as the clean patch baseline.
+const packageRoot = join(repositoryRoot, "node_modules", "@earendil-works", "pi-coding-agent");
 
 async function exists(path) {
   try {
@@ -128,7 +134,7 @@ async function applyPatchTo(target) {
  */
 test("the applied patch leaves no relocated implementation behind", async (t) => {
   if (!(await exists(join(packageRoot, "package.json")))) {
-    t.skip("the pinned pi-coding-agent-1.0.3 baseline package is unavailable");
+    t.skip("the pinned Pi 1.0.3 baseline package is unavailable");
     return;
   }
 
