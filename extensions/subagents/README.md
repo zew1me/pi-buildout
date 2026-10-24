@@ -67,6 +67,12 @@ Even full fan-out is therefore bounded to 56 child processes per root tree.
 
 ## Verification
 
+The RPC integration test launches the Pi version pinned by the repository (currently 1.0.3) against a local
+deterministic OpenAI-compatible fixture, so it requires no provider credentials or external network access. It verifies
+the installed version matches the pin, isolates `PI_CODING_AGENT_DIR` and the working directory in temporary storage,
+and bounds the whole test to 90 seconds. Cleanup stops the child, closes held HTTP connections, and removes temporary
+files even on failure. It runs in CI through the standard `npm test` glob.
+
 ```bash
 node --test extensions/subagents/*.test.mjs
 pi -e extensions/subagents/index.ts --list-models > /dev/null

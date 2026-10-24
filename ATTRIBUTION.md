@@ -268,7 +268,10 @@ Ideas and API patterns used:
 - The skills patches adapt the synchronous `proper-lockfile` acquisition/retry and `finally` release pattern from Pi's
   trust manager so skill configuration updates serialize across processes.
 - SDK `AgentSession.compact()` with custom instructions and in-memory sessions.
-- RPC JSONL framing and the `prompt`, `steer`, `follow_up`, `abort`, state, and event protocols.
+- RPC JSONL framing and the `prompt`, `steer`, `follow_up`, `abort`, state, and event protocols. The real-RPC
+  integration test exercises these documented patterns against the pinned Pi CLI with a test-only provider registered
+  through `ExtensionAPI.registerProvider` and a deterministic loopback streaming endpoint; no Pi provider or RPC client
+  code was copied.
 - Model-registry authentication, fuzzy CLI-equivalent model resolution, thinking-level capability maps, and normal child
   resource inheritance.
 - Pi's thinking-level clamp policy (prefer the nearest supported level above the request, fall back downward only when
@@ -280,11 +283,15 @@ Ideas and API patterns used:
   bounds, and compaction setup.
 
 Major pieces intentionally not adopted include Pi's full interactive mode, session-replacement runtime, prompt-template
-workflows, custom provider implementations, and bundled role-based subagent profiles. No Pi source file or example was
-copied verbatim; the extension is original code using Pi's published APIs and adapting the documented architectural
-patterns.
+workflows, production custom provider implementations, and bundled role-based subagent profiles. No Pi source file or
+example was copied verbatim; the extension is original code using Pi's published APIs and adapting the documented
+architectural patterns.
 
 ## Nigel-upstart pi-buildout maintenance patterns
+
+The same-author RPC integration test/provider is adapted from the revision below, with isolated agent configuration,
+pinned-version verification, bounded execution, and failure-path HTTP cleanup added here. Production provider, router,
+telemetry, dependency, and release changes were not adopted; existing MIT notices apply.
 
 - Source: `nigel-upstart/pi-buildout`
 - Canonical repository: <https://github.com/nigel-upstart/pi-buildout>
