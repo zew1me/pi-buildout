@@ -12,6 +12,16 @@ function send(value) {
   process.stdout.write(`${JSON.stringify(value)}\n`);
 }
 
+/** Prompt markers that make the mock die after writing a stderr diagnostic. */
+const UNEXPECTED_EXITS = [
+  { marker: "EXIT_UNEXPECTED", stderr: "mock child fatal diagnostic\n", exit: () => process.exit(17) },
+  {
+    marker: "SIGNAL_UNEXPECTED",
+    stderr: "mock child signal diagnostic\n",
+    exit: () => process.kill(process.pid, "SIGKILL"),
+  },
+];
+
 const input = readline.createInterface({ input: process.stdin });
 input.on("line", (line) => {
   const command = JSON.parse(line);
@@ -55,7 +65,16 @@ input.on("line", (line) => {
     send({ id: command.id, type: "response", command: command.type, success: true });
     return;
   }
+  if (command.type === "timeout") {
+    process.stderr.write("mock timeout diagnostic\n");
+    return;
+  }
   if (command.type === "prompt") {
+    const unexpectedExit = UNEXPECTED_EXITS.find(({ marker }) => String(command.message).includes(marker));
+    if (unexpectedExit) {
+      process.stderr.write(unexpectedExit.stderr, unexpectedExit.exit);
+      return;
+    }
     prompts++;
     const promptNumber = prompts;
     const operation = ++activeOperation;
