@@ -294,11 +294,13 @@ patterns.
 Conceptual inspiration from `scripts/skills-patch-packages.mjs` and `scripts/skills-patch-dispatch.test.mjs`: discover
 supported versions from the overlay directories and exercise dispatch assertions for each retained patch. This
 repository reuses its existing `overlayVersions()` discovery instead of copying the fork's package-discovery
-implementation. No fork code was copied. The fork's package publishing, router, telemetry extensions, additional
-baseline aliases, and newer development-version floor were not adopted; the development baseline here is Pi 1.0.3.
+implementation. No fork code was copied for these script patterns. The fork's package publishing, router, telemetry
+extensions, additional baseline aliases, and newer development-version floor were not adopted; the development baseline
+here is Pi 1.0.3.
 
-Same-author synchronization also adapts `extensions/subagents/rpc.ts` and its test fixtures from the reviewed revision:
-owned Unix process-group liveness and ESRCH-only absence checks retain escalation for unsampled descendants.
+Same-author synchronization also adapts `extensions/subagents/rpc.ts`, `extensions/subagents/rpc.test.mjs`,
+`extensions/subagents/mock-rpc-child.mjs`, and `extensions/subagents/mock-rpc-descendant.mjs` from the reviewed
+revision: owned Unix process-group liveness and ESRCH-only absence checks retain escalation for unsampled descendants.
 Socket-based fixtures establish signal-handler readiness and observe execution termination without depending on PID
 reaping. These are modified code adaptations, not separate authorship; the existing MIT notice applies. Dependency
 updates, router, OTel, and release changes were not included.
