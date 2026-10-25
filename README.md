@@ -30,6 +30,16 @@ Use `PI_AGENT_DIR` to select another pi agent directory:
 PI_AGENT_DIR=/tmp/pi-agent ./scripts/install-extensions.sh
 ```
 
+For patching, discovery checks the exact `@earendil-works/pi-coding-agent` package identity. It supports direct CLI
+links, Homebrew wrappers, and direct or symlinked managed launchers in `<agent>/bin/pi` using
+`<agent>/install/current-version`. Managed discovery requires either both literal launcher signatures
+`PI_MANAGED_INSTALL_ROOT=` and `/install/current-version`, or `install/managed-install.json` with
+`kind: pi-managed-install`, numeric `schemaVersion: 1`, and `layout: releases-v1`. Launchers are inspected, never
+executed. A recognized but broken managed installation (even a missing install directory) stops discovery instead of
+patching an unrelated npm-global Pi; the active package's version must match the pointer. Unrelated sibling `install`
+paths, pointers, and releases do not change ordinary wrapper lookup or version-manager shims' npm-global fallback.
+Extension-only installation does not require Pi discovery.
+
 For a custom pi installation whose package path cannot be derived from `pi`, point `PI_PACKAGE_DIR` to the directory
 containing pi's `package.json`:
 
@@ -42,6 +52,14 @@ of runtime files from that patch's checksum manifest, stages and verifies the pa
 bundled pi releases, the versioned patch delegates the published entrypoints to the patched unbundled runtime. The
 installer can also migrate recognized earlier patch states and rejects unknown or mixed states. It does not modify pi
 settings. Use `--skip-skill-loading-patch` to install only the extensions.
+
+Legacy top-level `extensions/<name>.ts` and `<name>.test.mjs` files are retired only when they exactly match this
+checkout's `extensions/<name>/index.ts` and `index.test.mjs`. Unknown content (including unrecognized older versions),
+symlinks, and directories at those paths stop installation before any replacements. Review and back up each reported
+path, then move it **outside the extensions directory** before retrying. Do not simply rename it to another `.ts` file
+there: Pi may still load it alongside the replacement. Merge any local changes into the managed extension separately;
+the installer cannot determine whether an older or edited file is safe to delete. Files are checked again immediately
+before deletion to avoid removing content changed during installation.
 
 ### Where the `/skills` patch comes from
 

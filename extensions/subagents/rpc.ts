@@ -723,8 +723,13 @@ export class ManagedSubagent {
     };
     this.terminationPoll = setInterval(() => {
       const treeDead = this.terminationPids.every((target) => !this.pidIsAlive(target));
+      // SIGTERM can exit the root before the tree snapshot sees a resistant
+      // descendant. Keep escalation armed while our owned Unix group exists,
+      // even when every sampled PID is gone. Windows has no owned Unix group.
+      const ownsGroup = process.platform !== "win32" && this.options.ownsProcessGroup !== false;
+      const groupDead = !ownsGroup || !this.pidIsAlive(-pid);
       const windowsDone = process.platform !== "win32" || this.windowsKillersInFlight === 0;
-      if (treeDead && windowsDone) finish();
+      if (treeDead && groupDead && windowsDone) finish();
     }, 50);
     this.killTimer = setTimeout(() => {
       this.signalProcessTree("SIGKILL", true);
@@ -739,8 +744,10 @@ export class ManagedSubagent {
     try {
       process.kill(pid, 0);
       return true;
-    } catch {
-      return false;
+    } catch (error) {
+      // Only ESRCH proves absence. Permission/inspection failures must not
+      // cancel escalation; the existing terminal deadline still bounds cleanup.
+      return (error as NodeJS.ErrnoException).code !== "ESRCH";
     }
   }
 
