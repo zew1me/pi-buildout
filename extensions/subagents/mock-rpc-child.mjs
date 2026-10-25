@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { fileURLToPath } from "node:url";
 
 let streaming = false;
 let prompts = 0;
@@ -87,18 +88,26 @@ input.on("line", (line) => {
           });
           send({ type: "turn_end" });
         } else if (String(command.message).includes("SPAWN_DESCENDANT")) {
+          const port = process.env.PI_TEST_DESCENDANT_PORT;
+          const token = process.env.PI_TEST_DESCENDANT_TOKEN;
+          if (!port || !token) throw new Error("Missing descendant test observer");
           const descendant = spawn(
             process.execPath,
-            ["-e", "process.on('SIGTERM', () => {}); setInterval(() => {}, 1000)"],
-            { stdio: "ignore" },
+            [fileURLToPath(new URL("./mock-rpc-descendant.mjs", import.meta.url)), port, token],
+            { stdio: ["ignore", "ignore", "ignore", "ipc"] },
           );
-          const text = `descendant:${descendant.pid}`;
-          send({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: text } });
-          send({
-            type: "message_end",
-            message: { role: "assistant", content: [{ type: "text", text }], stopReason: "stop" },
+          descendant.once("message", () => {
+            const text = `descendant:${descendant.pid}`;
+            send({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: text } });
+            send({
+              type: "message_end",
+              message: { role: "assistant", content: [{ type: "text", text }], stopReason: "stop" },
+            });
+            send({ type: "turn_end" });
+            streaming = false;
+            send({ type: "agent_settled" });
           });
-          send({ type: "turn_end" });
+          return;
         } else if (String(command.message).includes("FAIL_MODEL")) {
           send({
             type: "message_end",
