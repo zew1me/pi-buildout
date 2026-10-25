@@ -61,6 +61,22 @@ trap 'exit 130' INT
 trap 'exit 143' TERM HUP
 trap cleanup EXIT
 
+check_legacy_extension_file() {
+  local extension=$1 suffix=$2 legacy_file legacy_source
+  legacy_file="$EXTENSION_DIR/$extension$suffix"
+  [[ -e "$legacy_file" || -L "$legacy_file" ]] || return 0
+  if [[ "$suffix" == .ts ]]; then
+    legacy_source="$ROOT_DIR/extensions/$extension/index.ts"
+  else
+    legacy_source="$ROOT_DIR/extensions/$extension/index.test.mjs"
+  fi
+  if [[ -L "$legacy_file" || ! -f "$legacy_file" || ! -f "$legacy_source" ]] \
+    || ! cmp -s "$legacy_file" "$legacy_source"; then
+    printf 'Cannot retire %s: it is not a recognized managed legacy extension file. Move it outside the extensions directory after reviewing it, then retry.\n' "$legacy_file" >&2
+    return 1
+  fi
+}
+
 sha256() {
   if command -v shasum > /dev/null; then
     shasum -a 256 "$1" | awk '{print $1}'
@@ -140,6 +156,13 @@ if ((!INSTALL_EXTENSIONS && !APPLY_SKILLS_PATCH)); then
 fi
 
 if ((INSTALL_EXTENSIONS)); then
+  # Pi loads both top-level files and directory entrypoints. Refuse unknown legacy
+  # names before patching or replacing any extension directories.
+  for extension in "${EXTENSIONS[@]}"; do
+    for suffix in .ts .test.mjs; do
+      check_legacy_extension_file "$extension" "$suffix"
+    done
+  done
   for extension in "${EXTENSIONS[@]}"; do
     if [[ ! -f "$ROOT_DIR/extensions/$extension/index.ts" ]]; then
       printf 'Missing packaged extension entrypoint: %s\n' "$ROOT_DIR/extensions/$extension/index.ts" >&2
@@ -343,11 +366,13 @@ if ((INSTALL_EXTENSIONS)); then
     EXTENSION_COMMIT_IN_PROGRESS=0
   done
 
-  # Pi discovers both extensions/name.ts and extensions/name/index.ts. After every
-  # managed directory replacement succeeds, remove any same-name top-level entrypoint
-  # left by the legacy layout so each extension loads exactly once.
+  # Recheck after replacements, immediately before each deletion: another process may have
+  # changed a legacy file while the new extension trees were being staged.
   for extension in "${EXTENSIONS[@]}"; do
-    rm -f "$EXTENSION_DIR/$extension.ts" "$EXTENSION_DIR/$extension.test.mjs"
+    for suffix in .ts .test.mjs; do
+      check_legacy_extension_file "$extension" "$suffix"
+      rm -f "$EXTENSION_DIR/$extension$suffix"
+    done
   done
 fi
 
