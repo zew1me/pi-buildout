@@ -283,3 +283,8 @@ Major pieces intentionally not adopted include Pi's full interactive mode, sessi
 workflows, custom provider implementations, and bundled role-based subagent profiles. No Pi source file or example was
 copied verbatim; the extension is original code using Pi's published APIs and adapting the documented architectural
 patterns.
+
+Pi's official launcher signatures and managed marker fields informed nonexecuting managed-install recognition:
+<https://github.com/earendil-works/pi>, local source revision `741fb3a686f8dcc075f12ea77f985967ced59e21`
+(`packages/coding-agent/src/package-manager-cli.ts`; MIT), plus the installed official launcher. These are behavioral
+references only; no launcher code, execution, installation, or self-update machinery was copied or adopted.
