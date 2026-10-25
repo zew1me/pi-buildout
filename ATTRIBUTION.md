@@ -299,5 +299,13 @@ existing MIT notice applies.
 Conceptual inspiration from `scripts/skills-patch-packages.mjs` and `scripts/skills-patch-dispatch.test.mjs`: discover
 supported versions from the overlay directories and exercise dispatch assertions for each retained patch. This
 repository reuses its existing `overlayVersions()` discovery instead of copying the fork's package-discovery
-implementation. No fork code was copied. The fork's package publishing, router, telemetry extensions, additional
-baseline aliases, and newer development-version floor were not adopted; the development baseline here is Pi 1.0.3.
+implementation. That version-discovery work copied no fork code.
+
+The shell-safe patch helpers in `scripts/build-pi-patch.mjs` are a modified adaptation of the same author's fork code
+introduced in `4508faacb4781207cf31de06fecfbe566a525497` and reviewed at the revision above: pass patch text on stdin,
+keep directory paths in direct arguments, propagate patch failures, and use Node filesystem copying. The existing MIT
+notice is preserved in `LICENSE`. The fork's artifact-staging changes and pinned-version/`--all` CLI were not adopted;
+this repository keeps its default all-overlay build and existing generated artifacts and migrations.
+
+The fork's package publishing, router, telemetry extensions, additional baseline aliases, and newer development-version
+floor were not adopted by this maintenance adaptation; the development baseline here is Pi 1.0.3.
