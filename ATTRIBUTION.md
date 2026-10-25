@@ -291,13 +291,26 @@ patterns.
 - Revision reviewed: `107f1c7418fe9e3a4de739615c3cde0360f04903`
 - License: MIT, copyright (c) 2026 Nigel Stuke (same notice as this repository's `LICENSE`)
 
+Same-author installer ownership checks adapt the reviewed revision's exact-content legacy-file checks and pre-deletion
+recheck. Unknown files, symlinks, and directories require manual review instead of deletion. Tests and documentation are
+extended here; router/OTel installation, runtime dependency management, and publishing changes were not adopted. The
+existing MIT notice applies.
+
 Conceptual inspiration from `scripts/skills-patch-packages.mjs` and `scripts/skills-patch-dispatch.test.mjs`: discover
 supported versions from the overlay directories and exercise dispatch assertions for each retained patch. This
 repository reuses its existing `overlayVersions()` discovery instead of copying the fork's package-discovery
-implementation. No fork code was copied. The fork's package publishing, router, telemetry extensions, additional
-baseline aliases, and newer development-version floor were not adopted; the development baseline here is Pi 1.0.3.
-Installer discovery is same-author internal synchronization across accounts: exact Pi identity, managed active-release
-lookup, and ordinary wrapper/shim fallback, implemented here without copying the fork's installer.
+implementation. That version-discovery work copied no fork code.
+
+The shell-safe patch helpers in `scripts/build-pi-patch.mjs` are a modified adaptation of the same author's fork code
+introduced in `4508faacb4781207cf31de06fecfbe566a525497` and reviewed at the revision above: pass patch text on stdin,
+keep directory paths in direct arguments, propagate patch failures, and use Node filesystem copying. The existing MIT
+notice is preserved in `LICENSE`. The fork's artifact-staging changes and pinned-version/`--all` CLI were not adopted;
+this repository keeps its default all-overlay build and existing generated artifacts and migrations.
+
+The fork's package publishing, router, telemetry extensions, additional baseline aliases, and newer development-version
+floor were not adopted by this maintenance adaptation; the development baseline here is Pi 1.0.3. Installer discovery is
+same-author internal synchronization across accounts: exact Pi identity, managed active-release lookup, and ordinary
+wrapper/shim fallback, implemented here without copying the fork's installer.
 
 Pi's official launcher signatures and managed marker fields informed nonexecuting managed-install recognition:
 <https://github.com/earendil-works/pi>, local source revision `741fb3a686f8dcc075f12ea77f985967ced59e21`

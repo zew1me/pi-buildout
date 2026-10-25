@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { access, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { access, copyFile, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -54,8 +54,11 @@ test("installer retires legacy top-level extensions after installing directory r
 
   await Promise.all([
     ...managedExtensions.flatMap((extension) => [
-      writeFile(join(extensionDirectory, `${extension}.ts`), "legacy entrypoint\n"),
-      writeFile(join(extensionDirectory, `${extension}.test.mjs`), "legacy test\n"),
+      copyFile(join(repositoryRoot, "extensions", extension, "index.ts"), join(extensionDirectory, `${extension}.ts`)),
+      copyFile(
+        join(repositoryRoot, "extensions", extension, "index.test.mjs"),
+        join(extensionDirectory, `${extension}.test.mjs`),
+      ),
     ]),
     writeFile(join(extensionDirectory, "unrelated.ts"), "unrelated extension\n"),
   ]);

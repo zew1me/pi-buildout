@@ -53,6 +53,14 @@ bundled pi releases, the versioned patch delegates the published entrypoints to 
 installer can also migrate recognized earlier patch states and rejects unknown or mixed states. It does not modify pi
 settings. Use `--skip-skill-loading-patch` to install only the extensions.
 
+Legacy top-level `extensions/<name>.ts` and `<name>.test.mjs` files are retired only when they exactly match this
+checkout's `extensions/<name>/index.ts` and `index.test.mjs`. Unknown content (including unrecognized older versions),
+symlinks, and directories at those paths stop installation before any replacements. Review and back up each reported
+path, then move it **outside the extensions directory** before retrying. Do not simply rename it to another `.ts` file
+there: Pi may still load it alongside the replacement. Merge any local changes into the managed extension separately;
+the installer cannot determine whether an older or edited file is safe to delete. Files are checked again immediately
+before deletion to avoid removing content changed during installation.
+
 ### Where the `/skills` patch comes from
 
 The patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overlay`](pi-overlay) is the source of truth;
