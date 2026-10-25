@@ -492,6 +492,15 @@ export class ManagedSubagent {
     this.touch();
   }
 
+  // Deliberately a hand-built Promise rather than an `async` function:
+  // - The response arrives later via the stdout line handler (matched by request id), and failure can also arrive via
+  //   the timeout timer, the stdin write callback, or child exit. Those are event/callback sources with no awaitable
+  //   form, so `new Promise` is the bridge; `async`/`await` would only wrap the same executor in another promise.
+  // - The pending entry (resolve/reject/timer) must be registered synchronously, before the write is issued, so a
+  //   fast response or a synchronous write error always finds it. Request ids stay ordered by call order for the same
+  //   reason.
+  // - Precondition failures use `Promise.reject` so every failure, synchronous or not, surfaces as a rejection and
+  //   callers never need a separate try/catch for a synchronous throw.
   private request(command: Record<string, unknown>, timeoutMs = REQUEST_TIMEOUT_MS): Promise<Record<string, unknown>> {
     const commandName = String(command.type);
     if (this.proc.stdin.destroyed || this.proc.exitCode !== null) {
