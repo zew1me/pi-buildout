@@ -1,5 +1,20 @@
 # Attribution
 
+## Subagent context modes from `nigel-upstart/pi-buildout`
+
+- Source: `nigel-upstart/pi-buildout`
+- Canonical repository: <https://github.com/nigel-upstart/pi-buildout>
+- Revision ported: `fe4e325a22cb4489b1c7083b84c5dcf6c79e3f55` (#138)
+- License declared by the source: MIT (Copyright 2026 Nigel Stuke)
+
+Copied code: the optional `contextMode` parameter, task-only creation path, mode metadata, documentation, and regression
+tests in `extensions/subagents`. The default `task_compacted` behavior is preserved; `none` skips parent conversation
+access and compaction without changing filesystem, credential, project-instruction, skill, or extension inheritance.
+
+The fork's router and OpenTelemetry extensions, generic signaling protocol, final-only wait behavior, newer Pi patch
+sets, internal release packaging, and dependency overrides were intentionally not adopted. This is a direct code port,
+not solely conceptual inspiration; the repository's existing MIT notice covers the copied material.
+
 ## Public npm packaging and release automation
 
 - Source: `nigel-upstart/pi-buildout`

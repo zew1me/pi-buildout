@@ -2,7 +2,7 @@ import { execFile, execFileSync, spawn } from "node:child_process";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { extractTextContent, appendBoundedTail } from "./helpers.ts";
-import type { ThinkingLevel } from "./helpers.ts";
+import type { ContextMode, ThinkingLevel } from "./helpers.ts";
 
 const MAX_JSONL_LINE_BYTES = 16 * 1024 * 1024;
 const MAX_TRANSCRIPT_CHARS = 120_000;
@@ -111,6 +111,7 @@ export type ChildLaunchOptions = {
   model: string;
   effort: ThinkingLevel;
   contextSummary: string;
+  contextMode?: ContextMode;
   cwd: string;
   command: string;
   args: string[];
@@ -183,6 +184,7 @@ export type ChildSnapshot = {
   state: ChildState;
   model: string;
   effort: ThinkingLevel;
+  contextMode: ContextMode;
   classification: ChildLaunchOptions["classification"];
   classificationRationale?: string;
   pid?: number;
@@ -437,6 +439,7 @@ export class ManagedSubagent {
       state: this.state,
       model: this.model,
       effort: this.effort,
+      contextMode: this.options.contextMode ?? "task_compacted",
       classification: this.classification,
       ...(this.classificationRationale ? { classificationRationale: this.classificationRationale } : {}),
       ...(this.proc.pid ? { pid: this.proc.pid } : {}),
