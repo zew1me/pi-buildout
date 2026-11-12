@@ -1,3 +1,6 @@
+export const CONTEXT_MODES = ["task_compacted", "none"] as const;
+export type ContextMode = (typeof CONTEXT_MODES)[number];
+
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVELS)[number];
 

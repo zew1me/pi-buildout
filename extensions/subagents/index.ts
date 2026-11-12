@@ -17,6 +17,7 @@ import type { ExtensionAPI, ExtensionContext, ModelRuntime } from "@earendil-wor
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
+  CONTEXT_MODES,
   THINKING_LEVELS,
   boundContextForModel,
   clampThinkingLevel,
@@ -69,6 +70,12 @@ const SubagentParameters = Type.Object({
   effort: Type.Optional(
     StringEnum(THINKING_LEVELS, {
       description: "Optional reasoning effort. Preserve an effort explicitly requested by the user, for example high.",
+    }),
+  ),
+  contextMode: Type.Optional(
+    StringEnum(CONTEXT_MODES, {
+      description:
+        "For create: task_compacted (default) seeds task-specific parent conversation context; none skips parent conversation and compaction, starting with only the task. This does not isolate files, credentials, project instructions, settings, skills, or extensions.",
     }),
   ),
   timeoutMs: Type.Optional(
@@ -439,6 +446,7 @@ function formatSnapshot(snapshot: ChildSnapshot): string {
   const lines = [
     `Subagent ${snapshot.id} (${truncateMiddle(snapshot.name, 200)})`,
     `state=${snapshot.state} model=${snapshot.model} effort=${snapshot.effort} age=${String(age)}s turns=${String(snapshot.turns)} tools=${String(snapshot.toolCalls)} queued=${String(snapshot.pendingMessages)}`,
+    `contextMode=${snapshot.contextMode}`,
     `selection=${snapshot.classification}${snapshot.classificationRationale ? ` — ${snapshot.classificationRationale}` : ""}`,
     `task: ${truncateMiddle(snapshot.task, 4_000)}`,
   ];
@@ -488,11 +496,12 @@ export default function subagentsExtension(pi: ExtensionAPI) {
     name: "subagent",
     label: "Subagent",
     description:
-      "Create and control isolated, asynchronous child Pi sessions. Use action=create whenever the user naturally asks to create a subagent, ask a subagent to do work, or delegate work. Preserve any user-requested model and effort. Creation task-compacts the current parent context for that task, automatically classifies model/effort when either is omitted, and returns immediately with an id. Use status to spy on a direct child's transcript and usage, wait only when the current request needs its result synchronously, steer to interrupt its direction at the next turn boundary, follow_up to queue later work, interrupt to abort the current operation while retaining the session, and stop to terminate it. Each process can see and control only children it created; child results never enter the parent context unless status or wait is explicitly requested.",
+      "Create and control isolated, asynchronous child Pi sessions. Use action=create whenever the user naturally asks to create a subagent, ask a subagent to do work, or delegate work. Preserve any user-requested model and effort. Creation defaults to contextMode=task_compacted for task-specific parent conversation context; contextMode=none skips parent conversation and compaction, starting with only the supplied task. Neither mode isolates files, credentials, project instructions, settings, skills, or extensions. Creation automatically classifies model/effort when either is omitted and returns immediately with an id. Use status to spy on a direct child's transcript and usage, wait only when the current request needs its result synchronously, steer to interrupt its direction at the next turn boundary, follow_up to queue later work, interrupt to abort the current operation while retaining the session, and stop to terminate it. Each process can see and control only children it created; child results never enter the parent context unless status or wait is explicitly requested.",
     promptSnippet:
       "Create, inspect, wait for, steer, queue messages for, interrupt, or stop isolated asynchronous child Pi sessions",
     promptGuidelines: [
       "Use subagent with action=create when the user asks in natural language to create, ask, launch, or delegate to a subagent; pass through any explicit model and reasoning effort.",
+      "For creation without parent conversation, set contextMode=none and supply the complete task. The default task_compacted preserves task-specific context; none skips compaction but does not isolate files, credentials, project instructions, settings, skills, or extensions.",
       "Use subagent status to inspect child work; use subagent wait only when this turn must consume the result. Child completion is intentionally not pushed into the parent conversation.",
     ],
     parameters: SubagentParameters,
@@ -520,7 +529,11 @@ export default function subagentsExtension(pi: ExtensionAPI) {
         pendingCreates++;
         try {
           const task = params.task.trim();
-          const compacted = await compactContextForTask(pi, ctx, task, signal);
+          const contextMode = params.contextMode ?? "task_compacted";
+          const compacted =
+            contextMode === "none"
+              ? { summary: "", fallback: false }
+              : await compactContextForTask(pi, ctx, task, signal);
           throwIfAborted(signal);
           assertCreationActive();
           const routingContext = truncateMiddle(compacted.summary, MAX_CLASSIFIER_CONTEXT_CHARS);
@@ -566,6 +579,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
             task,
             model: `${selection.model.provider}/${selection.model.id}`,
             effort: selection.effort,
+            contextMode,
             contextSummary: boundContextForModel(routingContext, task, selection.model, MAX_CLASSIFIER_CONTEXT_CHARS),
             cwd: ctx.cwd,
             command: invocation.command,
@@ -602,6 +616,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
             details: {
               action: "create",
               child: snapshotSummary(child.snapshot()),
+              contextMode,
               compactionFallback: compacted.fallback,
             },
           };
@@ -617,7 +632,7 @@ export default function subagentsExtension(pi: ExtensionAPI) {
           ? snapshots
               .map(
                 (child) =>
-                  `${child.id} ${child.state} ${child.model} ${child.effort} — ${truncateMiddle(child.task, 500)}`,
+                  `${child.id} ${child.state} ${child.model} ${child.effort} contextMode=${child.contextMode} — ${truncateMiddle(child.task, 500)}`,
               )
               .join("\n")
           : "No direct subagents have been created by this session.";

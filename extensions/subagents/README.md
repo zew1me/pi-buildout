@@ -22,20 +22,32 @@ the child.
 
 ## Context and model selection
 
-Before launch, the extension creates an in-memory copy of the prior context and runs Pi's real `AgentSession.compact()`
-path (the SDK equivalent of `/compact`) with task-specific instructions. The current delegation turn is excluded because
-its task is supplied separately; this prevents a child from recursively replaying the parent's orchestration request. A
-synthetic retained boundary allows even small parent sessions to be compacted. Only that compacted context and the
-delegated task are sent into a new child session; the parent session file is never resumed, forked, or replaced by the
-child. Context seeding fails open: if compaction fails, the child launches with only its task and a fresh context—never
-an unreviewed raw parent transcript.
+`create` accepts optional `contextMode: "task_compacted" | "none"`. The default, `task_compacted`, preserves existing
+behavior. Before launch, the extension creates an in-memory copy of the prior context and runs Pi's real
+`AgentSession.compact()` path (the SDK equivalent of `/compact`) with task-specific instructions. The current delegation
+turn is excluded because its task is supplied separately; this prevents a child from recursively replaying the parent's
+orchestration request. A synthetic retained boundary allows even small parent sessions to be compacted. Only that
+compacted context and the delegated task are sent into a new child session; the parent session file is never resumed,
+forked, or replaced by the child. Context seeding fails open: if compaction fails, the child launches with only its task
+and a fresh context—never an unreviewed raw parent transcript.
 
-If either model or effort is omitted, a classifier call sees the task, the compacted context, and all authenticated
-models (including capabilities, context size, and pricing). Its choice is validated against Pi's model registry. If
-classification fails, missing values inherit the parent model and effort. Explicit user choices are never silently
-replaced; invalid or unauthenticated explicit models fail creation.
+With `contextMode: "none"`, creation skips parent-transcript access for compaction and skips compaction entirely: no
+compaction model call is made. The child receives only the supplied task, with no parent-context wrapper. Supply all
+requirements in that task. Intentionally omitted context is not reported as a compaction failure. Create details, child
+snapshots, `list`, and `status` identify the selected `contextMode`.
+
+If either model or effort is omitted, a classifier call sees the task, the compacted context (empty in `none` mode), and
+all authenticated models (including capabilities, context size, and pricing). Its choice is validated against Pi's model
+registry. If classification fails, missing values inherit the parent model and effort. Explicit user choices are never
+silently replaced; invalid or unauthenticated explicit models fail creation. In `none` mode, automatic selection still
+works on the task and catalog alone, without parent messages or a parent summary. Supplying both model and effort
+bypasses classification as before.
 
 ## Isolation and inheritance
+
+`contextMode: "none"` is **not a sandbox or an isolation boundary**. It omits inherited parent conversation only; it
+does not change filesystem access, credentials, project context/AGENTS, settings, skills, or extension loading. Model
+and effort selection, authentication, cancellation, limits, and process cleanup remain the same in both modes.
 
 - Children run as independent Pi RPC processes in the same working directory.
 - Normal Pi discovery remains enabled, so children inherit the skills, extensions, MCP adapters, project instructions,
@@ -57,6 +69,7 @@ Even full fan-out is therefore bounded to 56 child processes per root tree.
 
 ```json
 { "action": "create", "task": "Review the diff", "model": "gpt-5.6-luna", "effort": "high" }
+{ "action": "create", "task": "Review src/auth.ts using only this task", "contextMode": "none" }
 { "action": "status", "id": "a1b2c3d4e5" }
 { "action": "wait", "id": "a1b2c3d4e5", "timeoutMs": 120000 }
 { "action": "steer", "id": "a1b2c3d4e5", "task": "Focus on data races" }

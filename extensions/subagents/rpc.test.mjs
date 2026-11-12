@@ -55,6 +55,7 @@ test("managed child starts, streams a bounded transcript, accepts more work, and
   await child.refresh();
   let snapshot = child.snapshot();
   assert.equal(snapshot.state, "idle");
+  assert.equal(snapshot.contextMode, "task_compacted");
   assert.equal(snapshot.sessionFile, "/tmp/mock-child.jsonl");
   assert.equal(snapshot.lastAssistantText, "answer-1");
   assert.match(snapshot.transcriptTail, /answer-1/);
@@ -74,6 +75,28 @@ test("managed child starts, streams a bounded transcript, accepts more work, and
   await assert.rejects(lateFollowUp, /stopped.*cannot accept messages/);
   await child.stop();
   assert.equal(child.snapshot().state, "stopped");
+});
+
+test("no-context managed child reports its mode and starts task-only", async (t) => {
+  const child = new ManagedSubagent({
+    id: "no-context",
+    name: "task-only",
+    task: "Do the task",
+    model: "test/model",
+    effort: "off",
+    contextMode: "none",
+    contextSummary: "",
+    cwd: process.cwd(),
+    command: process.execPath,
+    args: [mockPath],
+    env: { ...process.env },
+    classification: "explicit",
+  });
+  t.after(async () => child.stop());
+  await child.start();
+  assert.equal(await child.waitForIdle(500), true);
+  assert.equal(child.snapshot().contextMode, "none");
+  assert.match(child.snapshot().transcriptTail, /answer-1/);
 });
 
 test("RPC timeouts include child diagnostics and stderr", async (t) => {
