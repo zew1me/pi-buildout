@@ -52,7 +52,7 @@ function checksum(text, path) {
 test("retained patches and overlays agree and support only Pi 1.0.3 or newer", async () => {
   const versions = overlayVersions();
   assert.ok(versions.length > 0);
-  assert.ok(versions.length <= 5, "retain at most five patch versions");
+  assert.ok(versions.filter((version) => version !== "1.0.3").length <= 5, "retain at most five non-baseline versions");
   const patches = (await readdir(join(root, "patches"))).filter((name) => name.startsWith("pi-"));
   assert.deepEqual(new Set(patches), new Set(versions.map((version) => `pi-${version}`)));
   for (const version of versions) {

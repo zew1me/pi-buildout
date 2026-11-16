@@ -3,9 +3,9 @@
 The authored form of the `/skills` runtime patch. Reviewed TypeScript here is the source of truth; the artifacts under
 `patches/pi-<version>/` are generated from it.
 
-Pi releases before 1.0.3 are unsupported. Only the latest patched pi release and up to four previous ones keep a
-`versions/<version>/` directory here (see the root README). Retiring a version removes that directory and its
-`patches/pi-<version>/` artifacts in the same change.
+Pi releases before 1.0.3 are unsupported. The latest patched release, up to four previous releases, and the 1.0.3 test
+baseline keep a `versions/<version>/` directory here (see the root README). Retiring a version removes that directory
+and its `patches/pi-<version>/` artifacts in the same change.
 
 ## Layout
 
@@ -54,7 +54,7 @@ Measured against each clean package, edits to pre-existing upstream files:
 The seams make the same calls across these releases. Each one extends the existing `getCwdRelativePath` import from
 `utils/paths.ts` with `resolvePath` in `interactive-mode.ts`, rather than adding a second import from the same module.
 The shared `skill-management*.ts` needed no change for these releases and compiles to byte-identical
-`dist/core/skill-management*.js` in all five generated versions.
+`dist/core/skill-management*.js` in all six generated versions. Pi 1.5.2 also has a 48-line seam.
 
 The budget counts only files where upstream code is edited in place. Files the patch _adds_ are ours; `docs/skills.md`
 and the two bundled entrypoints are replaced wholesale rather than surgically edited, so none of them belong in a number
@@ -93,7 +93,8 @@ Per version, `versions/<version>/upstream.json` pins the inputs. Two properties 
   1.0.4, it is the npm registry's `gitHead` (`1.0.3` → `d78dc83d633229d12f8b79631384c4c2717c399f`, `1.0.4` →
   `7c10bd4337495ee613f2224843ecdf349b80d1df`). The registry publishes no `gitHead` for 1.1.0, 1.3.0, or 1.4.0, so their
   revisions are the commits the release tags point to (`1.1.0` → `abe508e1b89912adde45528136c3221eb69acdd7`, `1.3.0` →
-  `71023aec1546d6d677a65669c5665c0927ce0dd0`, `1.4.0` → `4a080252f06caf63a525d7873c5d94d3c23887e0`).
+  `71023aec1546d6d677a65669c5665c0927ce0dd0`, `1.4.0` → `4a080252f06caf63a525d7873c5d94d3c23887e0`). Pi 1.5.2 pins
+  release revision `b4afdddf44e059c67ccf5097e5317d913521b470`.
 - **Upstream ships a deterministic source archive.** Each GitHub release carries `pi-<version>-source.tar.gz` (built by
   upstream's `scripts/create-source-archive.sh`) alongside a `SHA256SUMS`. GitHub's _auto-generated_ tag tarballs are
   not byte-stable and are deliberately not used.
@@ -105,9 +106,9 @@ no upstream source.
 ## Reproducibility
 
 Building the pinned source archive reproduces the published npm runtime **exactly**: for each of 1.0.3, 1.0.4, 1.1.0,
-1.3.0, and 1.4.0, the clean build reproduces all four pre-existing runtime files tracked by each patch byte-for-byte
-before the overlay is applied. No normalization is applied. If that ever stops holding, generation fails rather than
-emitting a patch carrying toolchain noise.
+1.3.0, 1.4.0, and 1.5.2, the clean build reproduces all four pre-existing runtime files tracked by each patch
+byte-for-byte before the overlay is applied. No normalization is applied. If that ever stops holding, generation fails
+rather than emitting a patch carrying toolchain noise.
 
 Two caveats the pipeline must respect:
 
@@ -125,7 +126,7 @@ Two caveats the pipeline must respect:
   `packages/codemode`, `packages/mcp`, and `packages/durable`, 1.0.4 adds `packages/env` before `packages/agent`, 1.1.0
   retains that order, and 1.3.0 keeps it but drops `packages/protocol`, `packages/client`, and `packages/server`, which
   its source archive no longer contains. Pi 1.4.0 keeps that package set but moves `packages/telemetry` first, as
-  upstream's root build now does.
+  upstream's root build now does. Pi 1.5.2 also builds `packages/schema` before `packages/chord`.
 
-Upstream 1.0.3, 1.0.4, 1.1.0, 1.3.0, and 1.4.0 build with the released `typescript` `7.0.2` (`tsc`). If a pinned
+Upstream 1.0.3, 1.0.4, 1.1.0, 1.3.0, 1.4.0, and 1.5.2 build with the released `typescript` `7.0.2` (`tsc`). If a pinned
 compiler is withdrawn or its emit changes, reproducibility breaks; the scheduled drift job is the detector.

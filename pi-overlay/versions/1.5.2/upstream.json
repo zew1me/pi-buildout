@@ -1,0 +1,48 @@
+{
+  "package": "@earendil-works/pi-coding-agent",
+  "version": "1.5.2",
+  "repository": "https://github.com/earendil-works/pi",
+  "packageSubpath": "packages/coding-agent",
+  "gitHead": "b4afdddf44e059c67ccf5097e5317d913521b470",
+  "sourceArchive": {
+    "url": "https://github.com/earendil-works/pi/releases/download/v1.5.2/pi-1.5.2-source.tar.gz",
+    "sha256": "da14b72e5d674959b64fc541e4a9241ac9fcdfa243431479119d3edb598b2231",
+    "rootDirectory": "pi-1.5.2",
+    "checksumsUrl": "https://github.com/earendil-works/pi/releases/download/v1.5.2/SHA256SUMS"
+  },
+  "npmTarball": {
+    "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.5.2.tgz",
+    "sha256": "691bde186273b457d9d1c41d0fd47b57853b5e85ded1add1a1f6b78e66c261f4",
+    "integrity": "sha512-mUWI04rqF1Vd/m1q+Ps1XeWsTXEVvRUnsmRa83I3Dzua0Tx5bYS93imeqtIfrXf7PkkaR6ERz+AuQhIJlom5yA==",
+    "rootDirectory": "package"
+  },
+  "toolchain": {
+    "node": ">=22.19.0",
+    "typescript": "7.0.2"
+  },
+  "workspaceBuildOrder": [
+    "packages/telemetry",
+    "packages/schema",
+    "packages/chord",
+    "packages/tui",
+    "packages/codemode",
+    "packages/mcp",
+    "packages/ai",
+    "packages/durable",
+    "packages/env",
+    "packages/agent"
+  ],
+  "trackedFiles": [
+    { "path": "dist/core/resource-loader.js", "source": "built" },
+    { "path": "dist/core/slash-commands.js", "source": "built" },
+    { "path": "dist/main.js", "source": "built" },
+    { "path": "dist/modes/interactive/interactive-mode.js", "source": "built" },
+    { "path": "dist/core/skill-management.js", "source": "built", "added": true },
+    { "path": "dist/core/skill-management-core.js", "source": "built", "added": true },
+    { "path": "docs/skills.md", "source": "patched-source" },
+    { "path": "dist/bundle/cli-runtime.js", "source": "replacement" },
+    { "path": "dist/bundle/rpc-entry.js", "source": "replacement" },
+    { "path": "dist/bundle/cli.js", "source": "unchanged" }
+  ],
+  "maxUpstreamEditedLines": 48
+}
