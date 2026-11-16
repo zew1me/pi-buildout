@@ -194,6 +194,18 @@ are reused byte-for-byte from 1.1.0 because Pi 1.3.0's `src/cli.ts`, `src/rpc-en
 unchanged. The published `dist/bundle/cli.js` loader remains unchanged and checksum-pinned. Upstream changes elsewhere
 in 1.3.0, including those near the seams, were not adopted. No complete Pi source checkout is committed.
 
+## Pi 1.5.2 `/skills` runtime patch
+
+- Source: [nigel-upstart/pi-buildout](https://github.com/nigel-upstart/pi-buildout), commit
+  `0704169310246b2b4fe8144f94ad4314c4a382e3`, MIT.
+- Upstream Pi: [earendil-works/pi](https://github.com/earendil-works/pi), release `v1.5.2`, commit
+  `b4afdddf44e059c67ccf5097e5317d913521b470`, MIT.
+
+The 1.5.2 integration seam, entrypoint wrappers, and pinned build inputs are adapted from the downstream patch, which
+modifies Pi source and documentation. The generated runtime patch uses this repository's shared overlay and portable
+path behavior rather than copying downstream's generated skill implementation. Other downstream changes and a complete
+Pi source checkout were not adopted.
+
 ## Pi 1.4.0 `/skills` runtime patch
 
 - Source: `@earendil-works/pi-coding-agent@1.4.0`
