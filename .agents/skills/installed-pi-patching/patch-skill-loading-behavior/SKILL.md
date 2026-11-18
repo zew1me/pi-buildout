@@ -36,7 +36,7 @@ Supported Pi releases start at 1.0.3. Important runtime files include:
 
 ```text
 dist/core/resource-loader.js      # resource discovery/loading, skills/prompts/themes/extensions
-dist/core/skill-management.js     # global/repo config mutation, catalog/list/search, git repo identity
+dist/core/skill-management.js     # global/repo/directory config mutation, catalog/list/search, git repo identity
 dist/core/skills.js               # skill parsing/formatting
 dist/core/package-manager.js      # package/settings resource resolution
 dist/core/agent-session.js        # /skill invocation, command listing, session wiring
@@ -97,8 +97,13 @@ Look near `DefaultResourceLoader.reload()` for the construction of `skillPaths`.
 - session/CLI `--skill` paths load
 - global active skills come from `~/.pi/agent/skills.json`
 - repo active skills come from `~/.pi/agent/repo-skills.json`
+- directory active skills come from `~/.pi/agent/directory-skills.json`
 - ordinary discovered/catalog skills do not enter the prompt by default
-- `--no-skills` suppresses global/repo active skills but still allows explicit `--skill`
+- `--no-skills` suppresses global/repo/directory active skills but still allows explicit `--skill`
+
+Active entries are listed and loaded global, then repo, then directory. Pi's `loadSkills` keeps the first of two
+different files with the same skill name and silently skips a file it has already loaded, so that order is the
+precedence: global, repo, directory, then `--skill` and session paths, which Pi appends through `additionalSkillPaths`.
 
 Repo keys should prefer `upstream`, then `origin`, then first remote, then fall back to
 `local:<repo-root-relative-to-$HOME>`. Normalize common git URL forms to the same key, e.g.:
@@ -119,8 +124,17 @@ The patch preserves non-default remote ports in repository keys. Normalize expli
 protocol port `9418`) to the same key as the port-omitted and SCP-like forms. Do not retrofit this repository-key change
 into earlier versioned patches unless explicitly requested.
 
-Valid JSON with a non-object top-level value in `skills.json` or `repo-skills.json` is a configuration error rather than
-an empty configuration. Strict command paths report that error; loader paths warn and ignore it.
+Directory keys are paths, not remotes. Resolve the base with `git rev-parse --show-toplevel`, which returns the root of
+the current worktree rather than the main checkout, and fall back to the working directory outside a repository; then
+take its real path, so a base reached through a symlink (macOS `/tmp` is `/private/tmp`) shares one key. Every clone and
+every worktree therefore gets its own directory entries, while repo-scoped entries are shared only by clones and
+worktrees that resolve to the same repo key (a clone that selects a different remote, such as a fork's `origin`, gets a
+different key). Removing the last entry under a directory key deletes the key. Keys for directories that no longer exist
+are never pruned automatically: they are inert, and the directory may only be temporarily unavailable.
+
+Valid JSON with a non-object top-level value in `skills.json`, `repo-skills.json`, or `directory-skills.json` is a
+configuration error rather than an empty configuration. Strict command paths report that error; loader paths warn and
+ignore it.
 
 ## Interactive and CLI Skill Management
 
@@ -132,7 +146,7 @@ all — it calls `resolveActiveSkillPaths` and nothing else:
 - `/skills reload` takes no arguments; anything after it is a usage error, not a reload
 - CLI: `pi skills active|list|search|add|remove`
 - session scope is interactive-only; mutate `resourceLoader.additionalSkillPaths` and reload
-- global/repo scopes mutate JSON first, then reload so the current session reflects the change
+- global/repo/directory scopes mutate JSON first, then reload so the current session reflects the change
 
 Avoid adding separate configuration semantics in the TUI and CLI. Keep parsing, repo-key resolution, persistence, and
 catalog queries in the shared core module.
@@ -157,14 +171,16 @@ current directory.
 variable as written so a path that genuinely contains `$` still resolves, and name the unset variable when the path is
 not found. Expand persisted paths when skills load, not when they are added: with `--repo`, store a path inside the
 current checkout relative to the repository root, because one `repo-skills.json` entry serves every clone and worktree
-with the same remote; otherwise keep a `~` or `$NAME` spelling as typed and store any other path absolute, under `~`
-when it is in the home directory. Resolve relative repository entries against the current checkout root and relative
-global entries against the working directory, and compare entries by the real path they name so equivalent spellings
-match. Explain an unresolvable relative global entry.
+with the same remote; with `--directory`, store a path inside the directory base relative to that base; otherwise keep a
+`~` or `$NAME` spelling as typed and store any other path absolute, under `~` when it is in the home directory. Resolve
+relative repository entries against the current checkout root, relative directory entries against the directory base,
+and relative global entries against the working directory, and compare entries by the real path they name so equivalent
+spellings match. Explain an unresolvable relative global entry.
 
 Also protect the complete persisted-skill read-modify-write transaction with Pi's existing `proper-lockfile`-based
-synchronous lock pattern. Use a distinct lock path for `skills.json` and `repo-skills.json`, wait for contention without
-busy-spinning, and release in `finally` so concurrent CLI processes cannot overwrite one another's updates.
+synchronous lock pattern. Use a distinct lock path for `skills.json`, `repo-skills.json`, and `directory-skills.json`,
+wait for contention without busy-spinning, and release in `finally` so concurrent CLI processes cannot overwrite one
+another's updates.
 
 ## Verification Ideas
 
@@ -175,12 +191,14 @@ Create temp skills and temp agent dirs. Exercise these behaviors without network
 - `agentDir/skills.json` enables a global skill
 - `agentDir/repo-skills.json` enables a repo skill by normalized upstream URL
 - repository paths inside the checkout persist relative to its root and resolve in another clone of the same remote
+- `agentDir/directory-skills.json` enables a skill for one checkout or worktree root, or for the working directory
+  outside a repository, and a second worktree of the same remote does not see it
 - `~` and `$NAME`/`${NAME}` sources persist as typed, other paths persist absolute, and all can be removed through any
   equivalent spelling
 - non-default remote ports stay distinct while explicit default ports retain canonical repository keys
 - non-object top-level JSON values fail strict configuration reads
 - concurrent global and repository updates preserve every requested change and clean up their lock files
-- `noSkills: true` ignores global/repo active skills
+- `noSkills: true` ignores global/repo/directory active skills
 
 Example shape:
 

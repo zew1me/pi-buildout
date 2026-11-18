@@ -14,7 +14,7 @@ The pinned release archive, published checksum, npm tarball, source revision, wo
 
 - `skills.patch` changes the unbundled resource loader, CLI and interactive dispatch, and skill documentation; it adds the shared skill-management modules and replaces bundled CLI and RPC runtime entrypoints.
 - `baseline.sha256` and `baseline.absent` specify the required clean state. `patched.sha256` pins the result, including the unchanged `dist/bundle/cli.js` loader.
-- The unchanged loader enables Node's compile cache and loads the replaced `dist/bundle/cli-runtime.js`; RPC uses the replaced `dist/bundle/rpc-entry.js`. The installer verifies baseline and result and refuses unknown or mixed states. There are no historical 1.5.2 patched states to migrate.
+- The unchanged loader enables Node's compile cache and loads the replaced `dist/bundle/cli-runtime.js`; RPC uses the replaced `dist/bundle/rpc-entry.js`. The installer verifies baseline and result and refuses unknown or mixed states. One historical 1.5.2 patched state is migrated: `pre-directory-scope-` (`pre-directory-scope-patched.sha256`, `pre-directory-scope-upgrade.patch`) is the patch as shipped at repository commit `a4c8ab1`, before the `--directory` scope. The builder reverse-applies that migration to every regenerated tree and fails unless it reconstructs the recorded state.
 
 ## Drift from 1.5.0
 
@@ -38,4 +38,4 @@ PI_SKILLS_TEST_VERSION=1.5.2 PI_SKILLS_TEST_PACKAGE_DIR=/path/to/pi-1.5.2/packag
 
 The directory must match `baseline.sha256` and `baseline.absent`. The tests copy and patch it in temporary directories; they do not modify the supplied package. To prepare a package, extract the pinned npm tarball and link its `node_modules` to dependencies installed with `npm ci --ignore-scripts` from the release's checksum-verified `pi-coding-agent-install-package.json` and `pi-coding-agent-install-package-lock.json`.
 
-The suite verifies opt-in loading, explicit `--skill` with `--no-skills`, session/global/repository activation, catalog trust and precedence, serialized configuration updates, installer idempotency and mixed-state rejection, and patch reversal. This repository generates the patch using its own shared overlay, including portable skill paths.
+The suite verifies opt-in loading, explicit `--skill` with `--no-skills`, session/global/repository/directory activation, catalog trust and precedence, serialized configuration updates, installer idempotency and mixed-state rejection, and patch reversal. This repository generates the patch using its own shared overlay, including portable skill paths.

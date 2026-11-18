@@ -261,7 +261,9 @@ Pi's existing `proper-lockfile` dependency; no new upstream dependency is introd
 
 `pi-overlay/versions/<version>/integration.patch` is a modified-code patch against Pi's MIT-licensed TypeScript sources:
 `src/core/resource-loader.ts`, `src/core/slash-commands.ts`, `src/main.ts`, `src/modes/interactive/interactive-mode.ts`,
-and `docs/skills.md`. Its unchanged context and modified lines derive from the MIT-licensed Pi package.
+and `docs/skills.md`. Its unchanged context and modified lines derive from the MIT-licensed Pi package. Directory scope
+is original overlay logic; it reuses Pi's existing path order and `loadSkills` behavior (first name wins and symlink
+aliases of an already-loaded skill are skipped). The scope adds no new collision policy to upstream Pi.
 
 `pi-overlay/versions/<version>/replacements/dist/bundle/cli-runtime.js` and `rpc-entry.js` are original hand-written
 wrappers, not derived from upstream's generated bundle output. They replace Pi's esbuild-produced bundled entrypoints so
