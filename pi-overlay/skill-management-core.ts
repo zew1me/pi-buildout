@@ -359,6 +359,15 @@ function resolveSkillPath(env: SkillEnvironment, source: string, cwd: string): s
   return env.resolvePath(expandEnvironmentVariables(env, source).value, cwd, { trim: true });
 }
 
+/**
+ * True for a path-like source that expands to nothing, such as `$SKILL_DIR` with the variable set to an empty
+ * string. Resolving it would name the base directory itself, so it is treated as unresolved; `.` still selects
+ * the base explicitly.
+ */
+function expandsToEmptyPath(env: SkillEnvironment, source: string): boolean {
+  return expandEnvironmentVariables(env, source).value.trim() === "";
+}
+
 /** True for a path that does not depend on the directory it is read from: absolute, `~`, or a `file:` URL. */
 function isAnchoredPath(env: SkillEnvironment, value: string): boolean {
   return env.path.isAbsolute(value) || value === "~" || value.startsWith("~/") || value.startsWith("file:");
@@ -501,7 +510,7 @@ function normalizePersistedSource(
   context: EntryContext,
 ): string | undefined {
   if (!source) return undefined;
-  if (!looksLikePath(source)) return source;
+  if (!looksLikePath(source) || expandsToEmptyPath(env, source)) return source;
   const value = expandEnvironmentVariables(env, source).value.trim();
   const path =
     context.root !== undefined && !isAnchoredPath(env, value)
@@ -679,7 +688,8 @@ async function resolveSkillSource(
 ): Promise<{ normalized: string; resolved: string | undefined }> {
   if (looksLikePath(source)) {
     const resolvedPath = resolveSkillPath(env, source, options.cwd);
-    return { normalized: resolvedPath, resolved: env.fs.existsSync(resolvedPath) ? resolvedPath : undefined };
+    const exists = !expandsToEmptyPath(env, source) && env.fs.existsSync(resolvedPath);
+    return { normalized: resolvedPath, resolved: exists ? resolvedPath : undefined };
   }
   const resolvedPath = env.resolvePath(source, options.cwd, { trim: true });
 
@@ -781,7 +791,7 @@ async function runMutationCommand(
   const resolution = command === "add" ? await resolveSkillSource(env, source, options) : undefined;
   const target =
     command === "remove"
-      ? looksLikePath(source)
+      ? looksLikePath(source) && !expandsToEmptyPath(env, source)
         ? resolveSkillPath(env, source, options.cwd)
         : source
       : resolution?.normalized;
@@ -899,8 +909,8 @@ export async function resolveActiveSkillPaths(
       else diagnostics.push(unresolvedSkillDiagnostic(env, entry));
       continue;
     }
-    const path = entryPath(entry);
-    if (env.fs.existsSync(path)) paths.push(path);
+    const path = expandsToEmptyPath(env, entry.source) ? undefined : entryPath(entry);
+    if (path !== undefined && env.fs.existsSync(path)) paths.push(path);
     else diagnostics.push(unresolvedSkillDiagnostic(env, entry));
   }
 
@@ -923,7 +933,8 @@ export async function resolveSkillEntryPath(
 
   if (looksLikePath(source)) {
     const normalized = resolveResourcePath(expandEnvironmentVariables(env, source).value);
-    return { normalized, resolved: env.fs.existsSync(normalized) ? normalized : undefined };
+    const exists = !expandsToEmptyPath(env, source) && env.fs.existsSync(normalized);
+    return { normalized, resolved: exists ? normalized : undefined };
   }
 
   const catalog = await getSkillCatalog(env, {

@@ -1128,6 +1128,33 @@ test("adding a path with an unset variable names the variable and persists nothi
   assert.equal(store.has("/agent/skills.json"), false);
 });
 
+test("a path that expands to an empty string is unresolved rather than the base directory", async () => {
+  const { env, store } = createEnvironment({
+    files: {
+      "/agent/directory-skills.json": JSON.stringify({ "/work": { enabled: ["$SKILL_DIR", "."] } }),
+      "/work": "",
+    },
+    variables: { SKILL_DIR: "" },
+  });
+  env.path.resolve = posix.resolve;
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  const resolved = await resolveActiveSkillPaths(env, { ...options, resolveResourcePath: (path) => path });
+  assert.deepEqual(resolved.paths, ["/work"], "an explicit . still selects the base");
+  assert.deepEqual(
+    resolved.diagnostics.map((diagnostic) => diagnostic.path),
+    ["$SKILL_DIR"],
+  );
+
+  const added = await runSkillsCommand(env, ["add", "$SKILL_DIR", "--global"], options);
+  assert.equal(added.exitCode, 1);
+  assert.equal(store.has("/agent/skills.json"), false);
+
+  const removed = await runSkillsCommand(env, ["remove", "$SKILL_DIR", "--directory"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/work"].enabled, ["."]);
+});
+
 test("a path that literally contains $ is still addable when the variable is unset", async () => {
   const { env, store } = createEnvironment();
   env.fs.existsSync = (path) => path === "/srv/$skills/alpha" || store.has(path);
