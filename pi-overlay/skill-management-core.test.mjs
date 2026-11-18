@@ -960,6 +960,19 @@ test("directory-relative persistence preserves a literal tilde and avoids expand
   });
 });
 
+test("a directory-relative spelling that starts with whitespace keeps its ./ prefix", async () => {
+  const { env, store } = createEnvironment({ files: { "/work/ notes/SKILL.md": "" } });
+  env.path.resolve = posix.resolve;
+  const options = { cwd: "/work", agentDir: "/agent" };
+  const result = await runSkillsCommand(env, ["add", "./ notes/SKILL.md", "--directory"], options);
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/work"].enabled, ["./ notes/SKILL.md"]);
+  assert.deepEqual(await resolveActiveSkillPaths(env, { ...options, resolveResourcePath: (path) => path }), {
+    paths: ["/work/ notes/SKILL.md"],
+    diagnostics: [],
+  });
+});
+
 test("relative directory entries resolve against the same base used to select them", async () => {
   const { env } = createEnvironment({
     files: {

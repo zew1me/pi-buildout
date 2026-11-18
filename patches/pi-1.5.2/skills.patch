@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..4917977
+index 0000000..29156a0
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,776 @@
+@@ -0,0 +1,778 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -335,10 +335,12 @@ index 0000000..4917977
 +    const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
 +    if (rootRelative === "")
 +        return ".";
-+    // A literal ~/ or file: prefix inside the root must not become an anchored path. Likewise,
-+    // prefer the original portable spelling if a generated path would expand a second variable.
++    // A literal ~/ or file: prefix inside the root must not become an anchored path, and leading whitespace must
++    // survive the trim applied when skills load. Likewise, prefer the original portable spelling if a generated
++    // path would expand a second variable.
 +    if (rootRelative !== undefined && expandEnvironmentVariables(env, rootRelative).value === rootRelative) {
-+        return !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) ? `./${rootRelative}` : rootRelative;
++        const needsPrefix = !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) || /^\s/.test(rootRelative);
++        return needsPrefix ? `./${rootRelative}` : rootRelative;
 +    }
 +    const typed = source.trim();
 +    if (isPortableSpelling(env, typed))

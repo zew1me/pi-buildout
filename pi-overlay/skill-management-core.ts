@@ -400,10 +400,12 @@ function scopeRoot(env: SkillEnvironment, scope: SkillScope, cwd: string): strin
 function persistedForm(env: SkillEnvironment, source: string, resolvedPath: string, context: EntryContext): string {
   const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
   if (rootRelative === "") return ".";
-  // A literal ~/ or file: prefix inside the root must not become an anchored path. Likewise,
-  // prefer the original portable spelling if a generated path would expand a second variable.
+  // A literal ~/ or file: prefix inside the root must not become an anchored path, and leading whitespace must
+  // survive the trim applied when skills load. Likewise, prefer the original portable spelling if a generated
+  // path would expand a second variable.
   if (rootRelative !== undefined && expandEnvironmentVariables(env, rootRelative).value === rootRelative) {
-    return !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) ? `./${rootRelative}` : rootRelative;
+    const needsPrefix = !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) || /^\s/.test(rootRelative);
+    return needsPrefix ? `./${rootRelative}` : rootRelative;
   }
   const typed = source.trim();
   if (isPortableSpelling(env, typed)) return typed;
