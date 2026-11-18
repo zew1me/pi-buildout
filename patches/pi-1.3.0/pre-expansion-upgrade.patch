@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 2fd4257..4723ffd 100644
+index 2fd4257..1ffdc2e 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -124,6 +124,31 @@ export function resolveRepoKey(env, cwd) {
@@ -209,7 +209,7 @@ index 2fd4257..4723ffd 100644
  }
  /** True when `path` exists and Pi's own loader finds at least one skill in it. */
  function containsSkills(env, path, options) {
-@@ -175,37 +348,50 @@ function containsSkills(env, path, options) {
+@@ -175,37 +348,61 @@ function containsSkills(env, path, options) {
      return skills.length > 0;
  }
  /**
@@ -234,13 +234,26 @@ index 2fd4257..4723ffd 100644
 +        ? env.path.resolve(context.root, value)
 +        : env.resolvePath(value, context.cwd, { trim: true });
 +    return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
++}
++/**
++ * Resolves the configuration location and entry context for one mutation.
++ *
++ * Formatting the path, matching existing entries, and selecting the bucket must all use the same base: if a
++ * checkout were created or removed between separate lookups, a path could be written relative to one base
++ * under the key of another. A directory key is its base, so it is looked up only once.
++ */
++function mutationTarget(env, scope, cwd, agentDir) {
++    const location = configLocation(env, scope, cwd, agentDir);
++    const root = scope === "directory" ? location.key : scopeRoot(env, scope, cwd);
++    return { location, context: { cwd, scope, root } };
  }
- export function updatePersistedSkill(env, action, source, scope, options) {
-     const location = configLocation(env, scope, options.cwd, options.agentDir);
+-export function updatePersistedSkill(env, action, source, scope, options) {
+-    const location = configLocation(env, scope, options.cwd, options.agentDir);
++export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
++    const { location, context } = resolvedTarget;
      const path = location.path;
      if (path === undefined)
          throw new Error(`Scope ${scope} has no persisted configuration.`);
-+    const context = { cwd: options.cwd, scope, root: scopeRoot(env, scope, options.cwd) };
 +    const key = normalizePersistedSource(env, source, context);
 +    const matches = (entry) => normalizePersistedSource(env, sourceOf(entry), context) === key;
      return withSkillConfigLock(env, path, () => {
@@ -271,19 +284,27 @@ index 2fd4257..4723ffd 100644
              config[location.key] = target;
          writeJson(env, path, config);
          return true;
-@@ -225,7 +411,10 @@ function removePersistedSkill(env, source, target, scope, options) {
+@@ -219,13 +416,16 @@ export function updatePersistedSkill(env, action, source, scope, options) {
+  * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
+  * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
+  */
+-function removePersistedSkill(env, source, target, scope, options) {
++function removePersistedSkill(env, source, target, scope, options, resolvedTarget) {
+     const candidates = looksLikePath(source)
+         ? [target]
          : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
-     return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
- }
--export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
+-    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
++    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options, resolvedTarget));
++}
 +export function getActiveSkillEntries(env, options) {
 +    return readActiveSkillEntries(env, options).entries;
-+}
+ }
+-export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
 +function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -238,21 +427,24 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -238,21 +438,24 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -322,7 +343,7 @@ index 2fd4257..4723ffd 100644
  }
  function getProjectAgentSkillDirs(env, cwd) {
      const dirs = [];
-@@ -307,10 +499,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+@@ -307,10 +510,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
  }
  async function resolveSkillSource(env, source, options) {
@@ -337,7 +358,7 @@ index 2fd4257..4723ffd 100644
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
      // resolve the selected skill. A bare local folder is retained as a path only when no catalog entry wins.
      const catalog = await getSkillCatalog(env, options);
-@@ -323,7 +517,7 @@ function commandName(allowSession = false) {
+@@ -323,7 +528,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -346,15 +367,15 @@ index 2fd4257..4723ffd 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -360,32 +554,38 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -360,33 +565,40 @@ async function runCatalogCommand(env, command, rest, surface, options) {
              : [query ? "No matching skills." : "No catalog skills found."],
      };
  }
 +/** What `add` writes for a resolved source: a catalog name as is, a path in its {@link persistedForm}. */
-+function persistedAddForm(env, source, target, scope, cwd) {
++function persistedAddForm(env, source, target, context) {
 +    if (!looksLikePath(source) && target === source)
 +        return source;
-+    return persistedForm(env, source, target, { cwd, scope, root: scopeRoot(env, scope, cwd) });
++    return persistedForm(env, source, target, context);
 +}
  async function runMutationCommand(env, command, rest, surface, options) {
 -    const scopeList = `--global|--repo${options.allowSession ? "|--session" : ""}`;
@@ -386,13 +407,16 @@ index 2fd4257..4723ffd 100644
      }
      if (scope === "session")
          return { exitCode: 0, lines: [], session: { action: command, source: target } };
++    const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
      const updated = command === "add"
 -        ? updatePersistedSkill(env, command, target, scope, options)
-+        ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, scope, options.cwd), scope, options)
-         : removePersistedSkill(env, source, target, scope, options);
+-        : removePersistedSkill(env, source, target, scope, options);
++        ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, resolvedTarget.context), scope, options, resolvedTarget)
++        : removePersistedSkill(env, source, target, scope, options, resolvedTarget);
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
-@@ -412,15 +612,20 @@ export async function runSkillsCommand(env, args, options) {
+     return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
+@@ -412,15 +624,20 @@ export async function runSkillsCommand(env, args, options) {
  /**
   * Resolves the skills that are explicitly active for this session into concrete paths.
   *
@@ -417,7 +441,7 @@ index 2fd4257..4723ffd 100644
          cwd,
          agentDir,
          onWarn: (message) => diagnostics.push({ type: "warning", message }),
-@@ -435,22 +640,34 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -435,22 +652,34 @@ export async function resolveActiveSkillPaths(env, context) {
          })).map((skill) => [skill.name, skill.filePath]));
          return catalogPathsByName.get(name);
      };
@@ -465,7 +489,7 @@ index 2fd4257..4723ffd 100644
      }
      return { paths, diagnostics };
  }
-@@ -464,8 +681,9 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -464,8 +693,9 @@ export async function resolveActiveSkillPaths(env, context) {
  export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
@@ -477,7 +501,7 @@ index 2fd4257..4723ffd 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -500,7 +718,9 @@ async function applySessionSkillChange(env, session, context) {
+@@ -500,7 +730,9 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.

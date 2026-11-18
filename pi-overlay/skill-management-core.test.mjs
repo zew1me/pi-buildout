@@ -999,6 +999,29 @@ test("a directory-relative spelling that starts with whitespace keeps its ./ pre
   });
 });
 
+test("a directory mutation formats, matches, and stores under one base lookup", async () => {
+  const { env, store } = createEnvironment({ files: { "/work/sub/skills/review": "" } });
+  env.path.resolve = posix.resolve;
+  let lookups = 0;
+  env.execFileSync = (_file, args) => {
+    const key = args.slice(2).join(" ");
+    if (key !== "rev-parse --show-toplevel") throw new Error(`no stubbed git response for: ${key}`);
+    lookups += 1;
+    // A checkout appears at /work after the first lookup.
+    if (lookups === 1) throw new Error("not a git repository");
+    return "/work";
+  };
+  const result = await runSkillsCommand(env, ["add", "./skills/review", "--directory"], {
+    cwd: "/work/sub",
+    agentDir: "/agent",
+  });
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.equal(lookups, 1);
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json"), {
+    "/work/sub": { enabled: ["skills/review"] },
+  });
+});
+
 test("relative directory entries resolve against the same base used to select them", async () => {
   const { env } = createEnvironment({
     files: {

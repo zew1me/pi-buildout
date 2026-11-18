@@ -68,10 +68,10 @@ index 35ba09c..9d1e088 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..4723ffd
+index 0000000..1ffdc2e
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,793 @@
+@@ -0,0 +1,805 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -440,12 +440,23 @@ index 0000000..4723ffd
 +        : env.resolvePath(value, context.cwd, { trim: true });
 +    return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
 +}
-+export function updatePersistedSkill(env, action, source, scope, options) {
-+    const location = configLocation(env, scope, options.cwd, options.agentDir);
++/**
++ * Resolves the configuration location and entry context for one mutation.
++ *
++ * Formatting the path, matching existing entries, and selecting the bucket must all use the same base: if a
++ * checkout were created or removed between separate lookups, a path could be written relative to one base
++ * under the key of another. A directory key is its base, so it is looked up only once.
++ */
++function mutationTarget(env, scope, cwd, agentDir) {
++    const location = configLocation(env, scope, cwd, agentDir);
++    const root = scope === "directory" ? location.key : scopeRoot(env, scope, cwd);
++    return { location, context: { cwd, scope, root } };
++}
++export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
++    const { location, context } = resolvedTarget;
 +    const path = location.path;
 +    if (path === undefined)
 +        throw new Error(`Scope ${scope} has no persisted configuration.`);
-+    const context = { cwd: options.cwd, scope, root: scopeRoot(env, scope, options.cwd) };
 +    const key = normalizePersistedSource(env, source, context);
 +    const matches = (entry) => normalizePersistedSource(env, sourceOf(entry), context) === key;
 +    return withSkillConfigLock(env, path, () => {
@@ -479,11 +490,11 @@ index 0000000..4723ffd
 + * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
 + * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
 + */
-+function removePersistedSkill(env, source, target, scope, options) {
++function removePersistedSkill(env, source, target, scope, options, resolvedTarget) {
 +    const candidates = looksLikePath(source)
 +        ? [target]
 +        : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
-+    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
++    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options, resolvedTarget));
 +}
 +export function getActiveSkillEntries(env, options) {
 +    return readActiveSkillEntries(env, options).entries;
@@ -629,10 +640,10 @@ index 0000000..4723ffd
 +    };
 +}
 +/** What `add` writes for a resolved source: a catalog name as is, a path in its {@link persistedForm}. */
-+function persistedAddForm(env, source, target, scope, cwd) {
++function persistedAddForm(env, source, target, context) {
 +    if (!looksLikePath(source) && target === source)
 +        return source;
-+    return persistedForm(env, source, target, { cwd, scope, root: scopeRoot(env, scope, cwd) });
++    return persistedForm(env, source, target, context);
 +}
 +async function runMutationCommand(env, command, rest, surface, options) {
 +    const scopes = scopeList(options.allowSession ?? false);
@@ -658,9 +669,10 @@ index 0000000..4723ffd
 +    }
 +    if (scope === "session")
 +        return { exitCode: 0, lines: [], session: { action: command, source: target } };
++    const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
 +    const updated = command === "add"
-+        ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, scope, options.cwd), scope, options)
-+        : removePersistedSkill(env, source, target, scope, options);
++        ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, resolvedTarget.context), scope, options, resolvedTarget)
++        : removePersistedSkill(env, source, target, scope, options, resolvedTarget);
 +    if (!updated)
 +        throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
 +    return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };

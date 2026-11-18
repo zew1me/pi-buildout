@@ -519,18 +519,34 @@ function normalizePersistedSource(
   return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
 }
 
+/** Where a mutation writes and what its relative paths are relative to, resolved together once. */
+type MutationTarget = { location: { path?: string; key?: string }; context: EntryContext };
+
+/**
+ * Resolves the configuration location and entry context for one mutation.
+ *
+ * Formatting the path, matching existing entries, and selecting the bucket must all use the same base: if a
+ * checkout were created or removed between separate lookups, a path could be written relative to one base
+ * under the key of another. A directory key is its base, so it is looked up only once.
+ */
+function mutationTarget(env: SkillEnvironment, scope: SkillScope, cwd: string, agentDir: string): MutationTarget {
+  const location = configLocation(env, scope, cwd, agentDir);
+  const root = scope === "directory" ? location.key : scopeRoot(env, scope, cwd);
+  return { location, context: { cwd, scope, root } };
+}
+
 export function updatePersistedSkill(
   env: SkillEnvironment,
   action: "add" | "remove",
   source: string,
   scope: SkillScope,
   options: { cwd: string; agentDir: string },
+  resolvedTarget: MutationTarget = mutationTarget(env, scope, options.cwd, options.agentDir),
 ): boolean {
-  const location = configLocation(env, scope, options.cwd, options.agentDir);
+  const { location, context } = resolvedTarget;
   const path = location.path;
   if (path === undefined) throw new Error(`Scope ${scope} has no persisted configuration.`);
 
-  const context: EntryContext = { cwd: options.cwd, scope, root: scopeRoot(env, scope, options.cwd) };
   const key = normalizePersistedSource(env, source, context);
   const matches = (entry: unknown): boolean => normalizePersistedSource(env, sourceOf(entry), context) === key;
 
@@ -572,11 +588,14 @@ function removePersistedSkill(
   target: string,
   scope: SkillScope,
   options: { cwd: string; agentDir: string },
+  resolvedTarget: MutationTarget,
 ): boolean {
   const candidates = looksLikePath(source)
     ? [target]
     : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
-  return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
+  return [...new Set(candidates)].some((candidate) =>
+    updatePersistedSkill(env, "remove", candidate, scope, options, resolvedTarget),
+  );
 }
 
 export function getActiveSkillEntries(env: SkillEnvironment, options: ActiveSkillEntriesOptions): ActiveSkillEntry[] {
@@ -759,15 +778,9 @@ async function runCatalogCommand(
 }
 
 /** What `add` writes for a resolved source: a catalog name as is, a path in its {@link persistedForm}. */
-function persistedAddForm(
-  env: SkillEnvironment,
-  source: string,
-  target: string,
-  scope: PersistedScope,
-  cwd: string,
-): string {
+function persistedAddForm(env: SkillEnvironment, source: string, target: string, context: EntryContext): string {
   if (!looksLikePath(source) && target === source) return source;
-  return persistedForm(env, source, target, { cwd, scope, root: scopeRoot(env, scope, cwd) });
+  return persistedForm(env, source, target, context);
 }
 
 async function runMutationCommand(
@@ -802,10 +815,18 @@ async function runMutationCommand(
 
   if (scope === "session") return { exitCode: 0, lines: [], session: { action: command, source: target } };
 
+  const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
   const updated =
     command === "add"
-      ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, scope, options.cwd), scope, options)
-      : removePersistedSkill(env, source, target, scope, options);
+      ? updatePersistedSkill(
+          env,
+          command,
+          persistedAddForm(env, source, target, resolvedTarget.context),
+          scope,
+          options,
+          resolvedTarget,
+        )
+      : removePersistedSkill(env, source, target, scope, options, resolvedTarget);
   if (!updated) throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
   return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
 }
