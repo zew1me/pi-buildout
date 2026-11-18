@@ -10,6 +10,7 @@ import {
   resolveActiveSkillPaths,
   looksLikePath,
   normalizeGitRemoteUrl,
+  resolveDirectoryKey,
   resolveRepoKey,
   handleSkillsInteractive,
   runSkillsCommand,
@@ -252,11 +253,21 @@ test("enabledEntries tolerates malformed configuration shapes", () => {
 test("scopeFromArgs requires exactly one scope and honours session support", () => {
   assert.equal(scopeFromArgs(["skill", "--global"]), "global");
   assert.equal(scopeFromArgs(["skill", "--repo"]), "repo");
+  assert.equal(scopeFromArgs(["skill", "--directory"]), "directory");
   assert.equal(scopeFromArgs(["skill", "--session"], true), "session");
 
   assert.throws(() => scopeFromArgs(["skill"]), /exactly one scope/);
   assert.throws(() => scopeFromArgs(["skill", "--global", "--repo"]), /exactly one scope/);
+  assert.throws(() => scopeFromArgs(["skill", "--repo", "--directory"]), /exactly one scope/);
   assert.throws(() => scopeFromArgs(["skill", "--session"]), /exactly one scope/);
+  assert.throws(() => scopeFromArgs(["skill"], true), {
+    message: "Specify exactly one scope: --global, --repo, --directory, or --session.",
+  });
+});
+
+test("usage lists the directory scope on both surfaces", () => {
+  assert.ok(usage(false).includes("  pi skills add <skill-or-path> --global|--repo|--directory"));
+  assert.ok(usage(true).includes("  /skills remove <skill-or-path> --global|--repo|--directory|--session"));
 });
 
 test("configLocation maps each scope to its configuration file", () => {
@@ -266,7 +277,43 @@ test("configLocation maps each scope to its configuration file", () => {
     path: "/agent/repo-skills.json",
     key: "github.com:team/repo",
   });
+  assert.deepEqual(configLocation(env, "directory", "/work", "/agent"), {
+    path: "/agent/directory-skills.json",
+    key: "/work",
+  });
   assert.deepEqual(configLocation(env, "session", "/work", "/agent"), {});
+});
+
+test("resolveDirectoryKey uses the checkout or worktree root, else the working directory", () => {
+  const { env } = createEnvironment();
+  withCheckouts(env, {
+    "/home/dev/app": "/home/dev/app",
+    "/home/dev/app/src": "/home/dev/app",
+    "/home/dev/worktrees/feature/src": "/home/dev/worktrees/feature",
+  });
+
+  assert.equal(resolveDirectoryKey(env, "/home/dev/app/src"), "/home/dev/app", "a subdirectory keys by its root");
+  assert.equal(
+    resolveDirectoryKey(env, "/home/dev/worktrees/feature/src"),
+    "/home/dev/worktrees/feature",
+    "a worktree keys by its own root, not by the remote it shares",
+  );
+  assert.equal(resolveDirectoryKey(env, "/tmp/scratch"), "/tmp/scratch", "outside a repository the cwd is the key");
+});
+
+test("resolveDirectoryKey keys a base reached through a symlink by its real path", () => {
+  const { env } = createEnvironment({ files: { "/private/tmp/scratch": "" } });
+  env.fs.realpathSync = (path) => (path === "/tmp/scratch" ? "/private/tmp/scratch" : path);
+  env.fs.existsSync = (path) => path === "/tmp/scratch" || path === "/private/tmp/scratch";
+
+  assert.equal(resolveDirectoryKey(env, "/tmp/scratch"), "/private/tmp/scratch");
+  assert.equal(resolveDirectoryKey(env, "/private/tmp/scratch"), "/private/tmp/scratch");
+});
+
+test("directory scope works outside a git repository, where repository scope cannot", () => {
+  const { env } = createEnvironment();
+  assert.throws(() => configLocation(env, "repo", "/scratch", "/agent"), /requires a git repository/);
+  assert.equal(configLocation(env, "directory", "/scratch", "/agent").key, "/scratch");
 });
 
 test("configLocation rejects repository scope outside a git repository", () => {
@@ -301,6 +348,59 @@ test("updatePersistedSkill scopes repository entries under the normalized repo k
   assert.deepEqual(readStored(store, "/agent/repo-skills.json"), {
     "github.com:team/repo": { enabled: ["alpha"] },
   });
+});
+
+test("worktrees of one repository share repository entries but keep separate directory entries", () => {
+  const { env, store } = createEnvironment();
+  withCheckouts(env, {
+    "/home/dev/app": "/home/dev/app",
+    "/home/dev/worktrees/feature": "/home/dev/worktrees/feature",
+  });
+  const main = { cwd: "/home/dev/app", agentDir: "/agent" };
+  const feature = { cwd: "/home/dev/worktrees/feature", agentDir: "/agent" };
+
+  assert.equal(updatePersistedSkill(env, "add", "shared", "repo", main), true);
+  assert.equal(updatePersistedSkill(env, "add", "main-only", "directory", main), true);
+  assert.equal(updatePersistedSkill(env, "add", "feature-only", "directory", feature), true);
+
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json"), {
+    "/home/dev/app": { enabled: ["main-only"] },
+    "/home/dev/worktrees/feature": { enabled: ["feature-only"] },
+  });
+  assert.deepEqual(getActiveSkillEntries(env, main), [
+    { scope: "repo", source: "shared" },
+    { scope: "directory", source: "main-only" },
+  ]);
+  assert.deepEqual(getActiveSkillEntries(env, feature), [
+    { scope: "repo", source: "shared" },
+    { scope: "directory", source: "feature-only" },
+  ]);
+});
+
+test("removing the last directory entry drops its key, and other keys are never pruned", () => {
+  const { env, store } = createEnvironment({
+    files: {
+      "/agent/directory-skills.json": JSON.stringify({
+        "/gone/elsewhere": { enabled: ["stale"] },
+        "/work": { enabled: ["alpha"] },
+      }),
+    },
+  });
+  const options = { cwd: "/work", agentDir: "/agent" };
+
+  assert.equal(updatePersistedSkill(env, "remove", "alpha", "directory", options), true);
+  assert.deepEqual(
+    readStored(store, "/agent/directory-skills.json"),
+    { "/gone/elsewhere": { enabled: ["stale"] } },
+    "a key for a missing directory is inert and kept",
+  );
+  assert.equal(updatePersistedSkill(env, "remove", "alpha", "directory", options), false);
+});
+
+test("updatePersistedSkill locks the directory configuration under its own lock file", () => {
+  const { env, locks } = createEnvironment();
+  updatePersistedSkill(env, "add", "alpha", "directory", { cwd: "/work", agentDir: "/agent" });
+  assert.deepEqual(locks, [{ lockfilePath: "/agent/directory-skills.json.lock", held: false }]);
 });
 
 test("updatePersistedSkill writes atomically through a pid-scoped temp file", () => {
@@ -597,7 +697,7 @@ test("runSkillsCommand rejects session scope on the non-interactive surface", as
   const result = await runSkillsCommand(env, ["add", "alpha", "--session"], { cwd: "/work", agentDir: "/agent" });
   assert.equal(result.exitCode, 1);
   // `--session` is not an allowed scope here, so scope parsing rejects it before any usage text is produced.
-  assert.deepEqual(result.lines, ["Specify exactly one scope: --global or --repo."]);
+  assert.deepEqual(result.lines, ["Specify exactly one scope: --global, --repo, or --directory."]);
 });
 
 test("runSkillsCommand rejects extra arguments alongside a scope", async () => {
@@ -796,6 +896,93 @@ test("a repository-relative entry resolves in, and is removable from, any checko
   );
   assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
   assert.deepEqual(readStored(store, "/agent/repo-skills.json")["github.com:team/app"].enabled, []);
+});
+
+test("a directory path is persisted relative to its base and resolves from any subdirectory", async () => {
+  const { env, store } = createEnvironment();
+  withCheckouts(env, { "/home/dev/app": "/home/dev/app", "/home/dev/app/docs": "/home/dev/app" });
+  const existing = new Set(["/home/dev/app/docs/delta", "/home/dev/shared/gamma"]);
+  env.fs.existsSync = (path) => existing.has(path) || store.has(path);
+
+  for (const source of ["./delta", "~/shared/gamma"]) {
+    const result = await runSkillsCommand(env, ["add", source, "--directory"], {
+      cwd: "/home/dev/app/docs",
+      agentDir: "/agent",
+    });
+    assert.equal(result.exitCode, 0, result.lines.join("\n"));
+    assert.deepEqual(result.lines, [`Enabled ${source} for directory scope.`]);
+  }
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json"), {
+    "/home/dev/app": { enabled: ["docs/delta", "~/shared/gamma"] },
+  });
+
+  const resolved = await resolveActiveSkillPaths(env, {
+    cwd: "/home/dev/app",
+    agentDir: "/agent",
+    resolvedSkillResources: [],
+    resolveResourcePath: (path) => env.resolvePath(path, "/home/dev/app", { trim: true }),
+  });
+  assert.deepEqual(resolved, { paths: ["/home/dev/app/docs/delta", "/home/dev/shared/gamma"], diagnostics: [] });
+
+  const removed = await runSkillsCommand(env, ["remove", "/home/dev/app/docs/delta", "--directory"], {
+    cwd: "/home/dev/app",
+    agentDir: "/agent",
+  });
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/home/dev/app"].enabled, ["~/shared/gamma"]);
+});
+
+test("active entries list directory scope after global and repository scopes", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/agent/skills.json": JSON.stringify({ enabled: ["/skills/global/review"] }),
+      "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: ["/skills/repo/review"] } }),
+      "/agent/directory-skills.json": JSON.stringify({ "/home/dev/app": { enabled: ["/skills/dir/review"] } }),
+      "/skills/global/review": "",
+      "/skills/repo/review": "",
+      "/skills/dir/review": "",
+    },
+  });
+  withCheckouts(env, { "/home/dev/app": "/home/dev/app" });
+  const options = { cwd: "/home/dev/app", agentDir: "/agent" };
+
+  // Pi keeps the first of two different skills with the same name, so this order is the precedence.
+  const resolved = await resolveActiveSkillPaths(env, {
+    ...options,
+    resolvedSkillResources: [],
+    resolveResourcePath: (path) => path,
+  });
+  assert.deepEqual(resolved.paths, ["/skills/global/review", "/skills/repo/review", "/skills/dir/review"]);
+
+  const active = await runSkillsCommand(env, ["active"], options);
+  assert.deepEqual(active.lines, [
+    "Active skills:",
+    "  global: /skills/global/review",
+    "  repo: /skills/repo/review",
+    "  directory: /skills/dir/review",
+  ]);
+});
+
+test("an unresolvable directory-relative entry says what it resolves against", async () => {
+  const { env } = createEnvironment({
+    files: { "/agent/directory-skills.json": JSON.stringify({ "/scratch": { enabled: ["skills/missing"] } }) },
+  });
+
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/scratch",
+    agentDir: "/agent",
+    resolvedSkillResources: [],
+    resolveResourcePath: (path) => env.resolvePath(path, "/scratch", { trim: true }),
+  });
+
+  assert.deepEqual(result.diagnostics, [
+    {
+      type: "warning",
+      message:
+        "Active skill could not be resolved: relative directory paths resolve against the root of the current checkout, or the working directory outside one",
+      path: "skills/missing",
+    },
+  ]);
 });
 
 test("an unresolvable repository-relative entry says what it resolves against", async () => {

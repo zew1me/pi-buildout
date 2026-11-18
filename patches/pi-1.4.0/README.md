@@ -14,7 +14,7 @@ npm run check
 
 - `skills.patch` modifies resource loading, CLI/interactive dispatch, and skill documentation, adds the shared skill-management modules, and replaces the bundled CLI/RPC runtime entrypoints with wrappers around the patched unbundled runtime.
 - `baseline.sha256` and `baseline.absent` specify the clean package state; `patched.sha256` pins the result, including the unchanged `dist/bundle/cli.js` compile-cache loader.
-- This is the first 1.4.0 patch, so there are no historical patched-state migrations. The installer rejects unknown or mixed states and recognizes an already-applied patch.
+- One historical 1.4.0 patched state is migrated: `pre-directory-scope-` (`pre-directory-scope-patched.sha256`, `pre-directory-scope-upgrade.patch`) is the patch as shipped at repository commit `edcd1c1`, before the `--directory` scope. The builder reverse-applies that migration to every regenerated tree and fails unless it reconstructs the recorded state. The installer rejects unknown or mixed states and recognizes an already-applied patch.
 
 ## Drift from 1.3.0
 

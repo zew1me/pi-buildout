@@ -68,10 +68,10 @@ index 35ba09c..9d1e088 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..0b4ae56
+index 0000000..5c4bf9e
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,719 @@
+@@ -0,0 +1,763 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -198,6 +198,22 @@ index 0000000..0b4ae56
 +    const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
 +    return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
 +}
++/** The checkout root for `cwd`; relative repository entries resolve against it. */
++function findRepoRoot(env, cwd) {
++    return git(env, cwd, ["rev-parse", "--show-toplevel"]);
++}
++/**
++ * The directory base that keys directory-scope entries: the root of the current checkout or worktree inside a git
++ * repository, otherwise the working directory itself.
++ *
++ * Unlike {@link resolveRepoKey}, this is a path rather than a remote, so every clone and every git worktree of the
++ * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
++ * base it points to.
++ */
++export function resolveDirectoryKey(env, cwd) {
++    const base = env.path.resolve(findRepoRoot(env, cwd) ?? cwd);
++    return env.fs.existsSync(base) ? env.fs.realpathSync(base) : base;
++}
 +export function sourceOf(entry) {
 +    if (typeof entry === "string")
 +        return entry;
@@ -213,12 +229,21 @@ index 0000000..0b4ae56
 +    const enabled = value.enabled;
 +    return Array.isArray(enabled) ? enabled : [];
 +}
++/** The scope flags a command surface accepts, in the order usage text lists them. */
++function scopeFlags(allowSession) {
++    return ["--global", "--repo", "--directory", ...(allowSession ? ["--session"] : [])];
++}
++/** The scope flags joined for a usage line, such as `--global|--repo|--directory`. */
++function scopeList(allowSession) {
++    return scopeFlags(allowSession).join("|");
++}
 +export function scopeFromArgs(args, allowSession = false) {
-+    const allowed = allowSession ? ["--global", "--repo", "--session"] : ["--global", "--repo"];
++    const allowed = scopeFlags(allowSession);
 +    const scopes = args.filter((arg) => allowed.includes(arg));
 +    const scope = scopes[0];
 +    if (scopes.length !== 1 || scope === undefined) {
-+        throw new Error(`Specify exactly one scope: ${allowSession ? "--global, --repo, or --session" : "--global or --repo"}.`);
++        const last = allowed.at(-1);
++        throw new Error(`Specify exactly one scope: ${allowed.slice(0, -1).join(", ")}, or ${String(last)}.`);
 +    }
 +    return scope.slice(2);
 +}
@@ -230,6 +255,9 @@ index 0000000..0b4ae56
 +        if (!key)
 +            throw new Error("Repository scope requires a git repository.");
 +        return { path: env.path.join(agentDir, "repo-skills.json"), key };
++    }
++    if (scope === "directory") {
++        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd) };
 +    }
 +    return {};
 +}
@@ -269,10 +297,6 @@ index 0000000..0b4ae56
 +function isAnchoredPath(env, value) {
 +    return env.path.isAbsolute(value) || value === "~" || value.startsWith("~/") || value.startsWith("file:");
 +}
-+/** The checkout root for `cwd`; relative repository entries resolve against it. */
-+function findRepoRoot(env, cwd) {
-+    return git(env, cwd, ["rev-parse", "--show-toplevel"]);
-+}
 +/** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
 +function pathInside(env, root, path) {
 +    const real = (value) => (env.fs.existsSync(value) ? env.fs.realpathSync(value) : value);
@@ -281,20 +305,27 @@ index 0000000..0b4ae56
 +        return undefined;
 +    return relative.split(env.path.sep).join("/");
 +}
++/** The base relative entries of `scope` resolve against; see {@link EntryContext}. */
++function scopeRoot(env, scope, cwd) {
++    if (scope === "repo")
++        return findRepoRoot(env, cwd);
++    if (scope === "directory")
++        return resolveDirectoryKey(env, cwd);
++    return undefined;
++}
 +/**
 + * Chooses how an added path is written to configuration.
 + *
 + * Repository entries are shared by every checkout with the same remote, so a path inside the current checkout
-+ * is stored relative to its root. Otherwise a `~` or `$NAME` spelling that resolves now is kept as typed, so it
++ * is stored relative to its root; a directory entry likewise stores a path inside its base relative to that base,
++ * so it resolves the same way from any subdirectory. Otherwise a `~` or `$NAME` spelling that resolves now is kept as typed, so it
 + * is expanded each time skills load rather than frozen at add time, and any other path is stored absolute,
 + * under `~` when it is in the home directory.
 + */
 +function persistedForm(env, source, resolvedPath, context) {
-+    const repoRelative = context.scope === "repo" && context.repoRoot !== undefined
-+        ? pathInside(env, context.repoRoot, resolvedPath)
-+        : undefined;
-+    if (repoRelative !== undefined) {
-+        return repoRelative === "" ? "." : looksLikePath(repoRelative) ? repoRelative : `./${repoRelative}`;
++    const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
++    if (rootRelative !== undefined) {
++        return rootRelative === "" ? "." : looksLikePath(rootRelative) ? rootRelative : `./${rootRelative}`;
 +    }
 +    const typed = source.trim();
 +    if (isPortableSpelling(env, typed))
@@ -335,9 +366,12 @@ index 0000000..0b4ae56
 +        return unset;
 +    if (isAnchoredPath(env, expandEnvironmentVariables(env, source).value.trim()))
 +        return undefined;
-+    return scope === "repo"
-+        ? "relative repository paths resolve against the root of the current checkout"
-+        : "relative paths resolve against the working directory; remove it, then add it again to store its absolute path";
++    if (scope === "repo")
++        return "relative repository paths resolve against the root of the current checkout";
++    if (scope === "directory") {
++        return "relative directory paths resolve against the root of the current checkout, or the working directory outside one";
++    }
++    return "relative paths resolve against the working directory; remove it, then add it again to store its absolute path";
 +}
 +function unresolvedSkillDiagnostic(env, entry) {
 +    const hint = unresolvedEntryHint(env, entry.source, entry.scope);
@@ -365,7 +399,7 @@ index 0000000..0b4ae56
 + * User input is normalized before it is stored, so a stored bare value is a catalog name and is compared
 + * literally. Resolving it against whatever happens to exist in the current directory would let an unrelated
 + * local folder make a catalog-name entry match, or block, a path entry. A path entry compares by the real path
-+ * it names, so `~/x`, `$HOME/x`, and a repository-relative `x` all match the same absolute path.
++ * it names, so `~/x`, `$HOME/x`, and a repository- or directory-relative `x` all match the same absolute path.
 + */
 +function normalizePersistedSource(env, source, context) {
 +    if (!source)
@@ -373,8 +407,8 @@ index 0000000..0b4ae56
 +    if (!looksLikePath(source))
 +        return source;
 +    const value = expandEnvironmentVariables(env, source).value.trim();
-+    const path = context.scope === "repo" && context.repoRoot !== undefined && !isAnchoredPath(env, value)
-+        ? env.path.resolve(context.repoRoot, value)
++    const path = context.root !== undefined && !isAnchoredPath(env, value)
++        ? env.path.resolve(context.root, value)
 +        : env.resolvePath(value, context.cwd, { trim: true });
 +    return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
 +}
@@ -383,11 +417,7 @@ index 0000000..0b4ae56
 +    const path = location.path;
 +    if (path === undefined)
 +        throw new Error(`Scope ${scope} has no persisted configuration.`);
-+    const context = {
-+        cwd: options.cwd,
-+        scope,
-+        repoRoot: scope === "repo" ? findRepoRoot(env, options.cwd) : undefined,
-+    };
++    const context = { cwd: options.cwd, scope, root: scopeRoot(env, scope, options.cwd) };
 +    const key = normalizePersistedSource(env, source, context);
 +    const matches = (entry) => normalizePersistedSource(env, sourceOf(entry), context) === key;
 +    return withSkillConfigLock(env, path, () => {
@@ -400,7 +430,14 @@ index 0000000..0b4ae56
 +            return false;
 +        target.enabled =
 +            action === "add" ? (matched ? enabled : [...enabled, source]) : enabled.filter((entry) => !matches(entry));
-+        if (location.key !== undefined)
++        // Directory keys are paths, one per checkout, worktree, or plain directory ever used, so a key is dropped
++        // once nothing is enabled under it. Keys are never pruned for a directory that no longer exists: such a key
++        // is inert, and the directory may only be temporarily unavailable, such as on an unmounted volume.
++        if (location.key !== undefined && scope === "directory" && enabledEntries(target).length === 0) {
++            // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the key is a path, so a Map-shaped object is the stored format
++            delete config[location.key];
++        }
++        else if (location.key !== undefined)
 +            config[location.key] = target;
 +        writeJson(env, path, config);
 +        return true;
@@ -446,6 +483,14 @@ index 0000000..0b4ae56
 +            if (value)
 +                entries.push({ scope: "repo", source: value });
 +        }
++    }
++    // Directory entries come last, so on a name collision between different files the broader scope's skill
++    // loads first and wins, as global already does over repository.
++    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
++    for (const source of enabledEntries(directoryConfig[resolveDirectoryKey(env, cwd)])) {
++        const value = sourceOf(source);
++        if (value)
++            entries.push({ scope: "directory", source: value });
 +    }
 +    return entries;
 +}
@@ -519,7 +564,7 @@ index 0000000..0b4ae56
 +}
 +export function usage(allowSession = false) {
 +    const command = commandName(allowSession);
-+    const scopes = `--global|--repo${allowSession ? "|--session" : ""}`;
++    const scopes = scopeList(allowSession);
 +    return [
 +        `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
 +        `  ${command} active`,
@@ -560,20 +605,16 @@ index 0000000..0b4ae56
 +function persistedAddForm(env, source, target, scope, cwd) {
 +    if (!looksLikePath(source) && target === source)
 +        return source;
-+    return persistedForm(env, source, target, {
-+        cwd,
-+        scope,
-+        repoRoot: scope === "repo" ? findRepoRoot(env, cwd) : undefined,
-+    });
++    return persistedForm(env, source, target, { cwd, scope, root: scopeRoot(env, scope, cwd) });
 +}
 +async function runMutationCommand(env, command, rest, surface, options) {
-+    const scopeList = `--global|--repo${options.allowSession ? "|--session" : ""}`;
++    const scopes = scopeList(options.allowSession ?? false);
 +    const source = rest.find((arg) => !arg.startsWith("--"));
 +    if (!source)
-+        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
++        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopes}`);
 +    const scope = scopeFromArgs(rest, options.allowSession);
 +    if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
-+        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
++        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopes}`);
 +    }
 +    // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
 +    // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
@@ -620,7 +661,8 @@ index 0000000..0b4ae56
 + *
 + * Entries are either paths, which must exist, or catalog names, which are looked up by name. Path entries
 + * are expanded here, each time skills load, rather than when they are added: `~` and `$NAME` take the current
-+ * environment, and a relative repository entry resolves against the root of the current checkout. The loader
++ * environment, a relative repository entry resolves against the root of the current checkout, and a relative
++ * directory entry resolves against its directory base. The loader
 + * keeps the result until its next reload (`/reload`, `/skills reload`, or the reload `/skills add` and
 + * `/skills remove` trigger), which is what makes this a once-per-session expansion. The catalog is built at
 + * most once per call: every caller resolves a whole entry list in one pass, so a longer-lived cache would only
@@ -645,13 +687,15 @@ index 0000000..0b4ae56
 +        })).map((skill) => [skill.name, skill.filePath]));
 +        return catalogPathsByName.get(name);
 +    };
-+    let repoRoot;
++    const roots = new Map();
 +    const entryPath = (entry) => {
 +        const value = expandEnvironmentVariables(env, entry.source).value.trim();
-+        if (entry.scope === "repo" && !isAnchoredPath(env, value)) {
-+            repoRoot ??= { value: findRepoRoot(env, cwd) };
-+            if (repoRoot.value !== undefined)
-+                return env.path.resolve(repoRoot.value, value);
++        if (entry.scope !== "global" && !isAnchoredPath(env, value)) {
++            if (!roots.has(entry.scope))
++                roots.set(entry.scope, scopeRoot(env, entry.scope, cwd));
++            const root = roots.get(entry.scope);
++            if (root !== undefined)
++                return env.path.resolve(root, value);
 +        }
 +        return resolveResourcePath(value);
 +    };
@@ -1026,7 +1070,7 @@ index 421255a..7bf38fa 100644
          if (this.session.isStreaming) {
              this.showWarning("Wait for the current response to finish before reloading.");
 diff --git a/docs/skills.md b/docs/skills.md
-index 19d2bf2..2a17b24 100644
+index 19d2bf2..e2ee70b 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -40,9 +40,11 @@ Use relative paths from the skill directory when referring to bundled files. Pi
@@ -1043,7 +1087,7 @@ index 19d2bf2..2a17b24 100644
  
  Arguments after `/skill:name` are appended to the loaded instructions as a user request:
  
-@@ -56,14 +58,82 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
+@@ -56,14 +58,102 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
  
  ## Add it to Pi
  
@@ -1070,8 +1114,11 @@ index 19d2bf2..2a17b24 100644
 +- Session/CLI: `--skill <path>` (repeatable, additive even with `--no-skills`) or `/skills add <name> --session`
 +- Global: `~/.pi/agent/skills.json`
 +- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
++- Directory: `~/.pi/agent/directory-skills.json`, keyed by the current checkout or worktree root, or by the working directory outside a git repository
 +
-+Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
++When two different active skills share a name, the first one loaded wins, in this order: global, repository, directory, then `--skill` and session paths. The same skill file enabled in several scopes loads once.
++
++Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json` or `~/.pi/agent/directory-skills.json`. Use `pi skills list` to find catalog skill names.
 +
 +Enable global skills with `~/.pi/agent/skills.json`:
 +
@@ -1099,6 +1146,21 @@ index 19d2bf2..2a17b24 100644
 +
 +Repository keys are resolved from git remotes in this order: `upstream`, then `origin`, then the first configured remote. Remote URLs are normalized so `git@github.com:earendil-works/pi.git`, `https://github.com/earendil-works/pi`, and `ssh://git@github.com/earendil-works/pi.git` all become `github.com:earendil-works/pi`. Non-default ports stay part of the key. If no remote exists, Pi falls back to `local:<repo-root-relative-to-$HOME>`, such as `local:~/Documents/repos/private-tool`.
 +
++Enable skills for one directory with `~/.pi/agent/directory-skills.json`:
++
++```json
++{
++  "/Users/me/Documents/repos/pi-worktrees/feature": {
++    "enabled": ["./.agents/skills/feature-notes"]
++  },
++  "/Users/me/scratch": {
++    "enabled": ["~/.agents/skills/scratchpad"]
++  }
++}
++```
++
++Repository scope follows the remote, so every clone and every git worktree of a repository shares its entries. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. Keys are real paths, so a directory reached through a symlink shares the entries of its target. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
++
 +Manage activation with either the interactive `/skills` command or the one-shot CLI:
 +
 +```text
@@ -1107,6 +1169,7 @@ index 19d2bf2..2a17b24 100644
 +/skills search browser
 +/skills add browser-testing-with-devtools --session
 +/skills add browser-testing-with-devtools --repo
++/skills add browser-testing-with-devtools --directory
 +/skills remove browser-testing-with-devtools --global
 +/skills reload
 +
@@ -1115,19 +1178,20 @@ index 19d2bf2..2a17b24 100644
 +pi skills search browser
 +pi skills add browser-testing-with-devtools --global
 +pi skills add browser-testing-with-devtools --repo
++pi skills add browser-testing-with-devtools --directory
 +pi skills remove browser-testing-with-devtools --repo
 +```
 +
-+`--session` is interactive-only and lasts until the session ends. `--global` and `--repo` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global and repository entries; `/skills active` also shows session entries.
++`--session` is interactive-only and lasts until the session ends. `--global`, `--repo`, and `--directory` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global, repository, and directory entries; `/skills active` also shows session entries.
 +
-+Path arguments may use `~`, `$NAME`, or `${NAME}`; `/skills` expands them itself because its arguments never pass through a shell. With `--repo`, a path inside the current checkout is stored relative to the repository root, so the entry works in every clone and worktree with the same remote. Otherwise `add` keeps a `~` or `$NAME` spelling as typed and stores any other path as an absolute path, under `~` when it is in your home directory. Stored paths are expanded whenever Pi loads skills: at startup, after `/skills add` or `/skills remove`, and on `/reload` or `/skills reload`. Other relative entries resolve against the repository root in `repo-skills.json` and against the working directory in `skills.json`, so prefer absolute, `~`, or `$NAME` paths in `skills.json`.
++Path arguments may use `~`, `$NAME`, or `${NAME}`; `/skills` expands them itself because its arguments never pass through a shell. With `--repo`, a path inside the current checkout is stored relative to the repository root, so the entry works in every clone and worktree with the same remote. With `--directory`, a path inside the directory base is stored relative to that base. Otherwise `add` keeps a `~` or `$NAME` spelling as typed and stores any other path as an absolute path, under `~` when it is in your home directory. Stored paths are expanded whenever Pi loads skills: at startup, after `/skills add` or `/skills remove`, and on `/reload` or `/skills reload`. Other relative entries resolve against the repository root in `repo-skills.json`, against the directory base in `directory-skills.json`, and against the working directory in `skills.json`, so prefer absolute, `~`, or `$NAME` paths in `skills.json`.
 +
-+Use `--no-skills` to suppress global and repository active skills; explicit `--skill` paths still load.
++Use `--no-skills` to suppress global, repository, and directory active skills; explicit `--skill` paths still load.
 +
  ## Write portable frontmatter
  
  The Agent Skills specification defines these fields:
-@@ -86,7 +156,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
+@@ -86,7 +176,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
  
  ## Validate and share a skill
  

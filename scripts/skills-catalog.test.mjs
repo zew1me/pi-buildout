@@ -560,6 +560,60 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
       [["cloned-skill", join(await realpath(secondClone), ".agents", "skills", "cloned", "SKILL.md")]],
     );
 
+    // A directory entry is keyed by the worktree root rather than the remote, so a second worktree of the same
+    // repository does not see it, and outside a repository the working directory itself is the key.
+    const worktreeRoot = join(fixtureRoot, "worktrees");
+    const [mainCheckout, featureWorktree] = [join(worktreeRoot, "main"), join(worktreeRoot, "feature")];
+    const worktreeAgentDir = join(worktreeRoot, "agent");
+    await mkdir(mainCheckout, { recursive: true });
+    await runGit(mainCheckout, ["init", "--quiet"]);
+    await runGit(mainCheckout, ["remote", "add", "origin", "https://example.com/org/worktrees.git"]);
+    await runGit(mainCheckout, [
+      "-c",
+      "user.name=fixture",
+      "-c",
+      "user.email=fixture@example.com",
+      "commit",
+      "--quiet",
+      "--allow-empty",
+      "-m",
+      "init",
+    ]);
+    await runGit(mainCheckout, ["worktree", "add", "--quiet", featureWorktree]);
+    const plainDirectory = join(worktreeRoot, "plain");
+    for (const base of [mainCheckout, featureWorktree, plainDirectory]) {
+      await writeSkill(join(base, ".agents", "skills", "local"), "directory-skill", "directory fixture");
+    }
+    const directoryLoad = async (base) => {
+      const directoryLoader = new DefaultResourceLoader({
+        cwd: base,
+        agentDir: worktreeAgentDir,
+        settingsManager: SettingsManager.create(base, worktreeAgentDir, { projectTrusted: false }),
+      });
+      await directoryLoader.reload();
+      return directoryLoader.getSkills().skills.map((skill) => skill.filePath);
+    };
+    for (const base of [mainCheckout, plainDirectory]) {
+      const directoryAdd = await runPatchedCli(
+        patchedPackage,
+        ["skills", "add", "./.agents/skills/local", "--directory"],
+        { agentDir: worktreeAgentDir, cwd: base },
+      );
+      assert.equal(directoryAdd.code, 0, directoryAdd.stderr);
+    }
+    const directoryConfig = JSON.parse(await readFile(join(worktreeAgentDir, "directory-skills.json"), "utf8"));
+    assert.deepEqual(directoryConfig, {
+      [await realpath(mainCheckout)]: { enabled: [".agents/skills/local"] },
+      [await realpath(plainDirectory)]: { enabled: [".agents/skills/local"] },
+    });
+    assert.deepEqual(await directoryLoad(mainCheckout), [
+      join(await realpath(mainCheckout), ".agents", "skills", "local", "SKILL.md"),
+    ]);
+    assert.deepEqual(await directoryLoad(featureWorktree), [], "another worktree of the same remote is unaffected");
+    assert.deepEqual(await directoryLoad(plainDirectory), [
+      join(await realpath(plainDirectory), ".agents", "skills", "local", "SKILL.md"),
+    ]);
+
     // Entry resolution lives in the skill-management module, so DefaultResourceLoader keeps no skill API.
     const entryContext = { cwd, agentDir, settingsManager, resolveResourcePath: (path) => path };
     for (const name of ["package-manifest", "setting-project"]) {
