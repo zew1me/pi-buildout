@@ -575,6 +575,7 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
       "user.email=fixture@example.com",
       "commit",
       "--quiet",
+      "--no-gpg-sign",
       "--allow-empty",
       "-m",
       "init",
