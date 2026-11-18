@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { posix } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -930,6 +931,52 @@ test("a directory path is persisted relative to its base and resolves from any s
   });
   assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
   assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/home/dev/app"].enabled, ["~/shared/gamma"]);
+});
+
+test("directory-relative persistence preserves a literal tilde and avoids expanding a variable twice", async () => {
+  const { env, store } = createEnvironment({
+    files: { "/work/~/skill": "", "/work/$LITERAL/skill": "" },
+    variables: { SKILL_PATH: "/work/$LITERAL/skill", LITERAL: "different" },
+  });
+  env.path.resolve = posix.resolve;
+  const options = { cwd: "/work", agentDir: "/agent" };
+  for (const source of ["./~/skill", "$SKILL_PATH"]) {
+    const result = await runSkillsCommand(env, ["add", source, "--directory"], options);
+    assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  }
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/work"].enabled, ["./~/skill", "$SKILL_PATH"]);
+  assert.deepEqual(await resolveActiveSkillPaths(env, { ...options, resolveResourcePath: (path) => path }), {
+    paths: ["/work/~/skill", "/work/$LITERAL/skill"],
+    diagnostics: [],
+  });
+});
+
+test("relative directory entries resolve against the same base used to select them", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/agent/directory-skills.json": JSON.stringify({ "/checkout": { enabled: ["skills/local"] } }),
+      "/checkout/skills/local": "",
+    },
+    git: { "remote get-url origin": "https://example.com/team/app" },
+  });
+  const git = env.execFileSync;
+  let lookups = 0;
+  env.execFileSync = (file, args, options) => {
+    if (args.slice(2).join(" ") === "rev-parse --show-toplevel") {
+      lookups += 1;
+      return lookups === 1 ? "/checkout" : "/changed";
+    }
+    return git(file, args, options);
+  };
+  assert.deepEqual(
+    await resolveActiveSkillPaths(env, {
+      cwd: "/checkout/subdirectory",
+      agentDir: "/agent",
+      resolveResourcePath: (path) => path,
+    }),
+    { paths: ["/checkout/skills/local"], diagnostics: [] },
+  );
+  assert.equal(lookups, 1);
 });
 
 test("active entries list directory scope after global and repository scopes", async () => {

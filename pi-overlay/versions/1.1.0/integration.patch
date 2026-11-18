@@ -45,7 +45,7 @@ index 19d2bf2..e2ee70b 100644
 +- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
 +- Directory: `~/.pi/agent/directory-skills.json`, keyed by the current checkout or worktree root, or by the working directory outside a git repository
 +
-+When two different active skills share a name, the first one loaded wins, in this order: global, repository, directory, then `--skill` and session paths. The same skill file enabled in several scopes loads once.
++Among persisted scopes, the first skill with a given name wins: global, then repository, then directory. Explicit `--skill` paths and interactive session paths are added after the persisted scopes. The same skill file enabled in several scopes loads once.
 +
 +Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json` or `~/.pi/agent/directory-skills.json`. Use `pi skills list` to find catalog skill names.
 +

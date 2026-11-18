@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 2fd4257..5c4bf9e 100644
+index 2fd4257..4af1dc6 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -124,6 +124,22 @@ export function resolveRepoKey(env, cwd) {
@@ -49,7 +49,7 @@ index 2fd4257..5c4bf9e 100644
      }
      return scope.slice(2);
  }
-@@ -157,10 +182,130 @@ export function configLocation(env, scope, cwd, agentDir) {
+@@ -157,10 +182,134 @@ export function configLocation(env, scope, cwd, agentDir) {
              throw new Error("Repository scope requires a git repository.");
          return { path: env.path.join(agentDir, "repo-skills.json"), key };
      }
@@ -122,8 +122,12 @@ index 2fd4257..5c4bf9e 100644
 + */
 +function persistedForm(env, source, resolvedPath, context) {
 +    const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
-+    if (rootRelative !== undefined) {
-+        return rootRelative === "" ? "." : looksLikePath(rootRelative) ? rootRelative : `./${rootRelative}`;
++    if (rootRelative === "")
++        return ".";
++    // A literal ~/ or file: prefix inside the root must not become an anchored path. Likewise,
++    // prefer the original portable spelling if a generated path would expand a second variable.
++    if (rootRelative !== undefined && expandEnvironmentVariables(env, rootRelative).value === rootRelative) {
++        return !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) ? `./${rootRelative}` : rootRelative;
 +    }
 +    const typed = source.trim();
 +    if (isPortableSpelling(env, typed))
@@ -181,7 +185,7 @@ index 2fd4257..5c4bf9e 100644
  }
  /** True when `path` exists and Pi's own loader finds at least one skill in it. */
  function containsSkills(env, path, options) {
-@@ -175,37 +320,50 @@ function containsSkills(env, path, options) {
+@@ -175,37 +324,50 @@ function containsSkills(env, path, options) {
      return skills.length > 0;
  }
  /**
@@ -243,22 +247,58 @@ index 2fd4257..5c4bf9e 100644
              config[location.key] = target;
          writeJson(env, path, config);
          return true;
-@@ -252,6 +410,14 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
-                 entries.push({ scope: "repo", source: value });
+@@ -225,7 +387,10 @@ function removePersistedSkill(env, source, target, scope, options) {
+         : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
+     return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
+ }
+-export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
++export function getActiveSkillEntries(env, options) {
++    return readActiveSkillEntries(env, options).entries;
++}
++function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
+     const entries = [];
+     const safeRead = (path) => {
+         try {
+@@ -238,21 +403,24 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+             return {};
          }
-     }
+     };
+-    for (const source of enabledEntries(safeRead(env.path.join(agentDir, "skills.json")))) {
+-        const value = sourceOf(source);
+-        if (value)
+-            entries.push({ scope: "global", source: value });
+-    }
+-    const key = resolveRepoKey(env, cwd);
+-    if (key) {
+-        const config = safeRead(env.path.join(agentDir, "repo-skills.json"));
+-        for (const source of enabledEntries(config[key])) {
+-            const value = sourceOf(source);
+-            if (value)
+-                entries.push({ scope: "repo", source: value });
++    const append = (scope, config) => {
++        for (const entry of enabledEntries(config)) {
++            const source = sourceOf(entry);
++            if (source)
++                entries.push({ scope, source });
+         }
+-    }
+-    return entries;
++    };
++    append("global", safeRead(env.path.join(agentDir, "skills.json")));
++    const key = resolveRepoKey(env, cwd);
++    if (key)
++        append("repo", safeRead(env.path.join(agentDir, "repo-skills.json"))[key]);
 +    // Directory entries come last, so on a name collision between different files the broader scope's skill
 +    // loads first and wins, as global already does over repository.
 +    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-+    for (const source of enabledEntries(directoryConfig[resolveDirectoryKey(env, cwd)])) {
-+        const value = sourceOf(source);
-+        if (value)
-+            entries.push({ scope: "directory", source: value });
-+    }
-     return entries;
++    const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
++    if (directoryKey !== undefined)
++        append("directory", directoryConfig[directoryKey]);
++    return { entries, directoryKey };
  }
  function getProjectAgentSkillDirs(env, cwd) {
-@@ -307,10 +473,11 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+     const dirs = [];
+@@ -307,10 +475,11 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
  }
  async function resolveSkillSource(env, source, options) {
@@ -271,7 +311,7 @@ index 2fd4257..5c4bf9e 100644
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
      // resolve the selected skill. A bare local folder is retained as a path only when no catalog entry wins.
      const catalog = await getSkillCatalog(env, options);
-@@ -323,7 +490,7 @@ function commandName(allowSession = false) {
+@@ -323,7 +492,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -280,7 +320,7 @@ index 2fd4257..5c4bf9e 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -360,32 +527,38 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -360,32 +529,38 @@ async function runCatalogCommand(env, command, rest, surface, options) {
              : [query ? "No matching skills." : "No catalog skills found."],
      };
  }
@@ -325,7 +365,7 @@ index 2fd4257..5c4bf9e 100644
          : removePersistedSkill(env, source, target, scope, options);
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
-@@ -412,9 +585,14 @@ export async function runSkillsCommand(env, args, options) {
+@@ -412,15 +587,20 @@ export async function runSkillsCommand(env, args, options) {
  /**
   * Resolves the skills that are explicitly active for this session into concrete paths.
   *
@@ -343,19 +383,28 @@ index 2fd4257..5c4bf9e 100644
   */
  export async function resolveActiveSkillPaths(env, context) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
-@@ -435,22 +613,32 @@ export async function resolveActiveSkillPaths(env, context) {
+     const paths = [];
+     const diagnostics = [];
+-    const entries = getActiveSkillEntries(env, {
++    const { entries, directoryKey } = readActiveSkillEntries(env, {
+         cwd,
+         agentDir,
+         onWarn: (message) => diagnostics.push({ type: "warning", message }),
+@@ -435,22 +615,34 @@ export async function resolveActiveSkillPaths(env, context) {
          })).map((skill) => [skill.name, skill.filePath]));
          return catalogPathsByName.get(name);
      };
-+    const roots = new Map();
++    let repoRoot;
 +    const entryPath = (entry) => {
 +        const value = expandEnvironmentVariables(env, entry.source).value.trim();
-+        if (entry.scope !== "global" && !isAnchoredPath(env, value)) {
-+            if (!roots.has(entry.scope))
-+                roots.set(entry.scope, scopeRoot(env, entry.scope, cwd));
-+            const root = roots.get(entry.scope);
-+            if (root !== undefined)
-+                return env.path.resolve(root, value);
++        if (!isAnchoredPath(env, value)) {
++            if (entry.scope === "directory" && directoryKey !== undefined)
++                return env.path.resolve(directoryKey, value);
++            if (entry.scope === "repo") {
++                repoRoot ??= { value: findRepoRoot(env, cwd) };
++                if (repoRoot.value !== undefined)
++                    return env.path.resolve(repoRoot.value, value);
++            }
 +        }
 +        return resolveResourcePath(value);
 +    };
@@ -389,7 +438,7 @@ index 2fd4257..5c4bf9e 100644
      }
      return { paths, diagnostics };
  }
-@@ -464,7 +652,7 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -464,7 +656,7 @@ export async function resolveActiveSkillPaths(env, context) {
  export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
@@ -398,7 +447,7 @@ index 2fd4257..5c4bf9e 100644
          return { normalized, resolved: env.fs.existsSync(normalized) ? normalized : undefined };
      }
      const catalog = await getSkillCatalog(env, {
-@@ -500,7 +688,9 @@ async function applySessionSkillChange(env, session, context) {
+@@ -500,7 +692,9 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.
@@ -422,7 +471,7 @@ index 3d18e7d..8b712ef 100644
      processId: () => process.pid,
      lockSync: (directory, options) => lockfile.lockSync(directory, options),
 diff --git a/docs/skills.md b/docs/skills.md
-index a6adcc6..e2ee70b 100644
+index a6adcc6..3536ac0 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -80,8 +80,11 @@ A catalog skill enters the system prompt only when it is active. Active skills c
@@ -432,7 +481,7 @@ index a6adcc6..e2ee70b 100644
 +- Directory: `~/.pi/agent/directory-skills.json`, keyed by the current checkout or worktree root, or by the working directory outside a git repository
  
 -Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
-+When two different active skills share a name, the first one loaded wins, in this order: global, repository, directory, then `--skill` and session paths. The same skill file enabled in several scopes loads once.
++Among persisted scopes, the first skill with a given name wins: global, then repository, then directory. Explicit `--skill` paths and interactive session paths are added after the persisted scopes. The same skill file enabled in several scopes loads once.
 +
 +Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json` or `~/.pi/agent/directory-skills.json`. Use `pi skills list` to find catalog skill names.
  

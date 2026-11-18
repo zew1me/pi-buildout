@@ -392,8 +392,11 @@ function scopeRoot(env: SkillEnvironment, scope: SkillScope, cwd: string): strin
  */
 function persistedForm(env: SkillEnvironment, source: string, resolvedPath: string, context: EntryContext): string {
   const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
-  if (rootRelative !== undefined) {
-    return rootRelative === "" ? "." : looksLikePath(rootRelative) ? rootRelative : `./${rootRelative}`;
+  if (rootRelative === "") return ".";
+  // A literal ~/ or file: prefix inside the root must not become an anchored path. Likewise,
+  // prefer the original portable spelling if a generated path would expand a second variable.
+  if (rootRelative !== undefined && expandEnvironmentVariables(env, rootRelative).value === rootRelative) {
+    return !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) ? `./${rootRelative}` : rootRelative;
   }
   const typed = source.trim();
   if (isPortableSpelling(env, typed)) return typed;
@@ -551,10 +554,14 @@ function removePersistedSkill(
   return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
 }
 
-export function getActiveSkillEntries(
+export function getActiveSkillEntries(env: SkillEnvironment, options: ActiveSkillEntriesOptions): ActiveSkillEntry[] {
+  return readActiveSkillEntries(env, options).entries;
+}
+
+function readActiveSkillEntries(
   env: SkillEnvironment,
   { cwd, agentDir, strict = false, onWarn }: ActiveSkillEntriesOptions,
-): ActiveSkillEntry[] {
+): { entries: ActiveSkillEntry[]; directoryKey: string | undefined } {
   const entries: ActiveSkillEntry[] = [];
   const safeRead = (path: string): JsonRecord => {
     try {
@@ -566,28 +573,23 @@ export function getActiveSkillEntries(
     }
   };
 
-  for (const source of enabledEntries(safeRead(env.path.join(agentDir, "skills.json")))) {
-    const value = sourceOf(source);
-    if (value) entries.push({ scope: "global", source: value });
-  }
+  const append = (scope: PersistedScope, config: unknown): void => {
+    for (const entry of enabledEntries(config)) {
+      const source = sourceOf(entry);
+      if (source) entries.push({ scope, source });
+    }
+  };
+  append("global", safeRead(env.path.join(agentDir, "skills.json")));
 
   const key = resolveRepoKey(env, cwd);
-  if (key) {
-    const config = safeRead(env.path.join(agentDir, "repo-skills.json"));
-    for (const source of enabledEntries(config[key])) {
-      const value = sourceOf(source);
-      if (value) entries.push({ scope: "repo", source: value });
-    }
-  }
+  if (key) append("repo", safeRead(env.path.join(agentDir, "repo-skills.json"))[key]);
 
   // Directory entries come last, so on a name collision between different files the broader scope's skill
   // loads first and wins, as global already does over repository.
   const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-  for (const source of enabledEntries(directoryConfig[resolveDirectoryKey(env, cwd)])) {
-    const value = sourceOf(source);
-    if (value) entries.push({ scope: "directory", source: value });
-  }
-  return entries;
+  const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
+  if (directoryKey !== undefined) append("directory", directoryConfig[directoryKey]);
+  return { entries, directoryKey };
 }
 
 function getProjectAgentSkillDirs(env: SkillEnvironment, cwd: string): string[] {
@@ -840,7 +842,7 @@ export async function resolveActiveSkillPaths(
   const paths: string[] = [];
   const diagnostics: SkillDiagnostic[] = [];
 
-  const entries = getActiveSkillEntries(env, {
+  const { entries, directoryKey } = readActiveSkillEntries(env, {
     cwd,
     agentDir,
     onWarn: (message) => diagnostics.push({ type: "warning", message }),
@@ -861,13 +863,15 @@ export async function resolveActiveSkillPaths(
     return catalogPathsByName.get(name);
   };
 
-  const roots = new Map<PersistedScope, string | undefined>();
+  let repoRoot: { value: string | undefined } | undefined;
   const entryPath = (entry: ActiveSkillEntry): string => {
     const value = expandEnvironmentVariables(env, entry.source).value.trim();
-    if (entry.scope !== "global" && !isAnchoredPath(env, value)) {
-      if (!roots.has(entry.scope)) roots.set(entry.scope, scopeRoot(env, entry.scope, cwd));
-      const root = roots.get(entry.scope);
-      if (root !== undefined) return env.path.resolve(root, value);
+    if (!isAnchoredPath(env, value)) {
+      if (entry.scope === "directory" && directoryKey !== undefined) return env.path.resolve(directoryKey, value);
+      if (entry.scope === "repo") {
+        repoRoot ??= { value: findRepoRoot(env, cwd) };
+        if (repoRoot.value !== undefined) return env.path.resolve(repoRoot.value, value);
+      }
     }
     return resolveResourcePath(value);
   };

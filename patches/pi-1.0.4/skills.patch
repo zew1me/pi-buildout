@@ -62,10 +62,10 @@ index 35ba09c..9d1e088 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..5c4bf9e
+index 0000000..4af1dc6
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,763 @@
+@@ -0,0 +1,767 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -318,8 +318,12 @@ index 0000000..5c4bf9e
 + */
 +function persistedForm(env, source, resolvedPath, context) {
 +    const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
-+    if (rootRelative !== undefined) {
-+        return rootRelative === "" ? "." : looksLikePath(rootRelative) ? rootRelative : `./${rootRelative}`;
++    if (rootRelative === "")
++        return ".";
++    // A literal ~/ or file: prefix inside the root must not become an anchored path. Likewise,
++    // prefer the original portable spelling if a generated path would expand a second variable.
++    if (rootRelative !== undefined && expandEnvironmentVariables(env, rootRelative).value === rootRelative) {
++        return !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) ? `./${rootRelative}` : rootRelative;
 +    }
 +    const typed = source.trim();
 +    if (isPortableSpelling(env, typed))
@@ -451,7 +455,10 @@ index 0000000..5c4bf9e
 +        : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
 +    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
 +}
-+export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
++export function getActiveSkillEntries(env, options) {
++    return readActiveSkillEntries(env, options).entries;
++}
++function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
 +    const entries = [];
 +    const safeRead = (path) => {
 +        try {
@@ -464,29 +471,24 @@ index 0000000..5c4bf9e
 +            return {};
 +        }
 +    };
-+    for (const source of enabledEntries(safeRead(env.path.join(agentDir, "skills.json")))) {
-+        const value = sourceOf(source);
-+        if (value)
-+            entries.push({ scope: "global", source: value });
-+    }
-+    const key = resolveRepoKey(env, cwd);
-+    if (key) {
-+        const config = safeRead(env.path.join(agentDir, "repo-skills.json"));
-+        for (const source of enabledEntries(config[key])) {
-+            const value = sourceOf(source);
-+            if (value)
-+                entries.push({ scope: "repo", source: value });
++    const append = (scope, config) => {
++        for (const entry of enabledEntries(config)) {
++            const source = sourceOf(entry);
++            if (source)
++                entries.push({ scope, source });
 +        }
-+    }
++    };
++    append("global", safeRead(env.path.join(agentDir, "skills.json")));
++    const key = resolveRepoKey(env, cwd);
++    if (key)
++        append("repo", safeRead(env.path.join(agentDir, "repo-skills.json"))[key]);
 +    // Directory entries come last, so on a name collision between different files the broader scope's skill
 +    // loads first and wins, as global already does over repository.
 +    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-+    for (const source of enabledEntries(directoryConfig[resolveDirectoryKey(env, cwd)])) {
-+        const value = sourceOf(source);
-+        if (value)
-+            entries.push({ scope: "directory", source: value });
-+    }
-+    return entries;
++    const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
++    if (directoryKey !== undefined)
++        append("directory", directoryConfig[directoryKey]);
++    return { entries, directoryKey };
 +}
 +function getProjectAgentSkillDirs(env, cwd) {
 +    const dirs = [];
@@ -666,7 +668,7 @@ index 0000000..5c4bf9e
 +    const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
 +    const paths = [];
 +    const diagnostics = [];
-+    const entries = getActiveSkillEntries(env, {
++    const { entries, directoryKey } = readActiveSkillEntries(env, {
 +        cwd,
 +        agentDir,
 +        onWarn: (message) => diagnostics.push({ type: "warning", message }),
@@ -681,15 +683,17 @@ index 0000000..5c4bf9e
 +        })).map((skill) => [skill.name, skill.filePath]));
 +        return catalogPathsByName.get(name);
 +    };
-+    const roots = new Map();
++    let repoRoot;
 +    const entryPath = (entry) => {
 +        const value = expandEnvironmentVariables(env, entry.source).value.trim();
-+        if (entry.scope !== "global" && !isAnchoredPath(env, value)) {
-+            if (!roots.has(entry.scope))
-+                roots.set(entry.scope, scopeRoot(env, entry.scope, cwd));
-+            const root = roots.get(entry.scope);
-+            if (root !== undefined)
-+                return env.path.resolve(root, value);
++        if (!isAnchoredPath(env, value)) {
++            if (entry.scope === "directory" && directoryKey !== undefined)
++                return env.path.resolve(directoryKey, value);
++            if (entry.scope === "repo") {
++                repoRoot ??= { value: findRepoRoot(env, cwd) };
++                if (repoRoot.value !== undefined)
++                    return env.path.resolve(repoRoot.value, value);
++            }
 +        }
 +        return resolveResourcePath(value);
 +    };
@@ -1064,7 +1068,7 @@ index 7827bce..5df7c45 100644
          if (this.session.isStreaming) {
              this.showWarning("Wait for the current response to finish before reloading.");
 diff --git a/docs/skills.md b/docs/skills.md
-index 19d2bf2..e2ee70b 100644
+index 19d2bf2..3536ac0 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -40,9 +40,11 @@ Use relative paths from the skill directory when referring to bundled files. Pi
@@ -1110,7 +1114,7 @@ index 19d2bf2..e2ee70b 100644
 +- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
 +- Directory: `~/.pi/agent/directory-skills.json`, keyed by the current checkout or worktree root, or by the working directory outside a git repository
 +
-+When two different active skills share a name, the first one loaded wins, in this order: global, repository, directory, then `--skill` and session paths. The same skill file enabled in several scopes loads once.
++Among persisted scopes, the first skill with a given name wins: global, then repository, then directory. Explicit `--skill` paths and interactive session paths are added after the persisted scopes. The same skill file enabled in several scopes loads once.
 +
 +Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json` or `~/.pi/agent/directory-skills.json`. Use `pi skills list` to find catalog skill names.
 +
