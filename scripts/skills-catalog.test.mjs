@@ -580,7 +580,7 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
       "-m",
       "init",
     ]);
-    await runGit(mainCheckout, ["worktree", "add", "--quiet", featureWorktree]);
+    await runGit(mainCheckout, ["worktree", "add", "--quiet", "--detach", featureWorktree, "HEAD"]);
     const plainDirectory = join(worktreeRoot, "plain");
     for (const base of [mainCheckout, featureWorktree, plainDirectory]) {
       await writeSkill(join(base, ".agents", "skills", "local"), "directory-skill", "directory fixture");
