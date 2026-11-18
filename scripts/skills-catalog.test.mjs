@@ -584,15 +584,18 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
     for (const base of [mainCheckout, featureWorktree, plainDirectory]) {
       await writeSkill(join(base, ".agents", "skills", "local"), "directory-skill", "directory fixture");
     }
-    const directoryLoad = async (base) => {
+    const directoryLoad = async (base, extraOptions = {}) => {
       const directoryLoader = new DefaultResourceLoader({
         cwd: base,
         agentDir: worktreeAgentDir,
         settingsManager: SettingsManager.create(base, worktreeAgentDir, { projectTrusted: false }),
+        ...extraOptions,
       });
       await directoryLoader.reload();
-      return directoryLoader.getSkills().skills.map((skill) => skill.filePath);
+      return directoryLoader.getSkills();
     };
+    const directoryPaths = async (base, options) =>
+      (await directoryLoad(base, options)).skills.map((skill) => skill.filePath);
     for (const base of [mainCheckout, plainDirectory]) {
       const directoryAdd = await runPatchedCli(
         patchedPackage,
@@ -606,13 +609,33 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
       [await realpath(mainCheckout)]: { enabled: [".agents/skills/local"] },
       [await realpath(plainDirectory)]: { enabled: [".agents/skills/local"] },
     });
-    assert.deepEqual(await directoryLoad(mainCheckout), [
-      join(await realpath(mainCheckout), ".agents", "skills", "local", "SKILL.md"),
-    ]);
-    assert.deepEqual(await directoryLoad(featureWorktree), [], "another worktree of the same remote is unaffected");
-    assert.deepEqual(await directoryLoad(plainDirectory), [
-      join(await realpath(plainDirectory), ".agents", "skills", "local", "SKILL.md"),
-    ]);
+    const mainSkill = join(await realpath(mainCheckout), ".agents", "skills", "local", "SKILL.md");
+    const plainSkill = join(await realpath(plainDirectory), ".agents", "skills", "local", "SKILL.md");
+    assert.deepEqual(await directoryPaths(mainCheckout), [mainSkill]);
+    assert.deepEqual(await directoryPaths(featureWorktree), [], "another worktree of the same remote is unaffected");
+    assert.deepEqual(await directoryPaths(plainDirectory), [plainSkill]);
+    assert.deepEqual(
+      await directoryPaths(mainCheckout, { noSkills: true }),
+      [],
+      "--no-skills suppresses directory scope",
+    );
+
+    const worktreeGlobalConfig = join(worktreeAgentDir, "skills.json");
+    await writeFile(worktreeGlobalConfig, JSON.stringify({ enabled: [plainSkill] }));
+    assert.deepEqual(
+      await directoryPaths(mainCheckout),
+      [plainSkill],
+      "global wins over directory on a name collision",
+    );
+    const alias = join(worktreeRoot, "main-alias");
+    await symlink(await realpath(mainCheckout), alias, "dir");
+    await writeFile(
+      worktreeGlobalConfig,
+      JSON.stringify({ enabled: [join(alias, ".agents", "skills", "local", "SKILL.md")] }),
+    );
+    const deduplicated = await directoryLoad(mainCheckout);
+    assert.equal(deduplicated.skills.length, 1, "the same file enabled in two scopes loads only once");
+    assert.ok(!deduplicated.diagnostics.some((diagnostic) => diagnostic.type === "collision"));
 
     // Entry resolution lives in the skill-management module, so DefaultResourceLoader keeps no skill API.
     const entryContext = { cwd, agentDir, settingsManager, resolveResourcePath: (path) => path };
