@@ -5,7 +5,7 @@ Standalone installer for the version-checked `/skills` runtime patch.
 Install globally and run:
 
 ```bash
-npm install -g @zew1me/pi-skills-patch
+npm install -g @zew1me/pi-skills-patch@alpha
 pi-skills-patch
 ```
 

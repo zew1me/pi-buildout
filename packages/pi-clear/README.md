@@ -5,5 +5,5 @@ Pi package for the `/clear` extension.
 Install with:
 
 ```bash
-pi install npm:@zew1me/pi-clear
+pi install npm:@zew1me/pi-clear@alpha
 ```

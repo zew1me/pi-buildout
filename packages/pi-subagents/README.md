@@ -5,5 +5,5 @@ Pi package for the subagents extension.
 Install with:
 
 ```bash
-pi install npm:@zew1me/pi-subagents
+pi install npm:@zew1me/pi-subagents@alpha
 ```
