@@ -974,6 +974,18 @@ test("a generated relative spelling with an unset variable keeps the typed varia
   assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/work"].enabled, ["$SKILL_PATH"]);
 });
 
+test("a fallback spelling whose literal variable is set now is rejected rather than stored", async () => {
+  const { env, store } = createEnvironment({
+    files: { "/work/$LITERAL/skill": "" },
+    variables: { PWD: "/work/$LITERAL", LITERAL: "other" },
+  });
+  env.path.resolve = posix.resolve;
+  const result = await runSkillsCommand(env, ["add", "$PWD/skill", "--global"], { cwd: "/work", agentDir: "/agent" });
+  assert.equal(result.exitCode, 1);
+  assert.match(firstLine(result), /environment variable reference that would expand/);
+  assert.equal(store.has("/agent/skills.json"), false);
+});
+
 test("a directory-relative spelling that starts with whitespace keeps its ./ prefix", async () => {
   const { env, store } = createEnvironment({ files: { "/work/ notes/SKILL.md": "" } });
   env.path.resolve = posix.resolve;

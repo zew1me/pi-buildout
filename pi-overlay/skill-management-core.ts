@@ -410,7 +410,14 @@ function persistedForm(env: SkillEnvironment, source: string, resolvedPath: stri
   const typed = source.trim();
   if (isPortableSpelling(env, typed)) return typed;
   const home = pathInside(env, env.homedir(), resolvedPath);
-  return home === undefined ? resolvedPath : home === "" ? "~" : `~/${home}`;
+  const fallback = home === undefined ? resolvedPath : home === "" ? "~" : `~/${home}`;
+  // A literal `$NAME` in the path that is set now would expand on the next load and name a different path.
+  if (expandEnvironmentVariables(env, fallback).value !== fallback) {
+    throw new Error(
+      `Cannot persist ${resolvedPath}: it contains an environment variable reference that would expand when skills load.`,
+    );
+  }
+  return fallback;
 }
 
 /** Variables naming a working directory: a path spelled with them means the directory it named at add time. */
