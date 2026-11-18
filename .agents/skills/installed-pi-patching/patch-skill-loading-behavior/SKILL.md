@@ -127,9 +127,10 @@ into earlier versioned patches unless explicitly requested.
 Directory keys are paths, not remotes. Resolve the base with `git rev-parse --show-toplevel`, which returns the root of
 the current worktree rather than the main checkout, and fall back to the working directory outside a repository; then
 take its real path, so a base reached through a symlink (macOS `/tmp` is `/private/tmp`) shares one key. Every clone and
-every worktree therefore gets its own directory entries, while they all share one repo key. Removing the last entry
-under a directory key deletes the key. Keys for directories that no longer exist are never pruned automatically: they
-are inert, and the directory may only be temporarily unavailable.
+every worktree therefore gets its own directory entries, while repo-scoped entries are shared only by clones and
+worktrees that resolve to the same repo key (a clone that selects a different remote, such as a fork's `origin`, gets a
+different key). Removing the last entry under a directory key deletes the key. Keys for directories that no longer exist
+are never pruned automatically: they are inert, and the directory may only be temporarily unavailable.
 
 Valid JSON with a non-object top-level value in `skills.json`, `repo-skills.json`, or `directory-skills.json` is a
 configuration error rather than an empty configuration. Strict command paths report that error; loader paths warn and
