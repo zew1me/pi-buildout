@@ -401,9 +401,9 @@ function persistedForm(env: SkillEnvironment, source: string, resolvedPath: stri
   const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
   if (rootRelative === "") return ".";
   // A literal ~/ or file: prefix inside the root must not become an anchored path, and leading whitespace must
-  // survive the trim applied when skills load. Likewise, prefer the original portable spelling if a generated
-  // path would expand a second variable.
-  if (rootRelative !== undefined && expandEnvironmentVariables(env, rootRelative).value === rootRelative) {
+  // survive the trim applied when skills load. A generated path containing any variable reference, set or not,
+  // could expand differently in a later process, so the original portable spelling is preferred over it.
+  if (rootRelative?.search(environmentVariableReference) === -1) {
     const needsPrefix = !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) || /^\s/.test(rootRelative);
     return needsPrefix ? `./${rootRelative}` : rootRelative;
   }

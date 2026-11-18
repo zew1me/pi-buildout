@@ -62,7 +62,7 @@ index 35ba09c..9d1e088 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..29156a0
+index 0000000..da1a574
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
 @@ -0,0 +1,778 @@
@@ -330,9 +330,9 @@ index 0000000..29156a0
 +    if (rootRelative === "")
 +        return ".";
 +    // A literal ~/ or file: prefix inside the root must not become an anchored path, and leading whitespace must
-+    // survive the trim applied when skills load. Likewise, prefer the original portable spelling if a generated
-+    // path would expand a second variable.
-+    if (rootRelative !== undefined && expandEnvironmentVariables(env, rootRelative).value === rootRelative) {
++    // survive the trim applied when skills load. A generated path containing any variable reference, set or not,
++    // could expand differently in a later process, so the original portable spelling is preferred over it.
++    if (rootRelative?.search(environmentVariableReference) === -1) {
 +        const needsPrefix = !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) || /^\s/.test(rootRelative);
 +        return needsPrefix ? `./${rootRelative}` : rootRelative;
 +    }

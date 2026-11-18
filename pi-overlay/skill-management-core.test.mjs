@@ -960,6 +960,20 @@ test("directory-relative persistence preserves a literal tilde and avoids expand
   });
 });
 
+test("a generated relative spelling with an unset variable keeps the typed variable spelling", async () => {
+  const { env, store } = createEnvironment({
+    files: { "/work/$LITERAL/skill": "" },
+    variables: { SKILL_PATH: "/work/$LITERAL/skill" },
+  });
+  env.path.resolve = posix.resolve;
+  const result = await runSkillsCommand(env, ["add", "$SKILL_PATH", "--directory"], {
+    cwd: "/work",
+    agentDir: "/agent",
+  });
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/work"].enabled, ["$SKILL_PATH"]);
+});
+
 test("a directory-relative spelling that starts with whitespace keeps its ./ prefix", async () => {
   const { env, store } = createEnvironment({ files: { "/work/ notes/SKILL.md": "" } });
   env.path.resolve = posix.resolve;
