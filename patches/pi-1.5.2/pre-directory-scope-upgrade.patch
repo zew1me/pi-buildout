@@ -1,8 +1,8 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..4af1dc6 100644
+index 0b4ae56..4917977 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
-@@ -124,6 +124,22 @@ export function resolveRepoKey(env, cwd) {
+@@ -124,6 +124,31 @@ export function resolveRepoKey(env, cwd) {
      const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
      return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
  }
@@ -20,12 +20,21 @@ index 0b4ae56..4af1dc6 100644
 + */
 +export function resolveDirectoryKey(env, cwd) {
 +    const base = env.path.resolve(findRepoRoot(env, cwd) ?? cwd);
-+    return env.fs.existsSync(base) ? env.fs.realpathSync(base) : base;
++    if (!env.fs.existsSync(base))
++        return base;
++    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
++    // loading, and the next reload looks it up again.
++    try {
++        return env.fs.realpathSync(base);
++    }
++    catch {
++        return base;
++    }
 +}
  export function sourceOf(entry) {
      if (typeof entry === "string")
          return entry;
-@@ -139,12 +155,21 @@ export function enabledEntries(value) {
+@@ -139,12 +164,21 @@ export function enabledEntries(value) {
      const enabled = value.enabled;
      return Array.isArray(enabled) ? enabled : [];
  }
@@ -49,7 +58,7 @@ index 0b4ae56..4af1dc6 100644
      }
      return scope.slice(2);
  }
-@@ -157,6 +182,9 @@ export function configLocation(env, scope, cwd, agentDir) {
+@@ -157,6 +191,9 @@ export function configLocation(env, scope, cwd, agentDir) {
              throw new Error("Repository scope requires a git repository.");
          return { path: env.path.join(agentDir, "repo-skills.json"), key };
      }
@@ -59,7 +68,7 @@ index 0b4ae56..4af1dc6 100644
      return {};
  }
  export function looksLikePath(value) {
-@@ -195,10 +223,6 @@ function resolveSkillPath(env, source, cwd) {
+@@ -195,10 +232,6 @@ function resolveSkillPath(env, source, cwd) {
  function isAnchoredPath(env, value) {
      return env.path.isAbsolute(value) || value === "~" || value.startsWith("~/") || value.startsWith("file:");
  }
@@ -70,7 +79,7 @@ index 0b4ae56..4af1dc6 100644
  /** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
  function pathInside(env, root, path) {
      const real = (value) => (env.fs.existsSync(value) ? env.fs.realpathSync(value) : value);
-@@ -207,20 +231,31 @@ function pathInside(env, root, path) {
+@@ -207,20 +240,31 @@ function pathInside(env, root, path) {
          return undefined;
      return relative.split(env.path.sep).join("/");
  }
@@ -108,7 +117,7 @@ index 0b4ae56..4af1dc6 100644
      }
      const typed = source.trim();
      if (isPortableSpelling(env, typed))
-@@ -261,9 +296,12 @@ function unresolvedEntryHint(env, source, scope) {
+@@ -261,9 +305,12 @@ function unresolvedEntryHint(env, source, scope) {
          return unset;
      if (isAnchoredPath(env, expandEnvironmentVariables(env, source).value.trim()))
          return undefined;
@@ -124,7 +133,7 @@ index 0b4ae56..4af1dc6 100644
  }
  function unresolvedSkillDiagnostic(env, entry) {
      const hint = unresolvedEntryHint(env, entry.source, entry.scope);
-@@ -291,7 +329,7 @@ function containsSkills(env, path, options) {
+@@ -291,7 +338,7 @@ function containsSkills(env, path, options) {
   * User input is normalized before it is stored, so a stored bare value is a catalog name and is compared
   * literally. Resolving it against whatever happens to exist in the current directory would let an unrelated
   * local folder make a catalog-name entry match, or block, a path entry. A path entry compares by the real path
@@ -133,7 +142,7 @@ index 0b4ae56..4af1dc6 100644
   */
  function normalizePersistedSource(env, source, context) {
      if (!source)
-@@ -299,8 +337,8 @@ function normalizePersistedSource(env, source, context) {
+@@ -299,8 +346,8 @@ function normalizePersistedSource(env, source, context) {
      if (!looksLikePath(source))
          return source;
      const value = expandEnvironmentVariables(env, source).value.trim();
@@ -144,7 +153,7 @@ index 0b4ae56..4af1dc6 100644
          : env.resolvePath(value, context.cwd, { trim: true });
      return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
  }
-@@ -309,11 +347,7 @@ export function updatePersistedSkill(env, action, source, scope, options) {
+@@ -309,11 +356,7 @@ export function updatePersistedSkill(env, action, source, scope, options) {
      const path = location.path;
      if (path === undefined)
          throw new Error(`Scope ${scope} has no persisted configuration.`);
@@ -157,7 +166,7 @@ index 0b4ae56..4af1dc6 100644
      const key = normalizePersistedSource(env, source, context);
      const matches = (entry) => normalizePersistedSource(env, sourceOf(entry), context) === key;
      return withSkillConfigLock(env, path, () => {
-@@ -326,7 +360,14 @@ export function updatePersistedSkill(env, action, source, scope, options) {
+@@ -326,7 +369,14 @@ export function updatePersistedSkill(env, action, source, scope, options) {
              return false;
          target.enabled =
              action === "add" ? (matched ? enabled : [...enabled, source]) : enabled.filter((entry) => !matches(entry));
@@ -173,7 +182,7 @@ index 0b4ae56..4af1dc6 100644
              config[location.key] = target;
          writeJson(env, path, config);
          return true;
-@@ -346,7 +387,10 @@ function removePersistedSkill(env, source, target, scope, options) {
+@@ -346,7 +396,10 @@ function removePersistedSkill(env, source, target, scope, options) {
          : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
      return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
  }
@@ -185,7 +194,7 @@ index 0b4ae56..4af1dc6 100644
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -359,21 +403,24 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -359,21 +412,24 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -224,7 +233,7 @@ index 0b4ae56..4af1dc6 100644
  }
  function getProjectAgentSkillDirs(env, cwd) {
      const dirs = [];
-@@ -445,7 +492,7 @@ function commandName(allowSession = false) {
+@@ -445,7 +501,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -233,7 +242,7 @@ index 0b4ae56..4af1dc6 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -486,20 +533,16 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -486,20 +542,16 @@ async function runCatalogCommand(env, command, rest, surface, options) {
  function persistedAddForm(env, source, target, scope, cwd) {
      if (!looksLikePath(source) && target === source)
          return source;
@@ -258,7 +267,7 @@ index 0b4ae56..4af1dc6 100644
      }
      // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
      // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
-@@ -546,7 +589,8 @@ export async function runSkillsCommand(env, args, options) {
+@@ -546,7 +598,8 @@ export async function runSkillsCommand(env, args, options) {
   *
   * Entries are either paths, which must exist, or catalog names, which are looked up by name. Path entries
   * are expanded here, each time skills load, rather than when they are added: `~` and `$NAME` take the current
@@ -268,7 +277,7 @@ index 0b4ae56..4af1dc6 100644
   * keeps the result until its next reload (`/reload`, `/skills reload`, or the reload `/skills add` and
   * `/skills remove` trigger), which is what makes this a once-per-session expansion. The catalog is built at
   * most once per call: every caller resolves a whole entry list in one pass, so a longer-lived cache would only
-@@ -556,7 +600,7 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -556,7 +609,7 @@ export async function resolveActiveSkillPaths(env, context) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      const paths = [];
      const diagnostics = [];
@@ -277,7 +286,7 @@ index 0b4ae56..4af1dc6 100644
          cwd,
          agentDir,
          onWarn: (message) => diagnostics.push({ type: "warning", message }),
-@@ -574,10 +618,14 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -574,10 +627,14 @@ export async function resolveActiveSkillPaths(env, context) {
      let repoRoot;
      const entryPath = (entry) => {
          const value = expandEnvironmentVariables(env, entry.source).value.trim();

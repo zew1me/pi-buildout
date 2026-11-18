@@ -311,6 +311,15 @@ test("resolveDirectoryKey keys a base reached through a symlink by its real path
   assert.equal(resolveDirectoryKey(env, "/private/tmp/scratch"), "/private/tmp/scratch");
 });
 
+test("resolveDirectoryKey falls back to the unresolved base when it disappears before realpath", () => {
+  const { env } = createEnvironment({ files: { "/tmp/scratch": "" } });
+  env.fs.realpathSync = () => {
+    throw new Error("ENOENT: /tmp/scratch");
+  };
+
+  assert.equal(resolveDirectoryKey(env, "/tmp/scratch"), "/tmp/scratch");
+});
+
 test("directory scope works outside a git repository, where repository scope cannot", () => {
   const { env } = createEnvironment();
   assert.throws(() => configLocation(env, "repo", "/scratch", "/agent"), /requires a git repository/);

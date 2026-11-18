@@ -68,10 +68,10 @@ index 35ba09c..9d1e088 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..4af1dc6
+index 0000000..4917977
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,767 @@
+@@ -0,0 +1,776 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -212,7 +212,16 @@ index 0000000..4af1dc6
 + */
 +export function resolveDirectoryKey(env, cwd) {
 +    const base = env.path.resolve(findRepoRoot(env, cwd) ?? cwd);
-+    return env.fs.existsSync(base) ? env.fs.realpathSync(base) : base;
++    if (!env.fs.existsSync(base))
++        return base;
++    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
++    // loading, and the next reload looks it up again.
++    try {
++        return env.fs.realpathSync(base);
++    }
++    catch {
++        return base;
++    }
 +}
 +export function sourceOf(entry) {
 +    if (typeof entry === "string")

@@ -260,7 +260,14 @@ function findRepoRoot(env: SkillEnvironment, cwd: string): string | undefined {
  */
 export function resolveDirectoryKey(env: SkillEnvironment, cwd: string): string {
   const base = env.path.resolve(findRepoRoot(env, cwd) ?? cwd);
-  return env.fs.existsSync(base) ? env.fs.realpathSync(base) : base;
+  if (!env.fs.existsSync(base)) return base;
+  // The base can disappear between the two calls; its unresolved path keeps global and repository skills
+  // loading, and the next reload looks it up again.
+  try {
+    return env.fs.realpathSync(base);
+  } catch {
+    return base;
+  }
 }
 
 export function sourceOf(entry: unknown): string | undefined {
