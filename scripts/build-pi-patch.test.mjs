@@ -183,6 +183,27 @@ test("patch generation and forward/reverse verification treat hostile paths lite
   }
 });
 
+test("patch generation ignores the calling Git hook's repository and index", (t) => {
+  const expected = patchFixture(t).patchText;
+  const root = mkdtempSync(join(tmpdir(), "pi-hook-environment-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  for (const [key, path] of Object.entries({
+    GIT_DIR: join(root, ".git"),
+    GIT_WORK_TREE: root,
+    GIT_INDEX_FILE: join(root, "index"),
+  })) {
+    const previous = process.env[key];
+    t.after(() => {
+      if (previous === undefined) delete process.env[key];
+      else process.env[key] = previous;
+    });
+    process.env[key] = path;
+  }
+  assert.equal(patchFixture(t).patchText, expected);
+  assert.equal(existsSync(join(root, ".git")), false);
+  assert.equal(existsSync(join(root, "index")), false);
+});
+
 test("patch helpers pipe stdin while inheriting output for overlay integration", (t) => {
   const { patchText, patchFile, baseline } = patchFixture(t);
   assert.equal(applyPatchText(patchText, baseline, { stdio: "inherit" }), 0);
