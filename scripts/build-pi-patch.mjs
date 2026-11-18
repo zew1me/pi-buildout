@@ -273,7 +273,8 @@ async function assemblePatchedTree(target, baselineRoot, builtRoot, patchedSourc
 }
 
 // Git exports these to hooks, so `npm run check` from pre-push would otherwise point the scratch repository at
-// this checkout instead of the temporary one created below.
+// this checkout instead of the temporary one created below. `GIT_CONFIG` would redirect the scratch
+// `git config` writes into the caller's configuration file.
 const repositoryGitEnvironment = [
   "GIT_DIR",
   "GIT_WORK_TREE",
@@ -281,6 +282,7 @@ const repositoryGitEnvironment = [
   "GIT_INDEX_FILE",
   "GIT_OBJECT_DIRECTORY",
   "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
 ];
 
 function scratchGitEnvironment() {
