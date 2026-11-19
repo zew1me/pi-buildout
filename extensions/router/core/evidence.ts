@@ -189,13 +189,21 @@ const GENERATION_PROXIES: Readonly<Record<string, GenerationProxy>> = {
   },
 };
 
+// GPT-6.2 uses the corresponding older model's prior until it has rollout evidence.
+// Sol's documented token rates match 6.1. For Astra, retain the predecessor's
+// cost per pass as a conservative estimate until a comparable rollout is priced.
+const GPT_62_PRIOR_MODELS = new Map([
+  ["gpt-6.2-sol", "gpt-6.1-sol"],
+  ["gpt-6.2-astra", "gpt-6-astra"],
+]);
+
 function priceTokenMix(mix: SourceTokenMix, rates: ListRates): number {
   return mix.uncachedInput * rates.input + mix.cacheRead * rates.cacheRead + mix.output * rates.output;
 }
 
 /** New-release list cost of the source's measured token mix, as a fraction of the source's list cost. */
 export function generationProxyCostRatio(modelId: string, effort: EffortLevel): number | undefined {
-  const proxy = GENERATION_PROXIES[modelId];
+  const proxy = GENERATION_PROXIES[GPT_62_PRIOR_MODELS.get(modelId) ?? modelId];
   const mix = proxy?.sourceTokenMix[effort];
   if (!proxy || !mix) return undefined;
   return priceTokenMix(mix, proxy.rates) / priceTokenMix(mix, proxy.sourceRates);
@@ -251,8 +259,9 @@ function astraHighPrior(): EvidencePriorRow {
 const ASTRA_HIGH_PRIOR = astraHighPrior();
 
 export function findEvidencePrior(modelId: string, effort: EffortLevel): EvidencePriorRow | undefined {
-  if (modelId === "gpt-6-astra" && effort === "high") return ASTRA_HIGH_PRIOR;
-  const proxy = GENERATION_PROXIES[modelId];
+  const priorModelId = GPT_62_PRIOR_MODELS.get(modelId) ?? modelId;
+  if (priorModelId === "gpt-6-astra" && effort === "high") return { ...ASTRA_HIGH_PRIOR, modelId };
+  const proxy = GENERATION_PROXIES[priorModelId];
   if (proxy) return generationProxyPrior(modelId, proxy, effort);
   return EVIDENCE_PRIOR_ROWS.find((row) => row.modelId === modelId && row.effort === effort);
 }
@@ -497,7 +506,8 @@ export const EFFORT_POLICIES: readonly EffortPolicy[] = [
 ];
 
 function findEffortPolicy(modelId: string): EffortPolicy | undefined {
-  return EFFORT_POLICIES.find((policy) => policy.modelId === modelId);
+  const priorModelId = GPT_62_PRIOR_MODELS.get(modelId) ?? modelId;
+  return EFFORT_POLICIES.find((policy) => policy.modelId === priorModelId);
 }
 
 /**

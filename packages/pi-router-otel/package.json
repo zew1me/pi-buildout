@@ -1,6 +1,6 @@
 {
   "name": "@upstart/pi-router-otel",
-  "version": "0.1.1-alpha.7",
+  "version": "0.1.1-alpha.8",
   "type": "module",
   "description": "Upstart Pi router and OpenTelemetry extensions bundled together",
   "license": "SEE LICENSE IN dist/LICENSE",

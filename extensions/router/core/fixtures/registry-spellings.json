@@ -280,6 +280,14 @@
     "modelId": "gpt-6-sol"
   },
   {
+    "provider": "openai",
+    "modelId": "gpt-6.2-astra"
+  },
+  {
+    "provider": "openai",
+    "modelId": "gpt-6.2-sol"
+  },
+  {
     "provider": "openai-codex",
     "modelId": "gpt-5.4-mini"
   },

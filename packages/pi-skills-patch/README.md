@@ -10,7 +10,7 @@ to locate the installed `@earendil-works/pi-coding-agent`, verify the exact vers
 the corresponding patch. It refuses unknown/mixed states. Set `PI_PACKAGE_DIR` when Pi cannot be located automatically.
 **This modifies the installed Pi package; it does not install extensions.**
 
-The router/OTel bundle is separate: `pi install npm:@upstart/pi-router-otel@0.1.1-alpha.7`. Clear, effort, backlinks,
+The router/OTel bundle is separate: `pi install npm:@upstart/pi-router-otel@0.1.1-alpha.8`. Clear, effort, backlinks,
 and subagents have separate à-la-carte packages. See
 [release instructions](https://github.com/nigel-upstart/pi-buildout/blob/main/packages/README.md) for all install and
 manual release steps.

@@ -49,7 +49,7 @@
     },
     "expected": {
       "archetype": "deliberate_tool_workflow",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "primaryEffort": "high",
       "fallbackModel": "claude-opus-5-5"
     }
@@ -90,7 +90,7 @@
     },
     "expected": {
       "archetype": "terminal_heavy_implementation",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "primaryEffort": "high",
       "fallbackModel": "claude-opus-5-5"
     }
@@ -111,7 +111,7 @@
     },
     "expected": {
       "archetype": "algorithmic_iterative_coding",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "primaryEffort": "medium",
       "fallbackModel": "gemini-3.6-flash"
     }
@@ -130,7 +130,7 @@
     "expected": {
       "archetype": "code_review",
       "primaryVendor": "openai",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "fallbackVendor": "anthropic"
     }
   },
@@ -153,10 +153,12 @@
     "expected": {
       "archetype": "stacked_pr_implementation",
       "fallbackEffort": "high",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "primaryEffort": "high",
       "fallbackModel": "claude-opus-5-5",
       "allowedModels": [
+        "gpt-6.2-sol",
+        "openai.gpt-6.2-sol",
         "gpt-6.1-sol",
         "openai.gpt-6.1-sol",
         "gpt-6-sol",
@@ -216,7 +218,7 @@
     },
     "expected": {
       "archetype": "long_context_synthesis",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "primaryEffort": "high",
       "fallbackModel": "claude-opus-5-5"
     }
@@ -260,7 +262,7 @@
     },
     "expected": {
       "archetype": "deliberate_tool_workflow",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "primaryEffort": "high",
       "fallbackModel": "claude-opus-5-5",
       "fallbackEffort": "medium"
@@ -309,7 +311,7 @@
     },
     "expected": {
       "archetype": "deliberate_tool_workflow",
-      "primaryModel": "gpt-6.1-sol",
+      "primaryModel": "gpt-6.2-sol",
       "primaryEffort": "high",
       "fallbackModel": "claude-opus-5-5",
       "fallbackEffort": "medium"

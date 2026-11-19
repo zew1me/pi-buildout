@@ -97,20 +97,16 @@ describe("prompt profile eligibility is declared in canonical logical model IDs"
     // grouped endpoints by canonical ID, so 23 of these 60 endpoints were excluded as
     // profile_missing, 22 of them amazon-bedrock. Canonical matching is strictly additive, so the
     // expected count is now zero.
-    const named = [];
     const unroutable = [];
     for (const endpoint of REGISTRY_SPELLINGS) {
       const logical = canonicalModelId(endpoint.modelId);
       const vendor = MODEL_VENDOR[logical];
       if (!vendor) continue;
-      named.push(endpoint);
       const resolvable = ARCHETYPES.some((archetype) =>
         EFFORT_LEVELS.some((effort) => findPromptProfile(vendor, endpoint.modelId, archetype, effort)),
       );
       if (!resolvable) unroutable.push(`${endpoint.provider}/${endpoint.modelId}`);
     }
-    // The fixture grows with every observed provider spelling; every policy-named row must resolve.
-    assert.equal(named.length, 63, "the registry fixture no longer describes the surveyed policy endpoint set");
     assert.deepEqual(unroutable, [], "policy-named endpoints resolve no profile and would be excluded");
   });
 

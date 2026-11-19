@@ -12,7 +12,7 @@ Choose either method before a `pi install npm:@upstart/...` command below.
 
 ```bash
 umt artifacts --tools npm
-pi install npm:@upstart/pi-router-otel@0.1.1-alpha.7
+pi install npm:@upstart/pi-router-otel@0.1.1-alpha.8
 ```
 
 The [UMT artifacts command](https://github.com/teamupstart/umt/blob/main/cmd/umt-go/artifacts.go) uses read-only SSO
@@ -50,7 +50,7 @@ write-capable SSO role are a separate, later checkpoint below.
 
 | Package                                        | Contents                                                         | Activation                                                                      |
 | ---------------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `@upstart/pi-router-otel@0.1.1-alpha.7`        | Router and OTel together, with their shared runtime dependencies | `pi install npm:@upstart/pi-router-otel@0.1.1-alpha.7`                          |
+| `@upstart/pi-router-otel@0.1.1-alpha.8`        | Router and OTel together, with their shared runtime dependencies | `pi install npm:@upstart/pi-router-otel@0.1.1-alpha.8`                          |
 | `@upstart/pi-clear@0.1.0-alpha.1`              | Clear                                                            | `pi install npm:@upstart/pi-clear@0.1.0-alpha.1`                                |
 | `@upstart/pi-effort@0.1.0-alpha.2`             | Effort                                                           | `pi install npm:@upstart/pi-effort@0.1.0-alpha.2`                               |
 | `@upstart/pi-markdown-backlinks@0.1.0-alpha.1` | Backlinks                                                        | `pi install npm:@upstart/pi-markdown-backlinks@0.1.0-alpha.1`                   |
@@ -152,6 +152,6 @@ that checkout hook, so the CLI enforces equivalent manifest, registry, tag, and 
 guards protect against accidental publication to the repository's public npm registry; **they do not replace a human
 check of the artifact and identity**. The token expires after roughly 12 hours.
 
-After a publish, use `npm view @upstart/pi-router-otel@0.1.1-alpha.7 --registry "$REGISTRY"` (or the chosen package) and
+After a publish, use `npm view @upstart/pi-router-otel@0.1.1-alpha.8 --registry "$REGISTRY"` (or the chosen package) and
 test a fresh consumer install with the scoped registry/token configured. Re-run Pi's `/reload` if already running. Do
 not publish the same version to JFrog as well.

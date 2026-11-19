@@ -58,6 +58,8 @@ export const MODEL_VENDOR: Readonly<Record<string, ModelVendor>> = {
   "gpt-5.6-terra": "openai",
   "gpt-6-sol": "openai",
   "gpt-6.1-sol": "openai",
+  "gpt-6.2-sol": "openai",
+  "gpt-6.2-astra": "openai",
   "gpt-oss-120b": "openai",
   "claude-opus-5-5": "anthropic",
   "claude-opus-4-6": "anthropic",
@@ -113,18 +115,14 @@ const TERRA_MEDIUM = candidates("gpt-5.6-terra", "medium");
 const TERRA_HIGH = candidates("gpt-5.6-terra", "high");
 const TERRA_MAX = candidates("gpt-5.6-terra", "max");
 const GPT_OSS_HIGH = candidates("gpt-oss-120b", "high");
-// GPT-6.1 Sol supersedes 6.0 Sol. Until direct 6.1 rollout evidence is available, its behavioral
-// prior is explicitly proxied from the measured 6.0/5.6 lineage in core/evidence.ts; 6.0 remains an
-// availability fallback rather than silently disappearing from a scoped registry.
-const SOL_61_LOW = candidates("gpt-6.1-sol", "low");
-const SOL_61_MEDIUM = candidates("gpt-6.1-sol", "medium");
-const SOL_61_HIGH = candidates("gpt-6.1-sol", "high");
-const SOL_61_MAX = candidates("gpt-6.1-sol", "max");
-const SOL_LOW = [...SOL_61_LOW, ...candidates("gpt-6-sol", "low")];
-const SOL_MEDIUM = [...SOL_61_MEDIUM, ...candidates("gpt-6-sol", "medium")];
-const SOL_HIGH = [...SOL_61_HIGH, ...candidates("gpt-6-sol", "high")];
-const SOL_MAX = [...SOL_61_MAX, ...candidates("gpt-6-sol", "max")];
-const ASTRA_HIGH = candidates("gpt-6-astra", "high");
+// Declare successors newest first so availability ladders and equal evidence scores prefer them.
+// Each generation still resolves to its own scoped endpoints and telemetry.
+const SOL_MODELS = ["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-sol"];
+const SOL_LOW = SOL_MODELS.flatMap((id) => candidates(id, "low"));
+const SOL_MEDIUM = SOL_MODELS.flatMap((id) => candidates(id, "medium"));
+const SOL_HIGH = SOL_MODELS.flatMap((id) => candidates(id, "high"));
+const SOL_MAX = SOL_MODELS.flatMap((id) => candidates(id, "max"));
+const ASTRA_HIGH = [...candidates("gpt-6.2-astra", "high"), ...candidates("gpt-6-astra", "high")];
 const HAIKU_LOW = candidates("claude-haiku-4-5", "low");
 /**
  * MiniMax M2.5, admitted to the bounded read-only ladders only.

@@ -1,6 +1,6 @@
 # @upstart/pi-router-otel
 
-Alpha Pi package for the router and its vendored OTel companion. `pi install npm:@upstart/pi-router-otel@0.1.1-alpha.7`
+Alpha Pi package for the router and its vendored OTel companion. `pi install npm:@upstart/pi-router-otel@0.1.1-alpha.8`
 loads both extensions with their runtime dependencies. The independent clear, effort, backlinks, and subagents
 extensions are separate à-la-carte packages. It does **not** apply the separate `/skills` runtime patch.
 

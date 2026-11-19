@@ -286,6 +286,17 @@ read 0.1, output 10 USD per million tokens). Only those numeric facts were used;
 The behavioral prior is intentionally not taken from Pi: it remains a temporary proxy from the router's existing
 measured GPT-5.6/6.0 Sol evidence until GPT-6.1 Sol has rollout evidence of its own.
 
+### OpenAI GPT-6.2 model catalog
+
+- Sources: [GPT-6.2 Sol](https://developers.openai.com/api/docs/models/gpt-6.2-sol) and
+  [GPT-6.2 Astra](https://developers.openai.com/api/docs/models/gpt-6.2-astra), reviewed 2026-11-19
+- The pages have no pinned revision and declare no separate source license.
+
+The router uses the published model IDs and token rates to add Sol and Astra to their respective routing ladders. Sol
+retains the GPT-6.1 Sol price prior. Astra uses the previous Astra rollout cost as a conservative estimate. The router
+uses its own existing evidence and resolves endpoints through Pi's scoped registry. The integration adopts the catalog
+facts and leaves out provider-specific configuration, prompting examples, and API client code.
+
 ### `maximhq/bifrost`
 
 - Repository: <https://github.com/maximhq/bifrost>

@@ -80,13 +80,14 @@ function registry() {
 const models = registry();
 const requirements = { estimatedFinishedTokens: 50_000, requiresImages: false, requiresTools: true };
 const PREMIUM_ARCHETYPES = new Set(["large_program_planning", "highest_risk_advisory"]);
+const SOL_MODELS = new Set(["gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-sol"]);
 
 // Premium choices are the super-saturation and highest-cost-per-pass configurations. Only the
 // premium archetypes may take one as a primary; every other archetype must stay on a saturated tier.
 function isPremiumChoice(choice) {
   const logical = choice.logicalModelId ?? choice.modelId;
   return (
-    (logical === "gpt-6-sol" && choice.effort === "max") ||
+    (SOL_MODELS.has(logical) && choice.effort === "max") ||
     (logical === "claude-opus-5-5" && (choice.effort === "xhigh" || choice.effort === "max")) ||
     logical === "claude-fable-5"
   );

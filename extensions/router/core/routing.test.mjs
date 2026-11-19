@@ -321,9 +321,9 @@ describe("ordinary route selection", () => {
       // These Sol routes stay first party because the deliberately large request exceeds the 272K
       // Bedrock list-rate boundary. Copilot is eligible but remains last as a flat-rate proxy.
       deliberate_tool_workflow: {
-        logicalModelId: "gpt-6.1-sol",
+        logicalModelId: "gpt-6.2-sol",
         effort: "high",
-        endpoint: "openai-codex/gpt-6.1-sol",
+        endpoint: "openai-codex/gpt-6.2-sol",
       },
       median_repository_implementation: {
         logicalModelId: "claude-opus-5-5",
@@ -331,14 +331,14 @@ describe("ordinary route selection", () => {
         endpoint: "anthropic/claude-opus-5-5",
       },
       stacked_pr_implementation: {
-        logicalModelId: "gpt-6.1-sol",
+        logicalModelId: "gpt-6.2-sol",
         effort: "high",
-        endpoint: "openai-codex/gpt-6.1-sol",
+        endpoint: "openai-codex/gpt-6.2-sol",
       },
       terminal_heavy_implementation: {
-        logicalModelId: "gpt-6.1-sol",
+        logicalModelId: "gpt-6.2-sol",
         effort: "high",
-        endpoint: "openai-codex/gpt-6.1-sol",
+        endpoint: "openai-codex/gpt-6.2-sol",
       },
       algorithmic_iterative_coding: {
         logicalModelId: "claude-opus-5-5",
@@ -346,9 +346,9 @@ describe("ordinary route selection", () => {
         endpoint: "anthropic/claude-opus-5-5",
       },
       code_review: {
-        logicalModelId: "gpt-6.1-sol",
+        logicalModelId: "gpt-6.2-sol",
         effort: "high",
-        endpoint: "openai-codex/gpt-6.1-sol",
+        endpoint: "openai-codex/gpt-6.2-sol",
       },
       implementation_planning: {
         logicalModelId: "claude-opus-5-5",
@@ -361,9 +361,9 @@ describe("ordinary route selection", () => {
         endpoint: "anthropic/claude-opus-5-5",
       },
       long_context_synthesis: {
-        logicalModelId: "gpt-6.1-sol",
+        logicalModelId: "gpt-6.2-sol",
         effort: "high",
-        endpoint: "openai-codex/gpt-6.1-sol",
+        endpoint: "openai-codex/gpt-6.2-sol",
       },
       highest_risk_advisory: {
         logicalModelId: "claude-opus-5-5",
@@ -396,11 +396,11 @@ describe("ordinary route selection", () => {
         `${archetype} endpoint primary drifted`,
       );
 
-      if (expected.endpoint === "openai-codex/gpt-6.1-sol") {
+      if (expected.endpoint === "openai-codex/gpt-6.2-sol") {
         assert.ok(
           decision.exclusions.some(
             (exclusion) =>
-              exclusion.candidate === "amazon-bedrock/openai.gpt-6.1-sol" &&
+              exclusion.candidate === "amazon-bedrock/openai.gpt-6.2-sol" &&
               exclusion.code === "long_context_pricing_unavailable",
           ),
           `${archetype} must reject Bedrock Sol before ordering at long context`,
@@ -421,6 +421,22 @@ describe("ordinary route selection", () => {
         );
       }
     }
+  });
+
+  it("falls back to GPT-6.1 Sol when GPT-6.2 Sol is unavailable", () => {
+    const models = [
+      ...registry(),
+      model("openai-codex", "gpt-6.1-sol", "openai"),
+      { ...model("openai-codex", "gpt-6.2-sol", "openai"), available: false },
+    ];
+    const decision = selectOrdinaryRoute("terminal_heavy_implementation", models, REQUIREMENTS);
+    assert.equal(decision.kind, "ordinary");
+    assert.equal(decision.primary.logicalModelId, "gpt-6.1-sol");
+    assert.ok(
+      decision.exclusions.some(
+        (entry) => entry.candidate === "openai-codex/gpt-6.2-sol" && entry.code === "unavailable",
+      ),
+    );
   });
 
   it("orders endpoints cost-first while keeping every selected-model endpoint contiguous", () => {
@@ -918,18 +934,19 @@ describe("review route selection", () => {
     assert.ok([decision.primary, ...decision.fallbacks].every((choice) => choice.vendor !== builder.vendor));
   });
 
-  it("prefers GPT-6.1 Sol to GPT-6.0 Sol for an independent OpenAI review", () => {
-    // This mirrors the scoped configuration that triggered the incident: Astra is absent, while
-    // both Sol generations and a Google reviewer are available for an Anthropic builder.
-    const models = [
-      ...registry().filter((candidate) => candidate.modelId !== "gpt-6-astra"),
-      model("openai-codex", "gpt-6.1-sol", "openai"),
-    ];
+  it("uses the newest eligible Astra or Sol for an independent OpenAI review", () => {
+    const newModels = ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6.1-sol"].map((id) => model("openai-codex", id, "openai"));
+    const models = [...registry(), ...newModels];
     const builder = models.find((candidate) => candidate.modelId === "claude-opus-5-5");
-    const decision = selectReviewRoute(models, REQUIREMENTS, builder, "medium", 3);
-    assert.equal(decision.kind, "review");
-    const openai = [decision.primary, ...decision.fallbacks].find((choice) => choice.vendor === "openai");
-    assert.equal(openai?.logicalModelId, "gpt-6.1-sol");
+    const preference = ["gpt-6.2-astra", "gpt-6-astra", "gpt-6.2-sol", "gpt-6.1-sol", "gpt-6-sol"];
+
+    for (const [index, expected] of preference.entries()) {
+      const available = models.filter((candidate) => !preference.slice(0, index).includes(candidate.modelId));
+      const decision = selectReviewRoute(available, REQUIREMENTS, builder, "medium", 3);
+      assert.equal(decision.kind, "review");
+      const openai = [decision.primary, ...decision.fallbacks].find((choice) => choice.vendor === "openai");
+      assert.equal(openai?.logicalModelId, expected);
+    }
   });
 
   it("tries a stronger reviewer tier when the closest at-or-above model is unavailable", () => {

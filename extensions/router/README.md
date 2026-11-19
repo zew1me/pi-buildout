@@ -366,27 +366,32 @@ for a positive write rate, `no_write_line_item` when reads are priced but writes
 prices are capability proxies rather than marginal billed costs, so Copilot has no effective-cost value and follows all
 eligible token-billed routes.
 
-Bedrock `gpt-6-sol`, `gpt-5.6-terra`, and `gpt-6-luna` are excluded above 272,000 estimated finished tokens until their
-registry entries supply a long-context rate; the router never extends their short-context rates beyond that boundary.
-Residency remains a scope choice, not an ordering preference: scope in only the regional inference profiles permitted
-for the workload and scope out Global or other profiles that violate the requirement. Cost ordering never adds or
-revives an out-of-scope endpoint.
+Bedrock GPT-6.2 Astra, GPT-6.2/6.1/6 Sol, GPT-5.6 Terra, and GPT-6 Luna are excluded above 272,000 estimated finished
+tokens until their registry entries supply a long-context rate; the router never extends their short-context rates
+beyond that boundary. Residency remains a scope choice, not an ordering preference: scope in only the regional inference
+profiles permitted for the workload and scope out Global or other profiles that violate the requirement. Cost ordering
+never adds or revives an out-of-scope endpoint.
 
 Direct `google` endpoints are eligible only for `code_review`, preserving the low direct-Gemini request quota for an
 independent reviewer. Gemini 3.8 Flash at high effort leads the Google review ladder when its exact ID is available;
 `google-vertex` and other scoped surfaces may still serve ordinary older-Gemini policy entries.
 
-Median repository implementation uses Opus 5.5 at medium as the generation-forward default and keeps GPT-6 Sol high as
-its cross-provider challenger. GPT-6 Luna/Sol and Opus 5.5 intentionally inherit their GPT-5.6 Luna/Sol and Opus 5
-quality, reliability, and latency priors: this is an explicit no-regression assumption until local telemetry matures,
-not direct benchmark evidence. Their cost per pass is repriced from the report's verified list rates (GPT-6 Sol at half
-of GPT-5.6 Sol, Luna at roughly 0.48 of GPT-5.6 Luna, Opus 5.5 at 0.54-0.61 of Opus 5) applied to the source rows' own
-measured token mix. Measured language-specific routes still override that default. GPT-6 Astra high uses its refreshed
-direct measurements, including DataCurve's corrected $5.36 cost per pass (with Sol-high proxies only for the three
-omitted reliability/context fields), and appears only in high-intelligence planning, highest-risk advisory, and
-independent-review ladders. The bounded read-only classification and extraction ladders retain MiniMax M2.5 and GPT-OSS
-120B and add Kimi K2.5 plus Kimi K2 Thinking. Kimi remains structurally barred from mutating work because its current
-quality evidence is single-attempt.
+Median repository implementation uses Opus 5.5 at medium as the default and keeps Sol high as its cross-provider
+challenger. The router discovers endpoints from the scoped Pi registry and admits model IDs through explicit routing
+ladders with validated prompt profiles and evidence priors. GPT-6.2 Sol and Astra lead their respective GPT ladders when
+eligible. Older generations remain available for fallback, and mature route telemetry can rank them by observed cost to
+done. Pi must expose the GPT-6.2 IDs through its model catalog or a configured provider before the router can use them.
+GPT-6.2 starts with its predecessors' priors pending direct evidence.
+
+GPT-6 Luna/Sol and Opus 5.5 inherit their GPT-5.6 Luna/Sol and Opus 5 quality, reliability, and latency priors. These
+estimates assume comparable behavior until local telemetry matures. Their cost per pass is repriced from the report's
+verified list rates (GPT-6 Sol at half of GPT-5.6 Sol, Luna at roughly 0.48 of GPT-5.6 Luna, Opus 5.5 at 0.54-0.61 of
+Opus 5) applied to the source rows' own measured token mix. Measured language-specific routes still override that
+default. GPT-6 Astra high uses its refreshed direct measurements, including DataCurve's corrected $5.36 cost per pass
+(with Sol-high proxies only for the three omitted reliability/context fields), and appears only in high-intelligence
+planning, highest-risk advisory, and independent-review ladders. The bounded read-only classification and extraction
+ladders retain MiniMax M2.5 and GPT-OSS 120B and add Kimi K2.5 plus Kimi K2 Thinking. Kimi remains structurally barred
+from mutating work because its current quality evidence is single-attempt.
 
 Endpoint tiers remain in route and lease records and break equal-effective-cost ties. Every endpoint for the selected
 logical model and effort still precedes every different-model fallback.
