@@ -283,7 +283,9 @@ export function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
   const repo = join(workDir, "diff-repo");
   rmSync(repo, { recursive: true, force: true });
   mkdirSync(repo, { recursive: true });
-  const git = (...args) => runOrThrow("git", args, { cwd: repo, stdio: "ignore" });
+  // Git hooks export repository-specific variables; the temporary repository must not inherit them.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const git = (...args) => runOrThrow("git", args, { cwd: repo, env, stdio: "ignore" });
   git("init", "--quiet");
   git("config", "user.email", "patch-build@example.invalid");
   git("config", "user.name", "patch build");
@@ -296,7 +298,7 @@ export function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
     cpSync(from, join(repo, path));
   }
   git("add", "--all");
-  git("commit", "--quiet", "--message", "baseline");
+  git("-c", "commit.gpgSign=false", "commit", "--quiet", "--message", "baseline");
 
   for (const path of tracked) {
     mkdirSync(dirname(join(repo, path)), { recursive: true });
@@ -306,6 +308,7 @@ export function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
 
   return execFileSync("git", ["diff", "--cached", "--no-color", "--binary"], {
     cwd: repo,
+    env,
     encoding: "utf-8",
     maxBuffer: 64 * 1024 * 1024,
   });

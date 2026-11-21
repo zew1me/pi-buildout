@@ -5,5 +5,5 @@ Pi package for the `/effort` extension.
 Install with:
 
 ```bash
-pi install npm:@zew1me/pi-effort
+pi install npm:@zew1me/pi-effort@alpha
 ```
