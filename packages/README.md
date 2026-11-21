@@ -27,8 +27,9 @@ pushes to `main`. Only a **push to `zew1me/pi-buildout`'s `main`** can publish, 
   files release that package; patch files and the installer release the patch package. Changes to the staging script,
   license or attribution release all packages. Tests alone do not trigger extension releases.
 - CI generates `X.Y.(Z+1)-alpha.RUN` from each stable `X.Y.Z` manifest template, or `X.Y.Z-alpha.RUN` from an alpha
-  template. `RUN` is the GitHub workflow run number, fixed on reruns. Packages advance independently. Change a template
-  core deliberately when a new compatibility line is needed; do not commit CI-generated versions.
+  `alpha.0` template. `RUN` is the GitHub workflow run number, fixed on reruns. Packages advance independently. Change a
+  template core deliberately when a new compatibility line is needed; do not commit CI-generated versions. Migrate other
+  alpha templates to a higher core with `alpha.0` before enabling automatic releases.
 - Releases use the `alpha` npm dist-tag, not `latest`. Non-ancestor and zero/missing bases are rejected. CI does not
   commit, tag Git, or create GitHub Releases.
 
@@ -53,9 +54,10 @@ npm run release:packages -- pack
 
 `pack` is safe by default: it stages minimal runtime payloads using `prepack` and writes real `.tgz` archives plus
 `release-assets.json` into ignored `release-artifacts/`. Use `--artifacts /some/directory` to override the destination.
-Run the preparation command before `pack` when previewing an automatic release; it modifies package manifests in the
-working tree, so restore those changes afterwards. `plan` prints the packages with version increases relative to the
-chosen ancestor without publishing anything.
+Commit extension changes before previewing: preparation selects only committed changes between the base and HEAD, not
+uncommitted changes. Run the preparation command before `pack`; it modifies package manifests in the working tree, so
+restore those changes afterwards. `plan` prints the packages with version increases relative to the chosen ancestor
+without publishing anything.
 
 Inspect every archive (for example `tar -tzf release-artifacts/zew1me-pi-clear-0.1.1-alpha.123.tgz`). Archives include
 runtime files, package documentation, license, and attribution, but not tests, development dependencies, local agent
@@ -90,9 +92,9 @@ These are human/admin actions, not performed by CI or repository setup:
    - Environment: **`npm`**
    - Allow direct **`npm publish`** (not only staged publishing).
 5. Newly configured publishers must complete a successful publish within npm's current setup expiry window (currently
-   two days). Configure them close to a planned package change, then merge it and verify the resulting release. After
-   validating OIDC, restrict traditional token publishing in npm package settings. No `NPM_TOKEN` or AWS secrets are
-   needed in GitHub.
+   two days). Configure each publisher close to a change that selects that package, or ensure a planned change selects
+   every configured package, then merge it and verify each resulting release. After validating OIDC, restrict
+   traditional token publishing in npm package settings. No `NPM_TOKEN` or AWS secrets are needed in GitHub.
 
 See [npm's trusted publishing documentation](https://docs.npmjs.com/trusted-publishers/) for current setup requirements.
 The workflow pins an OIDC-capable npm and gives `id-token: write` only to the environment-gated publish job. It uses
@@ -112,8 +114,10 @@ or `prepack` execution occurs with publishing credentials.
   version instead. Identical previously published versions remain safe to skip, without changing tags.
 - A failure after one successful publish is not transactional. Re-run the failed job for the **original workflow run**,
   while its artifacts are available (14 days). Already-published identical packages are skipped.
-- If artifacts expired or a run was dropped/cancelled, make a new change to the affected package to trigger a new run. A
-  later unrelated push does not retry the missed release.
+- If artifacts expired, a run was dropped/cancelled, or a newer release makes an old partial run stale, make a new
+  change to every package still needing publication to trigger a new run. A failed preflight publishes none of the
+  selected packages; changing only one of them later does not retry the others. A shared release input such as
+  `ATTRIBUTION.md` selects all packages.
 
 Each published/skipped package appears in the Actions job summary. Verify with
 `npm view @zew1me/pi-clear --registry https://registry.npmjs.org/` and test a fresh consumer install.
