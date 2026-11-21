@@ -37,14 +37,18 @@ export function prepare(base, runNumber, root = ROOT) {
     .split("\0")
     .filter(Boolean);
   const kinds = affectedPackages(paths);
-  for (const kind of kinds) {
+  const updates = kinds.map((kind) => {
     const path = join(root, "packages", `pi-${kind}`, "package.json");
     const manifest = JSON.parse(readFileSync(path, "utf8"));
-    const { core, channel } = parseVersion(manifest.version);
+    const { core, channel, number } = parseVersion(manifest.version);
     // A stable template advances to the next patch; an alpha template retains its core.
     if (channel === "latest") core[2] += 1n;
-    else if (channel !== "alpha") throw new Error(`Automatic releases require a stable or alpha template: ${path}`);
+    else if (channel !== "alpha" || number !== 0n)
+      throw new Error(`Automatic releases require a stable or alpha.0 template: ${path}`);
     manifest.version = `${core.join(".")}-alpha.${runNumber}`;
+    return { path, manifest };
+  });
+  for (const { path, manifest } of updates) {
     writeFileSync(path, `${JSON.stringify(manifest, null, 2)}\n`);
     console.log(`Prepared ${manifest.name}@${manifest.version}`);
   }

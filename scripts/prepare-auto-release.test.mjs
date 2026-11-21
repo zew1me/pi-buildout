@@ -25,6 +25,7 @@ test("prepares only changed packages for the existing release plan", (t) => {
   git("init");
   git("config", "user.name", "test");
   git("config", "user.email", "test@example.com");
+  git("config", "commit.gpgSign", "false");
   for (const kind of PACKAGE_KINDS) {
     const dir = join(root, "packages", `pi-${kind}`);
     mkdirSync(dir, { recursive: true });
@@ -64,4 +65,37 @@ test("prepares only changed packages for the existing release plan", (t) => {
   git("add", ".");
   git("commit", "-m", "quoted filename");
   assert.deepEqual(prepare(secondBase, "124", root), ["clear"]);
+});
+
+test("validates all alpha templates before writing any manifest", (t) => {
+  const root = mkdtempSync(join(tmpdir(), "auto-release-templates-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  git("init");
+  git("config", "user.name", "test");
+  git("config", "user.email", "test@example.com");
+  git("config", "commit.gpgSign", "false");
+  for (const kind of ["clear", "effort"]) {
+    const dir = join(root, "packages", `pi-${kind}`);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: kind, version: "0.1.0-alpha.0" }));
+  }
+  git("add", ".");
+  git("commit", "-m", "base");
+  const base = git("rev-parse", "HEAD");
+  const clear = join(root, "packages/pi-clear/package.json");
+  const effort = join(root, "packages/pi-effort/package.json");
+  writeFileSync(effort, JSON.stringify({ name: "effort", version: "0.1.0-alpha.123" }));
+  git("add", ".");
+  git("commit", "-m", "change");
+  // Select both packages, with an invalid template after the valid one.
+  writeFileSync(clear, JSON.stringify({ name: "clear", version: "0.1.0-alpha.0", description: "changed" }));
+  git("add", ".");
+  git("commit", "-m", "change clear");
+  const before = readFileSync(clear, "utf8");
+  assert.throws(() => prepare(base, "1", root), /alpha\.0 template/);
+  assert.equal(readFileSync(clear, "utf8"), before);
+  writeFileSync(effort, JSON.stringify({ name: "effort", version: "0.1.0-alpha.0" }));
+  assert.deepEqual(prepare(base, "1", root), ["clear", "effort"]);
+  assert.equal(JSON.parse(readFileSync(clear)).version, "0.1.0-alpha.1");
 });
