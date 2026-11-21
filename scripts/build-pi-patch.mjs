@@ -298,7 +298,7 @@ export function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
     cpSync(from, join(repo, path));
   }
   git("add", "--all");
-  git("commit", "--quiet", "--message", "baseline");
+  git("-c", "commit.gpgSign=false", "commit", "--quiet", "--message", "baseline");
 
   for (const path of tracked) {
     mkdirSync(dirname(join(repo, path)), { recursive: true });
