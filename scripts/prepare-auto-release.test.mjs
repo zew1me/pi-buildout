@@ -70,7 +70,8 @@ test("prepares only changed packages for the existing release plan", (t) => {
 test("validates all alpha templates before writing any manifest", (t) => {
   const root = mkdtempSync(join(tmpdir(), "auto-release-templates-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  const git = (...args) => execFileSync("git", args, { cwd: root, encoding: "utf8" }).trim();
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const git = (...args) => execFileSync("git", args, { cwd: root, env, encoding: "utf8" }).trim();
   git("init");
   git("config", "user.name", "test");
   git("config", "user.email", "test@example.com");
