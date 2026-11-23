@@ -14,7 +14,7 @@ process.env.PI_ROUTER_ENDPOINT_HEALTH_PATH = "/nonexistent-router-health.json";
 // Recording the last known mode is a real filesystem write; keep every test out of the developer's
 // agent directory unless the test points it somewhere itself.
 process.env.PI_ROUTER_LAST_MODE_PATH = join(await mkdtemp(join(tmpdir(), "pi-router-last-mode-")), "last-mode.jsonl");
-import { classifyTask } from "./classifier.ts";
+import { classifyTask, classifyTaskPrimary } from "./classifier.ts";
 import { deriveArchetype } from "./core/archetype.ts";
 import { POLICY_VERSION } from "./core/policy.ts";
 import { PROMPT_PROFILES } from "./core/profiles.ts";
@@ -565,10 +565,61 @@ describe("classifier deadline", () => {
 });
 
 describe("automatic routing gate", () => {
-  it("requires validated semantic evidence instead of promoting classifier failure to a premium route", () => {
-    assert.match(automaticRoutingBlockReason({ failedClosed: true }), /validated semantic evidence/);
+  it("requires validated task features for automatic routing", () => {
+    assert.ok(automaticRoutingBlockReason({ failedClosed: true }));
     assert.equal(automaticRoutingBlockReason({ failedClosed: false }), undefined);
   });
+
+  for (const mode of ["shadow", "active"]) {
+    it(`preserves the current selection and creates no lease after invalid classifier output in ${mode} mode`, async () => {
+      const models = standardRoutingModels();
+      const turn = { mode, prompt: "Say hello", models };
+      // Control: this registry can route the task, so failure below cannot be explained by a lack of models.
+      const valid = await runAdapterTurn({
+        ...turn,
+        sessionId: `classification-valid-${mode}`,
+        classifyPrimaryTask: successfulClassifier(),
+      });
+      assert.notEqual(valid.events.findLast(({ kind }) => kind === "route_decision")?.data.kind, "unroutable");
+      assert.ok(valid.appended.some(({ data }) => data.active));
+
+      let attempts = 0;
+      const result = await runAdapterTurn({
+        ...turn,
+        sessionId: `classification-invalid-${mode}`,
+        classifyPrimaryTask: (input) =>
+          classifyTaskPrimary({
+            ...input,
+            primary: async () => {
+              attempts++;
+              return {
+                arguments: {}, // Real schema validation must reject this, not a hand-built failedClosed flag.
+                provider: "anthropic",
+                modelId: "claude-haiku-4-5",
+                vendor: "anthropic",
+                latencyMs: 1,
+              };
+            },
+          }),
+      });
+      assert.equal(attempts, 2, "both schema attempts must be exhausted");
+      const invocation = result.events.find(({ kind }) => kind === "classifier_invocation");
+      assert.equal(invocation.data.validAttemptCount, 0);
+      assert.equal(invocation.data.resolution, "failed_closed");
+      assert.equal(result.events.findLast(({ kind }) => kind === "route_decision")?.data.kind, "unroutable");
+      assert.equal(
+        result.appended.some(({ data }) => data.active),
+        false,
+        "failure must not install a lease",
+      );
+      assert.equal(result.ctx.model, models[0], "the real current model must survive the failed route");
+      assert.equal(result.pi.getThinkingLevel(), "high");
+      assert.deepEqual(result.selectedModels, []);
+      assert.deepEqual(result.selectedEfforts, []);
+      assert.equal(result.beforeAgentStart, undefined, "no routed prompt may be installed");
+      assert.equal(result.notifications.at(-1)?.type, "warning");
+    });
+  }
 });
 
 describe("deterministicCheckCommand", () => {
@@ -4410,7 +4461,11 @@ describe("routerExtension", () => {
         ctx,
       );
       assert.equal(snapshotReads, 1, "classification, builder provenance, and routing must share one scoped snapshot");
-      assert.match(notifications.at(-1)?.message ?? "", /retained current model/i);
+      // One copy contract for the user-reported warning; routing behavior is covered separately above.
+      assert.equal(
+        notifications.at(-1)?.message,
+        "Shadow routing skipped: classification did not produce validated task features",
+      );
       const events = (await readFile(telemetryPath, "utf8"))
         .trim()
         .split("\n")

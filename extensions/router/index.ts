@@ -197,9 +197,7 @@ type ReconciliationBoundary = { kind: "before_first_request" } | { kind: "turn_e
 export function automaticRoutingBlockReason(
   classification: Pick<ClassificationResult, "failedClosed">,
 ): string | undefined {
-  return classification.failedClosed
-    ? "classification failed closed; premium routes require validated semantic evidence"
-    : undefined;
+  return classification.failedClosed ? "classification did not produce validated task features" : undefined;
 }
 
 export function deterministicCheckCommand(command: string): string | undefined {
@@ -3076,7 +3074,9 @@ export default function routerExtension(pi: ExtensionAPI, options: RouterExtensi
               modelSnapshotId: registrySnapshotId(routed.registry),
             },
           );
-          ctx.ui.notify(`Router retained current model: ${routed.decision.reason}`, "warning");
+          const notice =
+            leaseOwner.state.mode === "shadow" ? "Shadow routing skipped" : "Router retained current model";
+          ctx.ui.notify(`${notice}: ${routed.decision.reason}`, "warning");
           return;
         }
         const now = new Date().toISOString();
