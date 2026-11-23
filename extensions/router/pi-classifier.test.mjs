@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai/compat";
+import { zstdDecompressSync } from "node:zlib";
+import { fauxAssistantMessage, fauxToolCall, getModel, registerFauxProvider } from "@earendil-works/pi-ai/compat";
 import { conservativeFeatures } from "./core/features.ts";
 import {
   classifyTaskSecondaryWithPi,
@@ -507,6 +508,62 @@ describe("selectClassifierModels", () => {
   });
 });
 
+describe("classifier request options", () => {
+  it("sends low reasoning effort and forces the classifier tool in the Codex HTTP body", async (t) => {
+    const model = getModel("openai-codex", "gpt-6-luna");
+    const claims = Buffer.from(JSON.stringify({ "https://api.openai.com/auth": { chatgpt_account_id: "fixture" } }));
+    const features = { ...conservativeFeatures("fixture"), confidence: 0.95, risk: "low" };
+    const item = {
+      type: "function_call",
+      id: "fc_fixture",
+      call_id: "call_fixture",
+      name: "report_task_features",
+      arguments: JSON.stringify(features),
+    };
+    const events = [
+      { type: "response.output_item.added", output_index: 0, item: { ...item, arguments: "" } },
+      { type: "response.output_item.done", output_index: 0, item },
+      { type: "response.completed", response: { status: "completed" } },
+    ];
+
+    // Block the adapter's preferred WebSocket transport so the real SSE serializer reaches mocked fetch.
+    t.mock.method(globalThis, "WebSocket", () => {
+      throw new Error("WebSocket disabled for this fixture");
+    });
+    const fetch = t.mock.method(
+      globalThis,
+      "fetch",
+      () =>
+        new Response(events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""), {
+          headers: { "content-type": "text/event-stream" },
+        }),
+    );
+    const result = await classifyTaskWithPi({
+      ctx: {
+        modelRegistry: {
+          find: () => model,
+          getApiKeyAndHeaders: async () => ({
+            ok: true,
+            apiKey: `fixture.${claims.toString("base64")}.fixture`,
+            baseUrl: "https://codex.invalid",
+          }),
+        },
+      },
+      registry: [snapshot("openai-codex", "gpt-6-luna")],
+      prompt: "Implement the change",
+      synopsis: {},
+    });
+
+    assert.equal(fetch.mock.callCount(), 1);
+    const [, { headers, body }] = fetch.mock.calls[0].arguments;
+    const payload = JSON.parse(headers.get("content-encoding") === "zstd" ? zstdDecompressSync(body).toString() : body);
+    assert.equal(payload.reasoning?.effort, "low");
+    assert.deepEqual(payload.tool_choice, { type: "function", name: "report_task_features" });
+    assert.equal(result.failedClosed, false);
+    assert.equal(result.attempts[0]?.valid, true);
+  });
+});
+
 describe("classifier request authentication", () => {
   it("calls an endpoint whose registry auth resolves without an API key, such as Amazon Bedrock", async () => {
     // Bedrock authenticates through the ambient AWS credential chain, so the registry reports
@@ -517,7 +574,13 @@ describe("classifier request authentication", () => {
       models: [{ id: "keyless-fixture" }],
     });
     const features = { ...conservativeFeatures("fixture"), confidence: 0.95, risk: "low" };
-    faux.setResponses([fauxAssistantMessage([fauxToolCall("report_task_features", features)])]);
+    let seenOptions;
+    faux.setResponses([
+      (_context, options) => {
+        seenOptions = options;
+        return fauxAssistantMessage([fauxToolCall("report_task_features", features)]);
+      },
+    ]);
     try {
       const result = await classifyTaskWithPi({
         ctx: {
@@ -533,6 +596,8 @@ describe("classifier request authentication", () => {
       assert.equal(result.failedClosed, false);
       assert.equal(result.attempts[0]?.valid, true);
       assert.equal(result.attempts[0]?.provider, "amazon-bedrock");
+      assert.equal(seenOptions.reasoning, "low");
+      assert.ok(!Object.hasOwn(seenOptions, "reasoningEffort"));
     } finally {
       faux.unregister();
     }

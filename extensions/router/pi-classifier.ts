@@ -247,7 +247,7 @@ async function callClassifierModel(
       ...(request.signal ? { signal: request.signal } : {}),
       maxTokens: 4_096,
       maxRetries: 1,
-      reasoning: "low",
+      ...(model.api === "openai-codex-responses" ? { reasoningEffort: "low" } : { reasoning: "low" }),
       onPayload: (payload) => requireToolCall(payload, model.api, tool.name),
     },
   );

@@ -272,6 +272,16 @@ through the public API-provider stream, rather than testing the untouched input 
 session that verifies emitted telemetry. These are conceptual API uses, not copied implementation; production
 transports, live inference, and persistent session storage are intentionally excluded.
 
+### Pi Codex classifier reasoning effort
+
+- Source: published `@earendil-works/pi-ai` `1.3.0` (tag `v1.3.0`, commit `71023aec1546d6d677a65669c5665c0927ce0dd0`),
+  README and `dist/api/openai-codex-responses.{js,d.ts}` at <https://github.com/earendil-works/pi> (`packages/ai`, MIT).
+
+Used as an API reference: low-level `complete()` forwards the Codex-specific `reasoningEffort` option, which the adapter
+serializes as `reasoning.effort`. The regression exercises the installed adapter's HTTP serialization with mocked
+transport. No upstream code or tests were copied or modified. The adapter's transport implementation and any migration
+to `completeSimple()` were not adopted.
+
 ### Pi model catalog: GPT-6.1 Sol pricing
 
 - Source: bundled `@earendil-works/pi-ai` provider catalog shipped with `@earendil-works/pi-coding-agent`
