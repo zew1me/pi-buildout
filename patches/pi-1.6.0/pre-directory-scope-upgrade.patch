@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..8f4b626 100644
+index 0b4ae56..4ca03e9 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -69,13 +69,11 @@ function withSkillConfigLock(env, path, fn) {
@@ -285,11 +285,11 @@ index 0b4ae56..8f4b626 100644
 +    const remove = (key) => updatePersistedSkillByKey(env, "remove", source, scope, resolvedTarget, key);
 +    return (remove(operand) ||
 +        (!looksLikePath(source) && remove(canonicalSkillPath(env, env.resolvePath(source, context.cwd, { trim: true })))));
- }
--export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
++}
 +export function getActiveSkillEntries(env, options) {
 +    return readActiveSkillEntries(env, options).entries;
-+}
+ }
+-export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
 +function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
      const entries = [];
      const safeRead = (path) => {
@@ -357,7 +357,40 @@ index 0b4ae56..8f4b626 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -483,42 +576,32 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -459,11 +552,30 @@ export function usage(allowSession = false) {
+ function runActiveCommand(env, rest, surface, options) {
+     if (rest.length !== 0)
+         throw new Error(`Usage: ${surface} active`);
+-    const entries = getActiveSkillEntries(env, { ...options, strict: true });
++    const { entries, directoryKey } = readActiveSkillEntries(env, { ...options, strict: true });
++    let repoRoot;
++    const operand = ({ source, scope }) => {
++        if (scope === "global" || !looksLikePath(source))
++            return source;
++        const value = expandEnvironmentVariables(env, source).value.trim();
++        if (value === "" || isAnchoredPath(env, value))
++            return source;
++        const root = scope === "directory" ? directoryKey : (repoRoot ??= { value: findRepoRoot(env, options.cwd) }).value;
++        if (root === undefined)
++            return source;
++        // `remove` resolves an operand against cwd, not the base of a stored entry. Show a path that names
++        // the same target from this cwd, or label the stored spelling with its base if it cannot round-trip.
++        const absolute = env.path.resolve(root, value);
++        const usable = (path) => !(options.allowSession && /\s/.test(path)) && resolveSkillPath(env, path, options.cwd) === absolute;
++        if (usable(absolute))
++            return absolute;
++        const relative = `./${env.path.relative(options.cwd, absolute)}`;
++        return usable(relative) ? relative : `${source} (relative to ${root})`;
++    };
+     return {
+         exitCode: 0,
+         lines: entries.length
+-            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
++            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`)]
+             : ["Skills: none"],
+         activeEntries: entries,
+     };
+@@ -483,42 +595,32 @@ async function runCatalogCommand(env, command, rest, surface, options) {
      };
  }
  /** What `add` writes for a resolved source: a catalog name as is, a path in its {@link persistedForm}. */
@@ -412,7 +445,7 @@ index 0b4ae56..8f4b626 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -546,7 +629,8 @@ export async function runSkillsCommand(env, args, options) {
+@@ -546,7 +648,8 @@ export async function runSkillsCommand(env, args, options) {
   *
   * Entries are either paths, which must exist, or catalog names, which are looked up by name. Path entries
   * are expanded here, each time skills load, rather than when they are added: `~` and `$NAME` take the current
@@ -422,7 +455,7 @@ index 0b4ae56..8f4b626 100644
   * keeps the result until its next reload (`/reload`, `/skills reload`, or the reload `/skills add` and
   * `/skills remove` trigger), which is what makes this a once-per-session expansion. The catalog is built at
   * most once per call: every caller resolves a whole entry list in one pass, so a longer-lived cache would only
-@@ -556,7 +640,7 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -556,7 +659,7 @@ export async function resolveActiveSkillPaths(env, context) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      const paths = [];
      const diagnostics = [];
@@ -431,7 +464,7 @@ index 0b4ae56..8f4b626 100644
          cwd,
          agentDir,
          onWarn: (message) => diagnostics.push({ type: "warning", message }),
-@@ -574,10 +658,14 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -574,10 +677,14 @@ export async function resolveActiveSkillPaths(env, context) {
      let repoRoot;
      const entryPath = (entry) => {
          const value = expandEnvironmentVariables(env, entry.source).value.trim();
@@ -450,7 +483,7 @@ index 0b4ae56..8f4b626 100644
          }
          return resolveResourcePath(value);
      };
-@@ -590,8 +678,8 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -590,8 +697,8 @@ export async function resolveActiveSkillPaths(env, context) {
                  diagnostics.push(unresolvedSkillDiagnostic(env, entry));
              continue;
          }
@@ -461,7 +494,7 @@ index 0b4ae56..8f4b626 100644
              paths.push(path);
          else
              diagnostics.push(unresolvedSkillDiagnostic(env, entry));
-@@ -609,7 +697,8 @@ export async function resolveSkillEntryPath(env, context, source) {
+@@ -609,7 +716,8 @@ export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
          const normalized = resolveResourcePath(expandEnvironmentVariables(env, source).value);
@@ -471,7 +504,7 @@ index 0b4ae56..8f4b626 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -644,19 +733,23 @@ async function applySessionSkillChange(env, session, context) {
+@@ -644,19 +752,23 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.
@@ -501,7 +534,7 @@ index 0b4ae56..8f4b626 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -664,7 +757,7 @@ async function applySessionSkillChange(env, session, context) {
+@@ -664,17 +776,13 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -509,7 +542,30 @@ index 0b4ae56..8f4b626 100644
 +    return `Disabled ${normalized} for this session.`;
  }
  /** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */
- function formatActiveSkillLines(activeEntries, additionalSkillPaths) {
+-function formatActiveSkillLines(activeEntries, additionalSkillPaths) {
+-    const entries = [
+-        ...(activeEntries ?? []),
+-        ...(additionalSkillPaths ?? []).map((source) => ({ scope: "session", source })),
+-    ];
+-    return entries.length
+-        ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
+-        : ["Skills: none"];
++function formatActiveSkillLines(lines, additionalSkillPaths) {
++    if (!additionalSkillPaths?.length)
++        return lines;
++    return ["Active skills:", ...lines.slice(1), ...additionalSkillPaths.map((source) => `  session: ${source}`)];
+ }
+ /**
+  * Runs the interactive `/skills` command.
+@@ -703,7 +811,7 @@ export async function handleSkillsInteractive(env, text, context) {
+         lines = [line];
+     }
+     if (args[0] === "active") {
+-        lines = formatActiveSkillLines(result.activeEntries, context.additionalSkillPaths);
++        lines = formatActiveSkillLines(lines, context.additionalSkillPaths);
+     }
+     if (args[0] === "add" || args[0] === "remove") {
+         if (context.isBusy()) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 index 8b712ef..e8fe4e8 100644
 --- a/dist/core/skill-management.js

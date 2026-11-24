@@ -763,11 +763,28 @@ function runActiveCommand(
   options: SkillCommandOptions,
 ): SkillCommandResult {
   if (rest.length !== 0) throw new Error(`Usage: ${surface} active`);
-  const entries = getActiveSkillEntries(env, { ...options, strict: true });
+  const { entries, directoryKey } = readActiveSkillEntries(env, { ...options, strict: true });
+  let repoRoot: { value: string | undefined } | undefined;
+  const operand = ({ source, scope }: ActiveSkillEntry): string => {
+    if (scope === "global" || !looksLikePath(source)) return source;
+    const value = expandEnvironmentVariables(env, source).value.trim();
+    if (value === "" || isAnchoredPath(env, value)) return source;
+    const root = scope === "directory" ? directoryKey : (repoRoot ??= { value: findRepoRoot(env, options.cwd) }).value;
+    if (root === undefined) return source;
+
+    // `remove` resolves an operand against cwd, not the base of a stored entry. Show a path that names
+    // the same target from this cwd, or label the stored spelling with its base if it cannot round-trip.
+    const absolute = env.path.resolve(root, value);
+    const usable = (path: string): boolean =>
+      !(options.allowSession && /\s/.test(path)) && resolveSkillPath(env, path, options.cwd) === absolute;
+    if (usable(absolute)) return absolute;
+    const relative = `./${env.path.relative(options.cwd, absolute)}`;
+    return usable(relative) ? relative : `${source} (relative to ${root})`;
+  };
   return {
     exitCode: 0,
     lines: entries.length
-      ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
+      ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`)]
       : ["Skills: none"],
     activeEntries: entries,
   };
@@ -1056,17 +1073,9 @@ async function applySessionSkillChange(
 }
 
 /** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */
-function formatActiveSkillLines(
-  activeEntries: ActiveSkillEntry[] | undefined,
-  additionalSkillPaths: string[] | undefined,
-): string[] {
-  const entries: { scope: string; source: string }[] = [
-    ...(activeEntries ?? []),
-    ...(additionalSkillPaths ?? []).map((source) => ({ scope: "session", source })),
-  ];
-  return entries.length
-    ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
-    : ["Skills: none"];
+function formatActiveSkillLines(lines: string[], additionalSkillPaths: string[] | undefined): string[] {
+  if (!additionalSkillPaths?.length) return lines;
+  return ["Active skills:", ...lines.slice(1), ...additionalSkillPaths.map((source) => `  session: ${source}`)];
 }
 
 /**
@@ -1102,7 +1111,7 @@ export async function handleSkillsInteractive(
   }
 
   if (args[0] === "active") {
-    lines = formatActiveSkillLines(result.activeEntries, context.additionalSkillPaths);
+    lines = formatActiveSkillLines(lines, context.additionalSkillPaths);
   }
 
   if (args[0] === "add" || args[0] === "remove") {

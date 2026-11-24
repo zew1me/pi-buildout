@@ -609,6 +609,34 @@ test("runSkillsCommand reports active skills and an empty state", async () => {
   assert.deepEqual(none.lines, ["Skills: none"]);
 });
 
+test("active shows distinct removal operands for checkout-relative entries from a subdirectory", async () => {
+  const { env, store } = createEnvironment({
+    files: {
+      "/agent/directory-skills.json": JSON.stringify({
+        "/work": { enabled: ["skills/review", "sub/skills/review"] },
+      }),
+    },
+  });
+  withCheckouts(env, { "/work/sub": "/work" });
+  const options = { cwd: "/work/sub", agentDir: "/agent" };
+  const result = await runSkillsCommand(env, ["active"], options);
+  assert.deepEqual(result.lines, [
+    "Active skills:",
+    "  directory: /work/skills/review",
+    "  directory: /work/sub/skills/review",
+  ]);
+
+  const { context, calls } = createInteractiveContext(env);
+  context.cwd = options.cwd;
+  await handleSkillsInteractive(env, "/skills active", context);
+  assert.deepEqual(calls.output, [result.lines.join("\n")]);
+
+  const operand = result.lines[1]?.replace("  directory: ", "") ?? "";
+  const removed = await runSkillsCommand(env, ["remove", operand, "--directory"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/work"].enabled, ["sub/skills/review"]);
+});
+
 test("resolveActiveSkillPaths reuses package resources resolved by the resource loader", async () => {
   const { env, store } = withCatalog([{ name: "alpha", description: "First", filePath: "/pkg/alpha/SKILL.md" }]);
   store.set("/agent/skills.json", JSON.stringify({ enabled: ["alpha"] }));

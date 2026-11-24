@@ -68,10 +68,10 @@ index 563d7d5..786a237 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..8f4b626
+index 0000000..4ca03e9
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,812 @@
+@@ -0,0 +1,827 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -626,11 +626,30 @@ index 0000000..8f4b626
 +function runActiveCommand(env, rest, surface, options) {
 +    if (rest.length !== 0)
 +        throw new Error(`Usage: ${surface} active`);
-+    const entries = getActiveSkillEntries(env, { ...options, strict: true });
++    const { entries, directoryKey } = readActiveSkillEntries(env, { ...options, strict: true });
++    let repoRoot;
++    const operand = ({ source, scope }) => {
++        if (scope === "global" || !looksLikePath(source))
++            return source;
++        const value = expandEnvironmentVariables(env, source).value.trim();
++        if (value === "" || isAnchoredPath(env, value))
++            return source;
++        const root = scope === "directory" ? directoryKey : (repoRoot ??= { value: findRepoRoot(env, options.cwd) }).value;
++        if (root === undefined)
++            return source;
++        // `remove` resolves an operand against cwd, not the base of a stored entry. Show a path that names
++        // the same target from this cwd, or label the stored spelling with its base if it cannot round-trip.
++        const absolute = env.path.resolve(root, value);
++        const usable = (path) => !(options.allowSession && /\s/.test(path)) && resolveSkillPath(env, path, options.cwd) === absolute;
++        if (usable(absolute))
++            return absolute;
++        const relative = `./${env.path.relative(options.cwd, absolute)}`;
++        return usable(relative) ? relative : `${source} (relative to ${root})`;
++    };
 +    return {
 +        exitCode: 0,
 +        lines: entries.length
-+            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
++            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`)]
 +            : ["Skills: none"],
 +        activeEntries: entries,
 +    };
@@ -834,14 +853,10 @@ index 0000000..8f4b626
 +    return `Disabled ${normalized} for this session.`;
 +}
 +/** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */
-+function formatActiveSkillLines(activeEntries, additionalSkillPaths) {
-+    const entries = [
-+        ...(activeEntries ?? []),
-+        ...(additionalSkillPaths ?? []).map((source) => ({ scope: "session", source })),
-+    ];
-+    return entries.length
-+        ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
-+        : ["Skills: none"];
++function formatActiveSkillLines(lines, additionalSkillPaths) {
++    if (!additionalSkillPaths?.length)
++        return lines;
++    return ["Active skills:", ...lines.slice(1), ...additionalSkillPaths.map((source) => `  session: ${source}`)];
 +}
 +/**
 + * Runs the interactive `/skills` command.
@@ -870,7 +885,7 @@ index 0000000..8f4b626
 +        lines = [line];
 +    }
 +    if (args[0] === "active") {
-+        lines = formatActiveSkillLines(result.activeEntries, context.additionalSkillPaths);
++        lines = formatActiveSkillLines(lines, context.additionalSkillPaths);
 +    }
 +    if (args[0] === "add" || args[0] === "remove") {
 +        if (context.isBusy()) {
