@@ -823,10 +823,7 @@ async function runMutationCommand(
   if (resolution && !resolution.resolved) throw new Error(skillNotFoundMessage(env, source));
 
   if (scope === "session") {
-    const target =
-      resolution?.normalized ??
-      (looksLikePath(source) && !expandsToEmptyPath(env, source) ? resolveSkillPath(env, source, options.cwd) : source);
-    return { exitCode: 0, lines: [], session: { action: command, source: target } };
+    return { exitCode: 0, lines: [], session: { action: command, source: resolution?.normalized ?? source } };
   }
 
   const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
@@ -1031,19 +1028,23 @@ async function applySessionSkillChange(
 
   // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
   // paths after applying the same resolution used by the resource loader.
-  const normalized = looksLikePath(session.source)
-    ? resolveResourcePath(expandEnvironmentVariables(env, session.source).value)
-    : session.source;
-  const skillPaths = looksLikePath(session.source)
+  const pathSource = looksLikePath(session.source);
+  const value = pathSource ? expandEnvironmentVariables(env, session.source).value : session.source;
+  if (pathSource && value.trim() === "") {
+    context.showError(`Skill is not enabled for this session: ${session.source}`);
+    return undefined;
+  }
+  const normalized = pathSource ? resolveResourcePath(value) : value;
+  const skillPaths = pathSource
     ? []
     : env
         .loadSkills({ cwd, agentDir, skillPaths: additionalSkillPaths, includeDefaults: false })
         .skills.filter((skill) => skill.name === session.source)
         .map((skill) => skill.filePath);
-  const direct = (path: string): boolean => path === session.source || path === normalized || skillPaths.includes(path);
+  const direct = (path: string): boolean => path === normalized || skillPaths.includes(path);
   // A bare name added as a local path stays removable by that name after the path is deleted, but only when
   // nothing matches it directly.
-  const localPath = looksLikePath(session.source) ? undefined : env.resolvePath(session.source, cwd, { trim: true });
+  const localPath = pathSource ? undefined : env.resolvePath(session.source, cwd, { trim: true });
   const matches = additionalSkillPaths.some(direct) ? direct : (path: string): boolean => path === localPath;
   if (!additionalSkillPaths.some(matches)) {
     context.showError(`Skill is not enabled for this session: ${session.source}`);
@@ -1051,7 +1052,7 @@ async function applySessionSkillChange(
   }
   const retained = additionalSkillPaths.filter((path) => !matches(path));
   additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
-  return `Disabled ${session.source} for this session.`;
+  return `Disabled ${normalized} for this session.`;
 }
 
 /** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */

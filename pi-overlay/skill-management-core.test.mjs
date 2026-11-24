@@ -1523,6 +1523,21 @@ test("/skills add and remove --session expand variables in path inputs", async (
   assert.deepEqual(paths, []);
 });
 
+test("/skills remove --session does not treat an empty expanded path as the working directory", async () => {
+  const { env } = createEnvironment({ variables: { SKILL_DIR: "" } });
+  const paths = ["/work"];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+  context.resolveResourcePath = (path) => posix.resolve(context.cwd, path.trim());
+
+  await handleSkillsInteractive(env, "/skills remove $SKILL_DIR --session", context);
+  assert.deepEqual(paths, ["/work"]);
+  assert.match(calls.errors[0] ?? "", /Skill is not enabled/);
+  assert.equal(calls.reloads, 0);
+
+  await handleSkillsInteractive(env, "/skills remove . --session", context);
+  assert.deepEqual(paths, [], "an explicit dot still removes the working directory");
+});
+
 test("/skills remove --session removes a deleted local skill by its bare name", async () => {
   const { env, store } = createEnvironment();
   withLocalSkills(env, { "/work/local-skill": [localSkill] });
