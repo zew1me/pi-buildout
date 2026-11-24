@@ -697,7 +697,7 @@ index 3d18e7d..e8fe4e8 100644
      lockSync: (directory, options) => lockfile.lockSync(directory, options),
      sleepSync: (milliseconds) => {
 diff --git a/docs/skills.md b/docs/skills.md
-index a6adcc6..3536ac0 100644
+index a6adcc6..0a59142 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -80,8 +80,11 @@ A catalog skill enters the system prompt only when it is active. Active skills c
@@ -707,7 +707,7 @@ index a6adcc6..3536ac0 100644
 +- Directory: `~/.pi/agent/directory-skills.json`, keyed by the current checkout or worktree root, or by the working directory outside a git repository
  
 -Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
-+Among persisted scopes, the first skill with a given name wins: global, then repository, then directory. Explicit `--skill` paths and interactive session paths are added after the persisted scopes. The same skill file enabled in several scopes loads once.
++On a name collision, the first skill wins. Persisted scopes load in global, repository, then directory order. Explicit `--skill` files and interactive session paths are passed to the loader as additional paths, so they do not override a same-name persisted skill. The same skill file enabled in several scopes loads once.
 +
 +Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json` or `~/.pi/agent/directory-skills.json`. Use `pi skills list` to find catalog skill names.
  

@@ -629,6 +629,17 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
       [],
       "--no-skills suppresses directory scope",
     );
+    // Pi's main() passes explicit `--skill` files as additionalSkillPaths, not cliEnabledSkills.
+    assert.deepEqual(
+      await directoryPaths(mainCheckout, { additionalSkillPaths: [plainSkill] }),
+      [mainSkill],
+      "a persisted skill wins over an explicit --skill file on a name collision",
+    );
+    assert.deepEqual(
+      await directoryPaths(mainCheckout, { additionalSkillPaths: [plainSkill], noSkills: true }),
+      [plainSkill],
+      "an explicit --skill file remains active when --no-skills suppresses persisted activation",
+    );
 
     const worktreeGlobalConfig = join(worktreeAgentDir, "skills.json");
     await writeFile(worktreeGlobalConfig, JSON.stringify({ enabled: [plainSkill] }));

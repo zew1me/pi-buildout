@@ -274,7 +274,9 @@ Pi's existing `proper-lockfile` dependency; no new upstream dependency is introd
 `src/core/resource-loader.ts`, `src/core/slash-commands.ts`, `src/main.ts`, `src/modes/interactive/interactive-mode.ts`,
 and `docs/skills.md`. Its unchanged context and modified lines derive from the MIT-licensed Pi package. Directory scope
 is original overlay logic; it reuses Pi's existing path order and `loadSkills` behavior (first name wins and symlink
-aliases of an already-loaded skill are skipped). The scope adds no new collision policy to upstream Pi.
+aliases of an already-loaded skill are skipped). In the retained releases, Pi's `src/main.ts` passes `--skill` as
+`additionalSkillPaths`; the overlay preserves upstream's placement of those paths after the primary list. It does not
+adopt a new collision policy or copy the loader implementation.
 
 `pi-overlay/versions/<version>/replacements/dist/bundle/cli-runtime.js` and `rpc-entry.js` are original hand-written
 wrappers, not derived from upstream's generated bundle output. They replace Pi's esbuild-produced bundled entrypoints so
