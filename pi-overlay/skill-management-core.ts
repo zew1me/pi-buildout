@@ -237,7 +237,9 @@ export function resolveRepoKey(env: SkillEnvironment, cwd: string): string | und
   const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
   if (firstKey) return firstKey;
 
-  const root = findRepoRoot(env, cwd);
+  // Keep the legacy on-disk key for repositories without a remote. Only the directory identity and
+  // path resolution need the untrimmed checkout root; do not look up a second repo bucket.
+  const root = findRepoRoot(env, cwd)?.trim();
   if (!root) return undefined;
   const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
   return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;

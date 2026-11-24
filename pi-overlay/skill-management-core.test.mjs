@@ -308,7 +308,8 @@ test("Git checkout keys preserve trailing whitespace in the root", () => {
 
   assert.equal(resolveDirectoryKey(plain.env, "/home/dev/app/src"), "/home/dev/app");
   assert.equal(resolveDirectoryKey(spaced.env, "/home/dev/app /src"), "/home/dev/app ");
-  assert.equal(resolveRepoKey(spaced.env, "/home/dev/app /src"), "local:~/app ");
+  // This is the on-disk repo key used by versions that trimmed all rev-parse output.
+  assert.equal(resolveRepoKey(spaced.env, "/home/dev/app /src"), "local:~/app");
 });
 
 test("resolveDirectoryKey keys a base reached through a symlink by its real path", () => {

@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..13fda5b
+index 0000000..17db76c
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,829 @@
+@@ -0,0 +1,831 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -184,7 +184,9 @@ index 0000000..13fda5b
 +    const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
 +    if (firstKey)
 +        return firstKey;
-+    const root = findRepoRoot(env, cwd);
++    // Keep the legacy on-disk key for repositories without a remote. Only the directory identity and
++    // path resolution need the untrimmed checkout root; do not look up a second repo bucket.
++    const root = findRepoRoot(env, cwd)?.trim();
 +    if (!root)
 +        return undefined;
 +    const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
