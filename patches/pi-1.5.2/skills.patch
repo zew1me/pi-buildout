@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..8344277
+index 0000000..7caed6e
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,835 @@
+@@ -0,0 +1,841 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -357,7 +357,7 @@ index 0000000..8344277
 +    // A literal ~/ or file: prefix inside the root must not become an anchored path, and leading whitespace must
 +    // survive the trim applied when skills load. A generated path containing any variable reference, set or not,
 +    // could expand differently in a later process, so the original portable spelling is preferred over it.
-+    if (rootRelative?.search(environmentVariableReference) === -1) {
++    if (rootRelative?.search(environmentVariableReference) === -1 && rootRelative.trimEnd() === rootRelative) {
 +        const needsPrefix = !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) || /^\s/.test(rootRelative);
 +        return needsPrefix ? `./${rootRelative}` : rootRelative;
 +    }
@@ -365,7 +365,13 @@ index 0000000..8344277
 +    if (isPortableSpelling(env, typed))
 +        return typed;
 +    const home = pathInside(env, env.homedir(), resolvedPath);
-+    const fallback = home === undefined ? resolvedPath : home === "" ? "~" : `~/${home}`;
++    // A resolved alias can still name its target even when the canonical spelling ends in whitespace.
++    // Keep the alias rather than storing a generated spelling that the loader would trim.
++    const hasPortableHomePath = home !== undefined && !/\s$/.test(home);
++    const fallback = hasPortableHomePath ? (home === "" ? "~" : `~/${home}`) : resolvedPath;
++    if (fallback.trimEnd() !== fallback) {
++        throw new Error(`Cannot persist ${resolvedPath}: trailing whitespace would be trimmed when skills load.`);
++    }
 +    // A literal `$NAME` in the path that is set now would expand on the next load and name a different path.
 +    if (expandEnvironmentVariables(env, fallback).value !== fallback) {
 +        throw new Error(`Cannot persist ${resolvedPath}: it contains an environment variable reference that would expand when skills load.`);

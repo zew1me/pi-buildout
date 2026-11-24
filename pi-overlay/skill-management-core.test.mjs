@@ -1041,6 +1041,25 @@ test("a directory-relative spelling that starts with whitespace keeps its ./ pre
   });
 });
 
+test("a generated directory spelling cannot turn a trailing-space alias target into a different skill", async () => {
+  const alias = "/home/dev/work/alias";
+  const near = "/home/dev/work/skills/review";
+  const real = `${near} `;
+  const { env, store } = createEnvironment({
+    files: { "/home/dev/work": "", [alias]: "", [near]: "", [real]: "" },
+  });
+  env.path.resolve = posix.resolve;
+  env.fs.realpathSync = (path) => (path === alias ? real : path);
+  const options = { cwd: "/home/dev/work", agentDir: "/agent" };
+  const add = await runSkillsCommand(env, ["add", "./alias", "--directory"], options);
+  assert.equal(add.exitCode, 0, add.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")[options.cwd].enabled, [alias]);
+  const active = await resolveActiveSkillPaths(env, { ...options, resolveResourcePath: (path) => path.trim() });
+  assert.deepEqual(active.paths, [alias]);
+  assert.equal((await runSkillsCommand(env, ["remove", near, "--directory"], options)).exitCode, 1);
+  assert.equal((await runSkillsCommand(env, ["remove", "./alias", "--directory"], options)).exitCode, 0);
+});
+
 test("a directory mutation formats, matches, and stores under one base lookup", async () => {
   const { env, store } = createEnvironment({ files: { "/work/sub/skills/review": "" } });
   env.path.resolve = posix.resolve;
