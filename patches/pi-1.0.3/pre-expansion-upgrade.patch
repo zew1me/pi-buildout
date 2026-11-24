@@ -1,10 +1,13 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 2fd4257..17db76c 100644
+index 2fd4257..8344277 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
-@@ -69,13 +69,11 @@ function withSkillConfigLock(env, path, fn) {
+@@ -67,17 +67,18 @@ function withSkillConfigLock(env, path, fn) {
+         }
+     }
  }
- function git(env, cwd, args) {
+-function git(env, cwd, args) {
++function git(env, cwd, args, failOnTimeout = false) {
      try {
 -        return env
 -            .execFileSync("git", ["-C", cwd, ...args], {
@@ -16,9 +19,15 @@ index 2fd4257..17db76c 100644
 -            .trim();
 +        });
      }
-     catch {
+-    catch {
++    catch (error) {
++        if (failOnTimeout && error instanceof Error && "code" in error && error.code === "ETIMEDOUT") {
++            throw new Error("Git checkout discovery timed out; retry the directory-scoped command.", { cause: error });
++        }
          return undefined;
-@@ -118,12 +116,46 @@ export function resolveRepoKey(env, cwd) {
+     }
+ }
+@@ -118,12 +119,46 @@ export function resolveRepoKey(env, cwd) {
      const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
      if (firstKey)
          return firstKey;
@@ -32,8 +41,8 @@ index 2fd4257..17db76c 100644
      return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
  }
 +/** The checkout root for `cwd`; relative repository entries resolve against it. */
-+function findRepoRoot(env, cwd) {
-+    const output = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++function findRepoRoot(env, cwd, failOnTimeout = false) {
++    const output = git(env, cwd, ["rev-parse", "--show-toplevel"], failOnTimeout);
 +    // The output is a path, not a remote name. Remove only Git's record terminator.
 +    const root = env.path.sep === "\\" && output?.endsWith("\r\n")
 +        ? output.slice(0, -2)
@@ -50,8 +59,8 @@ index 2fd4257..17db76c 100644
 + * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
 + * base it points to.
 + */
-+export function resolveDirectoryKey(env, cwd) {
-+    const base = env.path.resolve(findRepoRoot(env, cwd) ?? cwd);
++export function resolveDirectoryKey(env, cwd, failOnTimeout = false) {
++    const base = env.path.resolve(findRepoRoot(env, cwd, failOnTimeout) ?? cwd);
 +    if (!env.fs.existsSync(base))
 +        return base;
 +    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
@@ -66,7 +75,7 @@ index 2fd4257..17db76c 100644
  export function sourceOf(entry) {
      if (typeof entry === "string")
          return entry;
-@@ -139,12 +171,21 @@ export function enabledEntries(value) {
+@@ -139,12 +174,21 @@ export function enabledEntries(value) {
      const enabled = value.enabled;
      return Array.isArray(enabled) ? enabled : [];
  }
@@ -90,12 +99,13 @@ index 2fd4257..17db76c 100644
      }
      return scope.slice(2);
  }
-@@ -157,10 +198,149 @@ export function configLocation(env, scope, cwd, agentDir) {
+@@ -157,10 +201,150 @@ export function configLocation(env, scope, cwd, agentDir) {
              throw new Error("Repository scope requires a git repository.");
          return { path: env.path.join(agentDir, "repo-skills.json"), key };
      }
 +    if (scope === "directory") {
-+        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd) };
++        // A timed-out lookup may have been inside a checkout. Never persist a speculative cwd bucket.
++        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd, true) };
 +    }
      return {};
  }
@@ -241,7 +251,7 @@ index 2fd4257..17db76c 100644
  }
  /** True when `path` exists and Pi's own loader finds at least one skill in it. */
  function containsSkills(env, path, options) {
-@@ -175,57 +355,89 @@ function containsSkills(env, path, options) {
+@@ -175,57 +359,89 @@ function containsSkills(env, path, options) {
      return skills.length > 0;
  }
  /**
@@ -271,7 +281,9 @@ index 2fd4257..17db76c 100644
 +}
 +function canonicalSkillPath(env, path) {
 +    return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
-+}
+ }
+-export function updatePersistedSkill(env, action, source, scope, options) {
+-    const location = configLocation(env, scope, options.cwd, options.agentDir);
 +/**
 + * Resolves the configuration location and entry context for one mutation.
 + *
@@ -283,9 +295,7 @@ index 2fd4257..17db76c 100644
 +    const location = configLocation(env, scope, cwd, agentDir);
 +    const root = scope === "directory" ? location.key : scopeRoot(env, scope, cwd);
 +    return { location, context: { cwd, scope, root } };
- }
--export function updatePersistedSkill(env, action, source, scope, options) {
--    const location = configLocation(env, scope, options.cwd, options.agentDir);
++}
 +export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
 +    const key = normalizePersistedSource(env, source, resolvedTarget.context);
 +    return updatePersistedSkillByKey(env, action, source, scope, resolvedTarget, key);
@@ -347,16 +357,16 @@ index 2fd4257..17db76c 100644
 +    const remove = (key) => updatePersistedSkillByKey(env, "remove", source, scope, resolvedTarget, key);
 +    return (remove(operand) ||
 +        (!looksLikePath(source) && remove(canonicalSkillPath(env, env.resolvePath(source, context.cwd, { trim: true })))));
-+}
-+export function getActiveSkillEntries(env, options) {
-+    return readActiveSkillEntries(env, options).entries;
  }
 -export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
++export function getActiveSkillEntries(env, options) {
++    return readActiveSkillEntries(env, options).entries;
++}
 +function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -238,25 +450,30 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -238,25 +454,30 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -402,7 +412,7 @@ index 2fd4257..17db76c 100644
      const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
      const resolvedCwd = env.path.resolve(cwd);
      if (!env.fs.existsSync(resolvedCwd))
-@@ -307,10 +524,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+@@ -307,10 +528,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
  }
  async function resolveSkillSource(env, source, options) {
@@ -417,7 +427,7 @@ index 2fd4257..17db76c 100644
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
      // resolve the selected skill. A bare local folder is retained as a path only when no catalog entry wins.
      const catalog = await getSkillCatalog(env, options);
-@@ -323,7 +542,7 @@ function commandName(allowSession = false) {
+@@ -323,7 +546,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -426,7 +436,7 @@ index 2fd4257..17db76c 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -337,11 +556,30 @@ export function usage(allowSession = false) {
+@@ -337,11 +560,30 @@ export function usage(allowSession = false) {
  function runActiveCommand(env, rest, surface, options) {
      if (rest.length !== 0)
          throw new Error(`Usage: ${surface} active`);
@@ -459,7 +469,7 @@ index 2fd4257..17db76c 100644
              : ["Skills: none"],
          activeEntries: entries,
      };
-@@ -360,33 +598,33 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -360,33 +602,33 @@ async function runCatalogCommand(env, command, rest, surface, options) {
              : [query ? "No matching skills." : "No catalog skills found."],
      };
  }
@@ -511,7 +521,7 @@ index 2fd4257..17db76c 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -412,15 +650,20 @@ export async function runSkillsCommand(env, args, options) {
+@@ -412,15 +654,20 @@ export async function runSkillsCommand(env, args, options) {
  /**
   * Resolves the skills that are explicitly active for this session into concrete paths.
   *
@@ -536,7 +546,7 @@ index 2fd4257..17db76c 100644
          cwd,
          agentDir,
          onWarn: (message) => diagnostics.push({ type: "warning", message }),
-@@ -435,22 +678,34 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -435,22 +682,34 @@ export async function resolveActiveSkillPaths(env, context) {
          })).map((skill) => [skill.name, skill.filePath]));
          return catalogPathsByName.get(name);
      };
@@ -584,7 +594,7 @@ index 2fd4257..17db76c 100644
      }
      return { paths, diagnostics };
  }
-@@ -464,8 +719,9 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -464,8 +723,9 @@ export async function resolveActiveSkillPaths(env, context) {
  export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
@@ -596,7 +606,7 @@ index 2fd4257..17db76c 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -500,17 +756,23 @@ async function applySessionSkillChange(env, session, context) {
+@@ -500,17 +760,23 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.
@@ -624,7 +634,7 @@ index 2fd4257..17db76c 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -518,17 +780,13 @@ async function applySessionSkillChange(env, session, context) {
+@@ -518,17 +784,13 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -647,7 +657,7 @@ index 2fd4257..17db76c 100644
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -557,7 +815,7 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -557,7 +819,7 @@ export async function handleSkillsInteractive(env, text, context) {
          lines = [line];
      }
      if (args[0] === "active") {

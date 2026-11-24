@@ -188,14 +188,17 @@ function withSkillConfigLock<T>(env: SkillEnvironment, path: string, fn: () => T
   }
 }
 
-function git(env: SkillEnvironment, cwd: string, args: string[]): string | undefined {
+function git(env: SkillEnvironment, cwd: string, args: string[], failOnTimeout = false): string | undefined {
   try {
     return env.execFileSync("git", ["-C", cwd, ...args], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "ignore"],
       timeout: 2000,
     });
-  } catch {
+  } catch (error) {
+    if (failOnTimeout && error instanceof Error && "code" in error && error.code === "ETIMEDOUT") {
+      throw new Error("Git checkout discovery timed out; retry the directory-scoped command.", { cause: error });
+    }
     return undefined;
   }
 }
@@ -246,8 +249,8 @@ export function resolveRepoKey(env: SkillEnvironment, cwd: string): string | und
 }
 
 /** The checkout root for `cwd`; relative repository entries resolve against it. */
-function findRepoRoot(env: SkillEnvironment, cwd: string): string | undefined {
-  const output = git(env, cwd, ["rev-parse", "--show-toplevel"]);
+function findRepoRoot(env: SkillEnvironment, cwd: string, failOnTimeout = false): string | undefined {
+  const output = git(env, cwd, ["rev-parse", "--show-toplevel"], failOnTimeout);
   // The output is a path, not a remote name. Remove only Git's record terminator.
   const root =
     env.path.sep === "\\" && output?.endsWith("\r\n")
@@ -266,8 +269,8 @@ function findRepoRoot(env: SkillEnvironment, cwd: string): string | undefined {
  * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
  * base it points to.
  */
-export function resolveDirectoryKey(env: SkillEnvironment, cwd: string): string {
-  const base = env.path.resolve(findRepoRoot(env, cwd) ?? cwd);
+export function resolveDirectoryKey(env: SkillEnvironment, cwd: string, failOnTimeout = false): string {
+  const base = env.path.resolve(findRepoRoot(env, cwd, failOnTimeout) ?? cwd);
   if (!env.fs.existsSync(base)) return base;
   // The base can disappear between the two calls; its unresolved path keeps global and repository skills
   // loading, and the next reload looks it up again.
@@ -326,7 +329,8 @@ export function configLocation(
     return { path: env.path.join(agentDir, "repo-skills.json"), key };
   }
   if (scope === "directory") {
-    return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd) };
+    // A timed-out lookup may have been inside a checkout. Never persist a speculative cwd bucket.
+    return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd, true) };
   }
   return {};
 }

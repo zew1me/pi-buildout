@@ -1064,6 +1064,28 @@ test("a directory mutation formats, matches, and stores under one base lookup", 
   });
 });
 
+test("directory mutations do not fall back to a subdirectory when Git times out", async () => {
+  const { env, store, writes } = createEnvironment({ files: { "/work/app/docs/skill": "" } });
+  env.path.resolve = posix.resolve;
+  env.execFileSync = () => {
+    throw Object.assign(new Error("git did not finish"), { code: "ETIMEDOUT", signal: "SIGTERM" });
+  };
+  const options = { cwd: "/work/app/docs", agentDir: "/agent" };
+  for (const command of ["add", "remove"]) {
+    const result = await runSkillsCommand(env, [command, "./skill", "--directory"], options);
+    assert.equal(result.exitCode, 1, result.lines.join("\n"));
+    assert.match(result.lines.join("\n"), /Git checkout discovery timed out/);
+  }
+  assert.deepEqual(writes, []);
+
+  withCheckouts(env, { "/work/app/docs": "/work/app" });
+  const retry = await runSkillsCommand(env, ["add", "./skill", "--directory"], options);
+  assert.equal(retry.exitCode, 0, retry.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json"), {
+    "/work/app": { enabled: ["docs/skill"] },
+  });
+});
+
 test("relative directory entries resolve against the same base used to select them", async () => {
   const { env } = createEnvironment({
     files: {

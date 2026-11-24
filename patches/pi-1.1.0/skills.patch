@@ -68,10 +68,10 @@ index 35ba09c..9d1e088 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..17db76c
+index 0000000..8344277
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,831 @@
+@@ -0,0 +1,835 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -141,7 +141,7 @@ index 0000000..17db76c
 +        }
 +    }
 +}
-+function git(env, cwd, args) {
++function git(env, cwd, args, failOnTimeout = false) {
 +    try {
 +        return env.execFileSync("git", ["-C", cwd, ...args], {
 +            encoding: "utf-8",
@@ -149,7 +149,10 @@ index 0000000..17db76c
 +            timeout: 2000,
 +        });
 +    }
-+    catch {
++    catch (error) {
++        if (failOnTimeout && error instanceof Error && "code" in error && error.code === "ETIMEDOUT") {
++            throw new Error("Git checkout discovery timed out; retry the directory-scoped command.", { cause: error });
++        }
 +        return undefined;
 +    }
 +}
@@ -199,8 +202,8 @@ index 0000000..17db76c
 +    return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
 +}
 +/** The checkout root for `cwd`; relative repository entries resolve against it. */
-+function findRepoRoot(env, cwd) {
-+    const output = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++function findRepoRoot(env, cwd, failOnTimeout = false) {
++    const output = git(env, cwd, ["rev-parse", "--show-toplevel"], failOnTimeout);
 +    // The output is a path, not a remote name. Remove only Git's record terminator.
 +    const root = env.path.sep === "\\" && output?.endsWith("\r\n")
 +        ? output.slice(0, -2)
@@ -217,8 +220,8 @@ index 0000000..17db76c
 + * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
 + * base it points to.
 + */
-+export function resolveDirectoryKey(env, cwd) {
-+    const base = env.path.resolve(findRepoRoot(env, cwd) ?? cwd);
++export function resolveDirectoryKey(env, cwd, failOnTimeout = false) {
++    const base = env.path.resolve(findRepoRoot(env, cwd, failOnTimeout) ?? cwd);
 +    if (!env.fs.existsSync(base))
 +        return base;
 +    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
@@ -273,7 +276,8 @@ index 0000000..17db76c
 +        return { path: env.path.join(agentDir, "repo-skills.json"), key };
 +    }
 +    if (scope === "directory") {
-+        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd) };
++        // A timed-out lookup may have been inside a checkout. Never persist a speculative cwd bucket.
++        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd, true) };
 +    }
 +    return {};
 +}
