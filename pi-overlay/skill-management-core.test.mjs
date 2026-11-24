@@ -1103,6 +1103,7 @@ test("a vanished directory base does not activate its absolute paths on reload",
       "/skills/global": "",
     },
   });
+  /** @type {import("./skill-management-core.ts").ActiveSkillPathsContext} */
   const options = { cwd: "/work", agentDir: "/agent", resolveResourcePath: (path) => path };
   assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, ["/skills/global", "/skills/directory"]);
 
