@@ -35,6 +35,7 @@ type SkillCatalogOptions = {
 
 type FileSystemSeam = {
   existsSync: (path: string) => boolean;
+  isDirectory: (path: string) => boolean;
   mkdirSync: (path: string, options: { recursive: true }) => void;
   readFileSync: (path: string, encoding: "utf-8") => string;
   realpathSync: (path: string) => string;
@@ -664,7 +665,8 @@ function readActiveSkillEntries(
   const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
   // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
   // activate them even if the entries themselves point to paths that still exist outside the base.
-  if (directoryKey !== undefined && env.fs.existsSync(directoryKey)) append("directory", directoryConfig[directoryKey]);
+  if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
+    append("directory", directoryConfig[directoryKey]);
   return { entries, directoryKey };
 }
 

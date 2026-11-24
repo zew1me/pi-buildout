@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..7caed6e 100644
+index 0b4ae56..b916d9d 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -67,17 +67,18 @@ function withSkillConfigLock(env, path, fn) {
@@ -347,7 +347,7 @@ index 0b4ae56..7caed6e 100644
 +    const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
 +    // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
 +    // activate them even if the entries themselves point to paths that still exist outside the base.
-+    if (directoryKey !== undefined && env.fs.existsSync(directoryKey))
++    if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
 +        append("directory", directoryConfig[directoryKey]);
 +    return { entries, directoryKey };
  }
@@ -587,10 +587,19 @@ index 0b4ae56..7caed6e 100644
      if (args[0] === "add" || args[0] === "remove") {
          if (context.isBusy()) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index 8b712ef..e8fe4e8 100644
+index 8b712ef..e1790d4 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
-@@ -24,12 +24,36 @@ import { SettingsManager } from "./settings-manager.js";
+@@ -10,7 +10,7 @@
+  */
+ import { execFileSync } from "node:child_process";
+ import chalk from "chalk";
+-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
++import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
+ import { homedir } from "node:os";
+ import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+ import lockfile from "proper-lockfile";
+@@ -24,12 +24,51 @@ import { SettingsManager } from "./settings-manager.js";
  import { loadSkills, loadSkillsFromDir } from "./skills.js";
  import * as core from "./skill-management-core.js";
  const lockWait = new Int32Array(new SharedArrayBuffer(4));
@@ -614,7 +623,23 @@ index 8b712ef..e8fe4e8 100644
 +    "GIT_COMMON_DIR",
 +];
  const env = {
-     fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
+-    fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
++    fs: {
++        existsSync,
++        isDirectory: (path) => {
++            try {
++                return statSync(path).isDirectory();
++            }
++            catch {
++                return false;
++            }
++        },
++        mkdirSync,
++        readFileSync,
++        realpathSync,
++        renameSync,
++        writeFileSync,
++    },
      path: { dirname, isAbsolute, join, relative, resolve, sep },
      homedir,
      environmentVariable: (name) => process.env[name],

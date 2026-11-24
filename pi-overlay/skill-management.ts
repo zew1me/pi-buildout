@@ -11,7 +11,7 @@
 
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import lockfile from "proper-lockfile";
@@ -71,7 +71,21 @@ const repositoryGitVariables = [
 ];
 
 const env: SkillEnvironment = {
-  fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
+  fs: {
+    existsSync,
+    isDirectory: (path) => {
+      try {
+        return statSync(path).isDirectory();
+      } catch {
+        return false;
+      }
+    },
+    mkdirSync,
+    readFileSync,
+    realpathSync,
+    renameSync,
+    writeFileSync,
+  },
   path: { dirname, isAbsolute, join, relative, resolve, sep },
   homedir,
   environmentVariable: (name) => process.env[name],

@@ -46,6 +46,7 @@ function createEnvironment({ files = {}, git = {}, catalog = [], variables = {} 
   const env = {
     fs: {
       existsSync: (path) => store.has(path),
+      isDirectory: (path) => env.fs.existsSync(path),
       mkdirSync: () => undefined,
       readFileSync: (path) => {
         const value = store.get(path);
@@ -1155,6 +1156,28 @@ test("a vanished directory base does not activate its absolute paths on reload",
   assert.equal(store.get("/agent/directory-skills.json"), config);
 
   store.set("/work", "");
+  assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, ["/skills/global", "/skills/directory"]);
+});
+
+test("a file replacing the directory base does not activate the saved bucket", async () => {
+  const config = JSON.stringify({ "/work": { enabled: ["/skills/directory"] } });
+  const { env, store } = createEnvironment({
+    files: {
+      "/work": "",
+      "/agent/skills.json": JSON.stringify({ enabled: ["/skills/global"] }),
+      "/agent/directory-skills.json": config,
+      "/skills/directory": "",
+      "/skills/global": "",
+    },
+  });
+  let isDirectory = false;
+  env.fs.isDirectory = () => isDirectory;
+  /** @type {import("./skill-management-core.ts").ActiveSkillPathsContext} */
+  const options = { cwd: "/work", agentDir: "/agent", resolveResourcePath: (path) => path };
+  assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, ["/skills/global"]);
+  assert.equal(store.get("/agent/directory-skills.json"), config);
+
+  isDirectory = true;
   assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, ["/skills/global", "/skills/directory"]);
 });
 

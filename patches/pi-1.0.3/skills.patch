@@ -62,7 +62,7 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..7caed6e
+index 0000000..b916d9d
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
 @@ -0,0 +1,841 @@
@@ -545,7 +545,7 @@ index 0000000..7caed6e
 +    const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
 +    // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
 +    // activate them even if the entries themselves point to paths that still exist outside the base.
-+    if (directoryKey !== undefined && env.fs.existsSync(directoryKey))
++    if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
 +        append("directory", directoryConfig[directoryKey]);
 +    return { entries, directoryKey };
 +}
@@ -910,10 +910,10 @@ index 0000000..7caed6e
 \ No newline at end of file
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..e8fe4e8
+index 0000000..e1790d4
 --- /dev/null
 +++ b/dist/core/skill-management.js
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,171 @@
 +/**
 + * Pi-facing entry point for opt-in skill management.
 + *
@@ -926,7 +926,7 @@ index 0000000..e8fe4e8
 + */
 +import { execFileSync } from "node:child_process";
 +import chalk from "chalk";
-+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
++import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 +import { homedir } from "node:os";
 +import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 +import lockfile from "proper-lockfile";
@@ -960,7 +960,22 @@ index 0000000..e8fe4e8
 +    "GIT_COMMON_DIR",
 +];
 +const env = {
-+    fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
++    fs: {
++        existsSync,
++        isDirectory: (path) => {
++            try {
++                return statSync(path).isDirectory();
++            }
++            catch {
++                return false;
++            }
++        },
++        mkdirSync,
++        readFileSync,
++        realpathSync,
++        renameSync,
++        writeFileSync,
++    },
 +    path: { dirname, isAbsolute, join, relative, resolve, sep },
 +    homedir,
 +    environmentVariable: (name) => process.env[name],
