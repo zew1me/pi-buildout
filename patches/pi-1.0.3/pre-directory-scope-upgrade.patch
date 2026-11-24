@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..b916d9d 100644
+index 0b4ae56..40ce2cb 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -67,17 +67,18 @@ function withSkillConfigLock(env, path, fn) {
@@ -465,7 +465,7 @@ index 0b4ae56..b916d9d 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -546,7 +662,8 @@ export async function runSkillsCommand(env, args, options) {
+@@ -546,58 +662,58 @@ export async function runSkillsCommand(env, args, options) {
   *
   * Entries are either paths, which must exist, or catalog names, which are looked up by name. Path entries
   * are expanded here, each time skills load, rather than when they are added: `~` and `$NAME` take the current
@@ -475,8 +475,11 @@ index 0b4ae56..b916d9d 100644
   * keeps the result until its next reload (`/reload`, `/skills reload`, or the reload `/skills add` and
   * `/skills remove` trigger), which is what makes this a once-per-session expansion. The catalog is built at
   * most once per call: every caller resolves a whole entry list in one pass, so a longer-lived cache would only
-@@ -556,7 +673,7 @@ export async function resolveActiveSkillPaths(env, context) {
-     const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
+  * need invalidating without ever being reused.
+  */
+ export async function resolveActiveSkillPaths(env, context) {
+-    const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
++    const { cwd, agentDir } = context;
      const paths = [];
      const diagnostics = [];
 -    const entries = getActiveSkillEntries(env, {
@@ -484,37 +487,75 @@ index 0b4ae56..b916d9d 100644
          cwd,
          agentDir,
          onWarn: (message) => diagnostics.push({ type: "warning", message }),
-@@ -574,10 +691,14 @@ export async function resolveActiveSkillPaths(env, context) {
-     let repoRoot;
-     const entryPath = (entry) => {
-         const value = expandEnvironmentVariables(env, entry.source).value.trim();
+     });
+     let catalogPathsByName;
+-    const findCatalogSkillPath = async (name) => {
+-        catalogPathsByName ??= new Map((await getSkillCatalog(env, {
+-            cwd,
+-            agentDir,
+-            ...(settingsManager ? { settingsManager } : {}),
+-            ...(resolvedSkillResources ? { resolvedSkillResources } : {}),
+-        })).map((skill) => [skill.name, skill.filePath]));
+-        return catalogPathsByName.get(name);
+-    };
+-    let repoRoot;
+-    const entryPath = (entry) => {
+-        const value = expandEnvironmentVariables(env, entry.source).value.trim();
 -        if (entry.scope === "repo" && !isAnchoredPath(env, value)) {
 -            repoRoot ??= { value: findRepoRoot(env, cwd) };
 -            if (repoRoot.value !== undefined)
 -                return env.path.resolve(repoRoot.value, value);
-+        if (!isAnchoredPath(env, value)) {
-+            if (entry.scope === "directory" && directoryKey !== undefined)
-+                return env.path.resolve(directoryKey, value);
-+            if (entry.scope === "repo") {
-+                repoRoot ??= { value: findRepoRoot(env, cwd) };
-+                if (repoRoot.value !== undefined)
-+                    return env.path.resolve(repoRoot.value, value);
-+            }
-         }
-         return resolveResourcePath(value);
-     };
-@@ -590,8 +711,8 @@ export async function resolveActiveSkillPaths(env, context) {
-                 diagnostics.push(unresolvedSkillDiagnostic(env, entry));
+-        }
+-        return resolveResourcePath(value);
+-    };
++    if (entries.some((entry) => !looksLikePath(entry.source))) {
++        const catalog = await getSkillCatalog(env, context);
++        catalogPathsByName = new Map(catalog.map((skill) => [skill.name, skill.filePath]));
++    }
++    // Catalog lookup can yield while the base disappears. Validate the captured key, not another checkout lookup.
++    const directoryUnavailable = catalogPathsByName !== undefined && directoryKey !== undefined && !env.fs.isDirectory(directoryKey);
++    const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey);
+     for (const entry of entries) {
+-        if (!looksLikePath(entry.source)) {
+-            const resolved = await findCatalogSkillPath(entry.source);
+-            if (resolved)
+-                paths.push(resolved);
+-            else
+-                diagnostics.push(unresolvedSkillDiagnostic(env, entry));
++        if (entry.scope === "directory" && directoryUnavailable)
              continue;
-         }
+-        }
 -        const path = entryPath(entry);
 -        if (env.fs.existsSync(path))
-+        const path = expandsToEmptyPath(env, entry.source) ? undefined : entryPath(entry);
-+        if (path !== undefined && env.fs.existsSync(path))
++        const path = looksLikePath(entry.source) ? resolveEntryPath(entry) : catalogPathsByName?.get(entry.source);
++        if (path !== undefined)
              paths.push(path);
          else
              diagnostics.push(unresolvedSkillDiagnostic(env, entry));
-@@ -609,7 +730,8 @@ export async function resolveSkillEntryPath(env, context, source) {
+     }
+     return { paths, diagnostics };
+ }
++function activeEntryPathResolver(env, { cwd, resolveResourcePath }, directoryKey) {
++    let repoRoot;
++    return ({ source, scope }) => {
++        const value = expandEnvironmentVariables(env, source).value.trim();
++        if (value === "")
++            return undefined;
++        let base;
++        if (!isAnchoredPath(env, value)) {
++            if (scope === "directory")
++                base = directoryKey;
++            if (scope === "repo")
++                base = (repoRoot ??= { value: findRepoRoot(env, cwd) }).value;
++        }
++        const path = base === undefined ? resolveResourcePath(value) : env.path.resolve(base, value);
++        return env.fs.existsSync(path) ? path : undefined;
++    };
++}
+ /**
+  * Resolves a single skill entry for session scope.
+  *
+@@ -609,7 +725,8 @@ export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
          const normalized = resolveResourcePath(expandEnvironmentVariables(env, source).value);
@@ -524,7 +565,7 @@ index 0b4ae56..b916d9d 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -644,19 +766,23 @@ async function applySessionSkillChange(env, session, context) {
+@@ -644,19 +761,23 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.
@@ -554,7 +595,7 @@ index 0b4ae56..b916d9d 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -664,17 +790,13 @@ async function applySessionSkillChange(env, session, context) {
+@@ -664,17 +785,13 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -577,7 +618,7 @@ index 0b4ae56..b916d9d 100644
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -703,7 +825,7 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -703,7 +820,7 @@ export async function handleSkillsInteractive(env, text, context) {
          lines = [line];
      }
      if (args[0] === "active") {

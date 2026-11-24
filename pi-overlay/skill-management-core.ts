@@ -928,7 +928,7 @@ export async function resolveActiveSkillPaths(
   env: SkillEnvironment,
   context: ActiveSkillPathsContext,
 ): Promise<{ paths: string[]; diagnostics: SkillDiagnostic[] }> {
-  const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
+  const { cwd, agentDir } = context;
   const paths: string[] = [];
   const diagnostics: SkillDiagnostic[] = [];
 
@@ -939,46 +939,41 @@ export async function resolveActiveSkillPaths(
   });
 
   let catalogPathsByName: Map<string, string> | undefined;
-  const findCatalogSkillPath = async (name: string): Promise<string | undefined> => {
-    catalogPathsByName ??= new Map(
-      (
-        await getSkillCatalog(env, {
-          cwd,
-          agentDir,
-          ...(settingsManager ? { settingsManager } : {}),
-          ...(resolvedSkillResources ? { resolvedSkillResources } : {}),
-        })
-      ).map((skill) => [skill.name, skill.filePath]),
-    );
-    return catalogPathsByName.get(name);
-  };
+  if (entries.some((entry) => !looksLikePath(entry.source))) {
+    const catalog = await getSkillCatalog(env, context);
+    catalogPathsByName = new Map(catalog.map((skill) => [skill.name, skill.filePath]));
+  }
+  // Catalog lookup can yield while the base disappears. Validate the captured key, not another checkout lookup.
+  const directoryUnavailable =
+    catalogPathsByName !== undefined && directoryKey !== undefined && !env.fs.isDirectory(directoryKey);
 
-  let repoRoot: { value: string | undefined } | undefined;
-  const entryPath = (entry: ActiveSkillEntry): string => {
-    const value = expandEnvironmentVariables(env, entry.source).value.trim();
-    if (!isAnchoredPath(env, value)) {
-      if (entry.scope === "directory" && directoryKey !== undefined) return env.path.resolve(directoryKey, value);
-      if (entry.scope === "repo") {
-        repoRoot ??= { value: findRepoRoot(env, cwd) };
-        if (repoRoot.value !== undefined) return env.path.resolve(repoRoot.value, value);
-      }
-    }
-    return resolveResourcePath(value);
-  };
-
+  const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey);
   for (const entry of entries) {
-    if (!looksLikePath(entry.source)) {
-      const resolved = await findCatalogSkillPath(entry.source);
-      if (resolved) paths.push(resolved);
-      else diagnostics.push(unresolvedSkillDiagnostic(env, entry));
-      continue;
-    }
-    const path = expandsToEmptyPath(env, entry.source) ? undefined : entryPath(entry);
-    if (path !== undefined && env.fs.existsSync(path)) paths.push(path);
+    if (entry.scope === "directory" && directoryUnavailable) continue;
+    const path = looksLikePath(entry.source) ? resolveEntryPath(entry) : catalogPathsByName?.get(entry.source);
+    if (path !== undefined) paths.push(path);
     else diagnostics.push(unresolvedSkillDiagnostic(env, entry));
   }
-
   return { paths, diagnostics };
+}
+
+function activeEntryPathResolver(
+  env: SkillEnvironment,
+  { cwd, resolveResourcePath }: ActiveSkillPathsContext,
+  directoryKey: string | undefined,
+): (entry: ActiveSkillEntry) => string | undefined {
+  let repoRoot: { value: string | undefined } | undefined;
+  return ({ source, scope }) => {
+    const value = expandEnvironmentVariables(env, source).value.trim();
+    if (value === "") return undefined;
+    let base: string | undefined;
+    if (!isAnchoredPath(env, value)) {
+      if (scope === "directory") base = directoryKey;
+      if (scope === "repo") base = (repoRoot ??= { value: findRepoRoot(env, cwd) }).value;
+    }
+    const path = base === undefined ? resolveResourcePath(value) : env.path.resolve(base, value);
+    return env.fs.existsSync(path) ? path : undefined;
+  };
 }
 
 /**

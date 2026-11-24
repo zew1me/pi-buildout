@@ -1181,6 +1181,39 @@ test("a file replacing the directory base does not activate the saved bucket", a
   assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, ["/skills/global", "/skills/directory"]);
 });
 
+test("reload skips directory entries if the captured base vanishes during catalog resolution", async () => {
+  const config = JSON.stringify({ "/work": { enabled: ["/skills/directory"] } });
+  const { env, store, writes } = createEnvironment({
+    files: {
+      "/work": "",
+      "/agent/skills.json": JSON.stringify({ enabled: ["global-skill"] }),
+      "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: ["/skills/repo"] } }),
+      "/agent/directory-skills.json": config,
+      "/skills/directory": "",
+      "/skills/repo": "",
+    },
+  });
+  withCheckouts(env, { "/work": "/work" });
+  env.resolvePackageResources = async () => {
+    await Promise.resolve();
+    store.delete("/work");
+    return {
+      skills: [{ enabled: true, path: "/skills/global", metadata: { origin: "package", source: "local" } }],
+    };
+  };
+  env.loadSkills = () => ({
+    skills: [{ name: "global-skill", description: "From catalog", filePath: "/skills/global" }],
+  });
+  const pending = resolveActiveSkillPaths(env, {
+    cwd: "/work",
+    agentDir: "/agent",
+    resolveResourcePath: (path) => path,
+  });
+  assert.deepEqual(await pending, { paths: ["/skills/global", "/skills/repo"], diagnostics: [] });
+  assert.deepEqual(writes, []);
+  assert.equal(store.get("/agent/directory-skills.json"), config);
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {

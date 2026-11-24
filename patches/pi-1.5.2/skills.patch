@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..b916d9d
+index 0000000..40ce2cb
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,841 @@
+@@ -0,0 +1,836 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -744,7 +744,7 @@ index 0000000..b916d9d
 + * need invalidating without ever being reused.
 + */
 +export async function resolveActiveSkillPaths(env, context) {
-+    const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
++    const { cwd, agentDir } = context;
 +    const paths = [];
 +    const diagnostics = [];
 +    const { entries, directoryKey } = readActiveSkillEntries(env, {
@@ -753,45 +753,40 @@ index 0000000..b916d9d
 +        onWarn: (message) => diagnostics.push({ type: "warning", message }),
 +    });
 +    let catalogPathsByName;
-+    const findCatalogSkillPath = async (name) => {
-+        catalogPathsByName ??= new Map((await getSkillCatalog(env, {
-+            cwd,
-+            agentDir,
-+            ...(settingsManager ? { settingsManager } : {}),
-+            ...(resolvedSkillResources ? { resolvedSkillResources } : {}),
-+        })).map((skill) => [skill.name, skill.filePath]));
-+        return catalogPathsByName.get(name);
-+    };
-+    let repoRoot;
-+    const entryPath = (entry) => {
-+        const value = expandEnvironmentVariables(env, entry.source).value.trim();
-+        if (!isAnchoredPath(env, value)) {
-+            if (entry.scope === "directory" && directoryKey !== undefined)
-+                return env.path.resolve(directoryKey, value);
-+            if (entry.scope === "repo") {
-+                repoRoot ??= { value: findRepoRoot(env, cwd) };
-+                if (repoRoot.value !== undefined)
-+                    return env.path.resolve(repoRoot.value, value);
-+            }
-+        }
-+        return resolveResourcePath(value);
-+    };
++    if (entries.some((entry) => !looksLikePath(entry.source))) {
++        const catalog = await getSkillCatalog(env, context);
++        catalogPathsByName = new Map(catalog.map((skill) => [skill.name, skill.filePath]));
++    }
++    // Catalog lookup can yield while the base disappears. Validate the captured key, not another checkout lookup.
++    const directoryUnavailable = catalogPathsByName !== undefined && directoryKey !== undefined && !env.fs.isDirectory(directoryKey);
++    const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey);
 +    for (const entry of entries) {
-+        if (!looksLikePath(entry.source)) {
-+            const resolved = await findCatalogSkillPath(entry.source);
-+            if (resolved)
-+                paths.push(resolved);
-+            else
-+                diagnostics.push(unresolvedSkillDiagnostic(env, entry));
++        if (entry.scope === "directory" && directoryUnavailable)
 +            continue;
-+        }
-+        const path = expandsToEmptyPath(env, entry.source) ? undefined : entryPath(entry);
-+        if (path !== undefined && env.fs.existsSync(path))
++        const path = looksLikePath(entry.source) ? resolveEntryPath(entry) : catalogPathsByName?.get(entry.source);
++        if (path !== undefined)
 +            paths.push(path);
 +        else
 +            diagnostics.push(unresolvedSkillDiagnostic(env, entry));
 +    }
 +    return { paths, diagnostics };
++}
++function activeEntryPathResolver(env, { cwd, resolveResourcePath }, directoryKey) {
++    let repoRoot;
++    return ({ source, scope }) => {
++        const value = expandEnvironmentVariables(env, source).value.trim();
++        if (value === "")
++            return undefined;
++        let base;
++        if (!isAnchoredPath(env, value)) {
++            if (scope === "directory")
++                base = directoryKey;
++            if (scope === "repo")
++                base = (repoRoot ??= { value: findRepoRoot(env, cwd) }).value;
++        }
++        const path = base === undefined ? resolveResourcePath(value) : env.path.resolve(base, value);
++        return env.fs.existsSync(path) ? path : undefined;
++    };
 +}
 +/**
 + * Resolves a single skill entry for session scope.
