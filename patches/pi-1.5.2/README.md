@@ -16,15 +16,15 @@ The pinned release archive, published checksum, npm tarball, source revision, wo
 - `baseline.sha256` and `baseline.absent` specify the required clean state. `patched.sha256` pins the result, including the unchanged `dist/bundle/cli.js` loader.
 - The unchanged loader enables Node's compile cache and loads the replaced `dist/bundle/cli-runtime.js`; RPC uses the replaced `dist/bundle/rpc-entry.js`. The installer verifies baseline and result and refuses unknown or mixed states. One historical 1.5.2 patched state is migrated: `pre-directory-scope-` (`pre-directory-scope-patched.sha256`, `pre-directory-scope-upgrade.patch`) is the patch as shipped at repository commit `a4c8ab1`, before the `--directory` scope. The builder reverse-applies that migration to every regenerated tree and fails unless it reconstructs the recorded state.
 
-## Drift from 1.5.0
+## Original 1.5.2 patch compared with 1.5.0
 
-The 1.5.2 seam is the 1.5.0 seam, rebased. No overlay logic changed, and the patch makes the same 48 edited lines in the same four upstream files.
+This comparison describes the original 1.5.2 patch at `a4c8ab1`, now the `pre-directory-scope` upgrade input. That release rebased the 1.5.0 integration without changing the overlay logic or the 48-line upstream seam. The current patch also changes the shared skill-management core and skill documentation to support directory scope.
 
 - `integration.patch` changes only hunk positions and blob indexes. The CLI import and dispatch hunks move by 3 and 37 lines; the interactive imports, command dispatch, and handler hunks move by 8, 64, and 86 lines. The patch is regenerated from the 1.5.2 sources and applies without offset or fuzz.
 - Upstream `src/core/resource-loader.ts`, `src/core/slash-commands.ts`, `src/core/skills.ts`, `src/core/project-trust.ts`, and `docs/skills.md` are byte-identical to 1.5.0. The skill loading, catalog, and trust APIs used by the overlay are unchanged.
 - `main.ts` adds auth login/logout dispatch and missing-session-directory fork handling; interactive mode adds session-fork choices and other UI changes. These remain upstream behavior, not overlay implementations. The skills dispatch stays between existing early commands and argument parsing; the interactive skills handler still delegates reload to upstream.
 - `src/cli.ts`, `src/rpc-entry.ts`, `src/cli/setup.ts`, and the published `dist/bundle/cli.js` loader are unchanged from 1.5.0. The `cli-runtime.js` and `rpc-entry.js` wrappers are reused byte-for-byte. Baseline hashes pin the new published bundled runtimes.
-- The workspace build order and TypeScript 7.0.2 toolchain are unchanged. The shared `skill-management*.js` output and patched `docs/skills.md` are byte-identical to 1.5.0.
+- The workspace build order and TypeScript 7.0.2 toolchain were unchanged. At `a4c8ab1`, the shared `skill-management*.js` output and patched `docs/skills.md` were byte-identical to 1.5.0; the current `patched.sha256` is a separate state.
 - The npm registry publishes no `gitHead` for 1.5.2. The manifest records the commit that the `v1.5.2` release tag points to.
 
 ## Runtime behavior tests
