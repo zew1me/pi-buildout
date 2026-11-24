@@ -63,7 +63,12 @@ export type SkillEnvironment = {
   execFileSync: (
     file: string,
     args: string[],
-    options: { encoding: "utf-8"; stdio: ["ignore", "pipe", "ignore"]; timeout: number },
+    options: {
+      encoding: "utf-8";
+      stdio: ["ignore", "pipe", "pipe" | "ignore"];
+      timeout: number;
+      env?: { LC_ALL: "C" };
+    },
   ) => string;
   /** Process id, used only to make the atomic-write temp filename unique. */
   processId: () => number;
@@ -220,19 +225,35 @@ export function withoutRepositoryGitEnvironment(
   );
 }
 
-function git(env: SkillEnvironment, cwd: string, args: string[], failOnTimeout = false): string | undefined {
+function git(env: SkillEnvironment, cwd: string, args: string[], strictDiscovery = false): string | undefined {
   try {
     return env.execFileSync("git", ["-C", cwd, ...args], {
       encoding: "utf-8",
-      stdio: ["ignore", "pipe", "ignore"],
+      stdio: ["ignore", "pipe", strictDiscovery ? "pipe" : "ignore"],
       timeout: 2000,
+      // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
+      ...(strictDiscovery ? { env: { LC_ALL: "C" } } : {}),
     });
   } catch (error) {
-    if (failOnTimeout && error instanceof Error && "code" in error && error.code === "ETIMEDOUT") {
-      throw new Error("Git checkout discovery timed out; retry the directory-scoped command.", { cause: error });
+    if (strictDiscovery && !gitReportedNoRepository(error)) {
+      const timedOut = error instanceof Error && "code" in error && error.code === "ETIMEDOUT";
+      const reason = timedOut ? "timed out" : "failed";
+      throw new Error(`Git checkout discovery ${reason}; check Git and retry the directory-scoped command.`, {
+        cause: error,
+      });
     }
     return undefined;
   }
+}
+
+function gitReportedNoRepository(error: unknown): boolean {
+  if (!(error instanceof Error) || !("status" in error) || error.status !== 128 || !("stderr" in error)) return false;
+  if (typeof error.stderr !== "string") return false;
+  const firstLine = error.stderr.split(/\r?\n/, 1)[0];
+  return (
+    firstLine === "fatal: not a git repository (or any of the parent directories): .git" ||
+    /^fatal: not a git repository \(or any parent up to mount point .+\)$/.test(firstLine ?? "")
+  );
 }
 
 export function normalizeGitRemoteUrl(rawUrl: string | undefined): string | undefined {
@@ -281,8 +302,8 @@ export function resolveRepoKey(env: SkillEnvironment, cwd: string): string | und
 }
 
 /** The checkout root for `cwd`; relative repository entries resolve against it. */
-function findRepoRoot(env: SkillEnvironment, cwd: string, failOnTimeout = false): string | undefined {
-  const output = git(env, cwd, ["rev-parse", "--show-toplevel"], failOnTimeout);
+function findRepoRoot(env: SkillEnvironment, cwd: string, strictDiscovery = false): string | undefined {
+  const output = git(env, cwd, ["rev-parse", "--show-toplevel"], strictDiscovery);
   // The output is a path, not a remote name. Remove only Git's record terminator.
   const root =
     env.path.sep === "\\" && output?.endsWith("\r\n")
@@ -290,6 +311,7 @@ function findRepoRoot(env: SkillEnvironment, cwd: string, failOnTimeout = false)
       : output?.endsWith("\n")
         ? output.slice(0, -1)
         : output;
+  if (root === "" && strictDiscovery) throw new Error("Git checkout discovery failed: Git returned no checkout root.");
   return root === "" ? undefined : root;
 }
 
@@ -301,8 +323,8 @@ function findRepoRoot(env: SkillEnvironment, cwd: string, failOnTimeout = false)
  * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
  * base it points to.
  */
-export function resolveDirectoryKey(env: SkillEnvironment, cwd: string, failOnTimeout = false): string {
-  const base = env.path.resolve(findRepoRoot(env, cwd, failOnTimeout) ?? cwd);
+export function resolveDirectoryKey(env: SkillEnvironment, cwd: string): string {
+  const base = env.path.resolve(findRepoRoot(env, cwd, true) ?? cwd);
   if (!env.fs.existsSync(base)) return base;
   // The base can disappear between the two calls; its unresolved path keeps global and repository skills
   // loading, and the next reload looks it up again.
@@ -361,8 +383,7 @@ export function configLocation(
     return { path: env.path.join(agentDir, "repo-skills.json"), key };
   }
   if (scope === "directory") {
-    // A timed-out lookup may have been inside a checkout. Never persist a speculative cwd bucket.
-    return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd, true) };
+    return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd) };
   }
   return {};
 }
@@ -693,12 +714,27 @@ function readActiveSkillEntries(
   // Directory entries come last, so on a name collision between different files the broader scope's skill
   // loads first and wins, as global already does over repository.
   const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-  const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
+  const directoryKey = Object.keys(directoryConfig).length > 0 ? readDirectoryKey(env, cwd, strict, onWarn) : undefined;
   // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
   // activate them even if the entries themselves point to paths that still exist outside the base.
   if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
     append("directory", directoryConfig[directoryKey]);
   return { entries, directoryKey };
+}
+
+function readDirectoryKey(
+  env: SkillEnvironment,
+  cwd: string,
+  strict: boolean,
+  onWarn: ActiveSkillEntriesOptions["onWarn"],
+): string | undefined {
+  try {
+    return resolveDirectoryKey(env, cwd);
+  } catch (error) {
+    if (strict) throw error;
+    onWarn?.(`Ignoring directory skills: ${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
+  }
 }
 
 function getProjectAgentSkillDirs(env: SkillEnvironment, cwd: string): string[] {

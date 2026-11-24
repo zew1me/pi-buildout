@@ -306,8 +306,9 @@ pinned, checksum-verified inputs, and is not committed here.
 
 - Source: [Git](https://git-scm.com/), [canonical source repository](https://github.com/git/git), `v2.55.0`, GPL-2.0.
 - The output of `git rev-parse --local-env-vars` identified repository-local environment variable names to exclude from
-  the overlay's checkout discovery subprocess. The overlay still delegates discovery to Git; it does not copy Git source
-  or adopt Git's repository discovery implementation.
+  the overlay's checkout discovery subprocess. Git's `setup.c` identifies the two C-locale non-repository diagnostics
+  used to distinguish them from other `rev-parse` failures with the same status. The overlay matches those diagnostic
+  strings but does not copy Git's repository discovery implementation.
 
 ## Pi documentation and examples
 

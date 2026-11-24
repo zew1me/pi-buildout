@@ -68,10 +68,10 @@ index 379db9e..7fb431e 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..07e3fea
+index 0000000..faace70
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,858 @@
+@@ -0,0 +1,885 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -163,20 +163,35 @@ index 0000000..07e3fea
 +export function withoutRepositoryGitEnvironment(environment, caseInsensitive) {
 +    return Object.fromEntries(Object.entries(environment).filter(([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name)));
 +}
-+function git(env, cwd, args, failOnTimeout = false) {
++function git(env, cwd, args, strictDiscovery = false) {
 +    try {
 +        return env.execFileSync("git", ["-C", cwd, ...args], {
 +            encoding: "utf-8",
-+            stdio: ["ignore", "pipe", "ignore"],
++            stdio: ["ignore", "pipe", strictDiscovery ? "pipe" : "ignore"],
 +            timeout: 2000,
++            // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
++            ...(strictDiscovery ? { env: { LC_ALL: "C" } } : {}),
 +        });
 +    }
 +    catch (error) {
-+        if (failOnTimeout && error instanceof Error && "code" in error && error.code === "ETIMEDOUT") {
-+            throw new Error("Git checkout discovery timed out; retry the directory-scoped command.", { cause: error });
++        if (strictDiscovery && !gitReportedNoRepository(error)) {
++            const timedOut = error instanceof Error && "code" in error && error.code === "ETIMEDOUT";
++            const reason = timedOut ? "timed out" : "failed";
++            throw new Error(`Git checkout discovery ${reason}; check Git and retry the directory-scoped command.`, {
++                cause: error,
++            });
 +        }
 +        return undefined;
 +    }
++}
++function gitReportedNoRepository(error) {
++    if (!(error instanceof Error) || !("status" in error) || error.status !== 128 || !("stderr" in error))
++        return false;
++    if (typeof error.stderr !== "string")
++        return false;
++    const firstLine = error.stderr.split(/\r?\n/, 1)[0];
++    return (firstLine === "fatal: not a git repository (or any of the parent directories): .git" ||
++        /^fatal: not a git repository \(or any parent up to mount point .+\)$/.test(firstLine ?? ""));
 +}
 +export function normalizeGitRemoteUrl(rawUrl) {
 +    if (!rawUrl)
@@ -224,14 +239,16 @@ index 0000000..07e3fea
 +    return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
 +}
 +/** The checkout root for `cwd`; relative repository entries resolve against it. */
-+function findRepoRoot(env, cwd, failOnTimeout = false) {
-+    const output = git(env, cwd, ["rev-parse", "--show-toplevel"], failOnTimeout);
++function findRepoRoot(env, cwd, strictDiscovery = false) {
++    const output = git(env, cwd, ["rev-parse", "--show-toplevel"], strictDiscovery);
 +    // The output is a path, not a remote name. Remove only Git's record terminator.
 +    const root = env.path.sep === "\\" && output?.endsWith("\r\n")
 +        ? output.slice(0, -2)
 +        : output?.endsWith("\n")
 +            ? output.slice(0, -1)
 +            : output;
++    if (root === "" && strictDiscovery)
++        throw new Error("Git checkout discovery failed: Git returned no checkout root.");
 +    return root === "" ? undefined : root;
 +}
 +/**
@@ -242,8 +259,8 @@ index 0000000..07e3fea
 + * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
 + * base it points to.
 + */
-+export function resolveDirectoryKey(env, cwd, failOnTimeout = false) {
-+    const base = env.path.resolve(findRepoRoot(env, cwd, failOnTimeout) ?? cwd);
++export function resolveDirectoryKey(env, cwd) {
++    const base = env.path.resolve(findRepoRoot(env, cwd, true) ?? cwd);
 +    if (!env.fs.existsSync(base))
 +        return base;
 +    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
@@ -298,8 +315,7 @@ index 0000000..07e3fea
 +        return { path: env.path.join(agentDir, "repo-skills.json"), key };
 +    }
 +    if (scope === "directory") {
-+        // A timed-out lookup may have been inside a checkout. Never persist a speculative cwd bucket.
-+        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd, true) };
++        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd) };
 +    }
 +    return {};
 +}
@@ -570,12 +586,23 @@ index 0000000..07e3fea
 +    // Directory entries come last, so on a name collision between different files the broader scope's skill
 +    // loads first and wins, as global already does over repository.
 +    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-+    const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
++    const directoryKey = Object.keys(directoryConfig).length > 0 ? readDirectoryKey(env, cwd, strict, onWarn) : undefined;
 +    // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
 +    // activate them even if the entries themselves point to paths that still exist outside the base.
 +    if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
 +        append("directory", directoryConfig[directoryKey]);
 +    return { entries, directoryKey };
++}
++function readDirectoryKey(env, cwd, strict, onWarn) {
++    try {
++        return resolveDirectoryKey(env, cwd);
++    }
++    catch (error) {
++        if (strict)
++            throw error;
++        onWarn?.(`Ignoring directory skills: ${error instanceof Error ? error.message : String(error)}`);
++        return undefined;
++    }
 +}
 +function getProjectAgentSkillDirs(env, cwd) {
 +    const dirs = [];
@@ -933,7 +960,7 @@ index 0000000..07e3fea
 \ No newline at end of file
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..aceea89
+index 0000000..53d7e3a
 --- /dev/null
 +++ b/dist/core/skill-management.js
 @@ -0,0 +1,150 @@
@@ -983,9 +1010,9 @@ index 0000000..aceea89
 +    path: { dirname, isAbsolute, join, relative, resolve, sep },
 +    homedir,
 +    environmentVariable: (name) => process.env[name],
-+    execFileSync: (file, args, options) => execFileSync(file, args, {
++    execFileSync: (file, args, { env: overrides, ...options }) => execFileSync(file, args, {
 +        ...options,
-+        env: core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"),
++        env: { ...core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"), ...overrides },
 +    }),
 +    processId: () => process.pid,
 +    lockSync: (directory, options) => lockfile.lockSync(directory, options),

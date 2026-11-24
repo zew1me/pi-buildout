@@ -624,6 +624,22 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
     assert.equal(inheritedGit.code, 0, inheritedGit.stderr);
     assert.equal(inheritedGit.stdout.trim(), "Skills: none", "inherited Git settings must not select another checkout");
     assert.deepEqual(await directoryPaths(plainDirectory), [plainSkill]);
+
+    // Git exits 128 both outside a repository and for a malformed config, but only the former may use cwd.
+    const brokenCheckout = join(worktreeRoot, "broken");
+    const brokenSubdirectory = join(brokenCheckout, "sub");
+    await writeSkill(join(brokenSubdirectory, "local"), "broken-config-skill", "broken config fixture");
+    await runGit(brokenCheckout, ["init", "--quiet"]);
+    await writeFile(join(brokenCheckout, ".git", "config"), "[invalid\n");
+    const directoryConfigPath = join(worktreeAgentDir, "directory-skills.json");
+    const beforeBrokenAdd = await readFile(directoryConfigPath, "utf8");
+    const brokenAdd = await runPatchedCli(patchedPackage, ["skills", "add", "./local", "--directory"], {
+      agentDir: worktreeAgentDir,
+      cwd: brokenSubdirectory,
+    });
+    assert.equal(brokenAdd.code, 1);
+    assert.match(brokenAdd.stderr, /Git checkout discovery failed/);
+    assert.equal(await readFile(directoryConfigPath, "utf8"), beforeBrokenAdd);
     assert.deepEqual(
       await directoryPaths(mainCheckout, { noSkills: true }),
       [],

@@ -84,7 +84,7 @@ function createEnvironment({ files = {}, git = {}, catalog = [], variables = {} 
     execFileSync: (_file, args) => {
       const key = args.slice(2).join(" ");
       const response = git[key];
-      if (response === undefined) throw new Error(`no stubbed git response for: ${key}`);
+      if (response === undefined) throw nonRepositoryError();
       return response;
     },
     processId: () => 4242,
@@ -168,6 +168,13 @@ function firstLine(result) {
   const [line] = result.lines;
   assert.ok(line !== undefined, "expected at least one output line");
   return line;
+}
+
+function nonRepositoryError() {
+  return Object.assign(new Error("not a git repository"), {
+    status: 128,
+    stderr: "fatal: not a git repository (or any of the parent directories): .git\n",
+  });
 }
 
 test("repository subprocesses clear mixed-case Git overrides only on Windows", () => {
@@ -900,7 +907,7 @@ function withCheckouts(env, roots) {
     const command = rest.join(" ");
     if (command === "remote get-url upstream") return "git@github.com:team/app.git";
     if (command === "rev-parse --show-toplevel" && roots[cwd] !== undefined) return roots[cwd];
-    throw new Error(`no stubbed git response for: ${cwd} ${command}`);
+    throw nonRepositoryError();
   };
 }
 
@@ -1089,7 +1096,7 @@ test("a directory mutation formats, matches, and stores under one base lookup", 
     if (key !== "rev-parse --show-toplevel") throw new Error(`no stubbed git response for: ${key}`);
     lookups += 1;
     // A checkout appears at /work after the first lookup.
-    if (lookups === 1) throw new Error("not a git repository");
+    if (lookups === 1) throw nonRepositoryError();
     return "/work";
   };
   const result = await runSkillsCommand(env, ["add", "./skills/review", "--directory"], {
@@ -1123,6 +1130,47 @@ test("directory mutations do not fall back to a subdirectory when Git times out"
   assert.deepEqual(readStored(store, "/agent/directory-skills.json"), {
     "/work/app": { enabled: ["docs/skill"] },
   });
+});
+
+test("directory discovery failures skip cwd entries but keep the other scopes available", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/work/app/docs": "",
+      "/agent/skills.json": JSON.stringify({ enabled: ["/skills/global"] }),
+      "/agent/directory-skills.json": JSON.stringify({ "/work/app/docs": { enabled: ["/skills/directory"] } }),
+      "/skills/global": "",
+      "/skills/directory": "",
+    },
+  });
+  env.execFileSync = (_file, _args, options) => {
+    if (options.env) {
+      assert.equal(options.env.LC_ALL, "C");
+      assert.equal(options.stdio[2], "pipe");
+    }
+    throw Object.assign(new Error("bad Git config"), {
+      status: 128,
+      stderr: "fatal: bad config line 1 in file .git/config\n",
+    });
+  };
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/work/app/docs",
+    agentDir: "/agent",
+    resolveResourcePath: (path) => path,
+  });
+  assert.deepEqual(result.paths, ["/skills/global"]);
+  assert.match(result.diagnostics[0]?.message ?? "", /Ignoring directory skills: Git checkout discovery failed/);
+});
+
+test("directory discovery recognizes Git's filesystem-boundary diagnostic", () => {
+  const { env } = createEnvironment();
+  env.execFileSync = () => {
+    throw Object.assign(new Error("not a git repository"), {
+      status: 128,
+      stderr:
+        "fatal: not a git repository (or any parent up to mount point /vol)\nStopping at filesystem boundary (GIT_DISCOVERY_ACROSS_FILESYSTEM not set).\n",
+    });
+  };
+  assert.equal(resolveDirectoryKey(env, "/vol/docs"), "/vol/docs");
 });
 
 test("relative directory entries resolve against the same base used to select them", async () => {

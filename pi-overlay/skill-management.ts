@@ -69,10 +69,10 @@ const env: SkillEnvironment = {
   path: { dirname, isAbsolute, join, relative, resolve, sep },
   homedir,
   environmentVariable: (name) => process.env[name],
-  execFileSync: (file, args, options) =>
+  execFileSync: (file, args, { env: overrides, ...options }) =>
     execFileSync(file, args, {
       ...options,
-      env: core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"),
+      env: { ...core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"), ...overrides },
     }),
   processId: () => process.pid,
   lockSync: (directory, options) => lockfile.lockSync(directory, options),
