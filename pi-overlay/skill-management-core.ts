@@ -190,13 +190,11 @@ function withSkillConfigLock<T>(env: SkillEnvironment, path: string, fn: () => T
 
 function git(env: SkillEnvironment, cwd: string, args: string[]): string | undefined {
   try {
-    return env
-      .execFileSync("git", ["-C", cwd, ...args], {
-        encoding: "utf-8",
-        stdio: ["ignore", "pipe", "ignore"],
-        timeout: 2000,
-      })
-      .trim();
+    return env.execFileSync("git", ["-C", cwd, ...args], {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2000,
+    });
   } catch {
     return undefined;
   }
@@ -239,7 +237,7 @@ export function resolveRepoKey(env: SkillEnvironment, cwd: string): string | und
   const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
   if (firstKey) return firstKey;
 
-  const root = git(env, cwd, ["rev-parse", "--show-toplevel"]);
+  const root = findRepoRoot(env, cwd);
   if (!root) return undefined;
   const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
   return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
@@ -247,7 +245,15 @@ export function resolveRepoKey(env: SkillEnvironment, cwd: string): string | und
 
 /** The checkout root for `cwd`; relative repository entries resolve against it. */
 function findRepoRoot(env: SkillEnvironment, cwd: string): string | undefined {
-  return git(env, cwd, ["rev-parse", "--show-toplevel"]);
+  const output = git(env, cwd, ["rev-parse", "--show-toplevel"]);
+  // The output is a path, not a remote name. Remove only Git's record terminator.
+  const root =
+    env.path.sep === "\\" && output?.endsWith("\r\n")
+      ? output.slice(0, -2)
+      : output?.endsWith("\n")
+        ? output.slice(0, -1)
+        : output;
+  return root === "" ? undefined : root;
 }
 
 /**
@@ -638,7 +644,7 @@ function readActiveSkillEntries(
 
 function getProjectAgentSkillDirs(env: SkillEnvironment, cwd: string): string[] {
   const dirs: string[] = [];
-  const repoRoot = git(env, cwd, ["rev-parse", "--show-toplevel"]);
+  const repoRoot = findRepoRoot(env, cwd);
   const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
   const resolvedCwd = env.path.resolve(cwd);
   if (!env.fs.existsSync(resolvedCwd)) return dirs;

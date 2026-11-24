@@ -302,6 +302,15 @@ test("resolveDirectoryKey uses the checkout or worktree root, else the working d
   assert.equal(resolveDirectoryKey(env, "/tmp/scratch"), "/tmp/scratch", "outside a repository the cwd is the key");
 });
 
+test("Git checkout keys preserve trailing whitespace in the root", () => {
+  const plain = createEnvironment({ git: { "rev-parse --show-toplevel": "/home/dev/app\n" } });
+  const spaced = createEnvironment({ git: { "rev-parse --show-toplevel": "/home/dev/app \n" } });
+
+  assert.equal(resolveDirectoryKey(plain.env, "/home/dev/app/src"), "/home/dev/app");
+  assert.equal(resolveDirectoryKey(spaced.env, "/home/dev/app /src"), "/home/dev/app ");
+  assert.equal(resolveRepoKey(spaced.env, "/home/dev/app /src"), "local:~/app ");
+});
+
 test("resolveDirectoryKey keys a base reached through a symlink by its real path", () => {
   const { env } = createEnvironment({ files: { "/private/tmp/scratch": "" } });
   env.fs.realpathSync = (path) => (path === "/tmp/scratch" ? "/private/tmp/scratch" : path);

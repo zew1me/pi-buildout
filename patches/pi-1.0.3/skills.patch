@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..1ffdc2e
+index 0000000..a6a5f0d
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,805 @@
+@@ -0,0 +1,810 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -137,13 +137,11 @@ index 0000000..1ffdc2e
 +}
 +function git(env, cwd, args) {
 +    try {
-+        return env
-+            .execFileSync("git", ["-C", cwd, ...args], {
++        return env.execFileSync("git", ["-C", cwd, ...args], {
 +            encoding: "utf-8",
 +            stdio: ["ignore", "pipe", "ignore"],
 +            timeout: 2000,
-+        })
-+            .trim();
++        });
 +    }
 +    catch {
 +        return undefined;
@@ -186,7 +184,7 @@ index 0000000..1ffdc2e
 +    const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
 +    if (firstKey)
 +        return firstKey;
-+    const root = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++    const root = findRepoRoot(env, cwd);
 +    if (!root)
 +        return undefined;
 +    const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
@@ -194,7 +192,14 @@ index 0000000..1ffdc2e
 +}
 +/** The checkout root for `cwd`; relative repository entries resolve against it. */
 +function findRepoRoot(env, cwd) {
-+    return git(env, cwd, ["rev-parse", "--show-toplevel"]);
++    const output = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++    // The output is a path, not a remote name. Remove only Git's record terminator.
++    const root = env.path.sep === "\\" && output?.endsWith("\r\n")
++        ? output.slice(0, -2)
++        : output?.endsWith("\n")
++            ? output.slice(0, -1)
++            : output;
++    return root === "" ? undefined : root;
 +}
 +/**
 + * The directory base that keys directory-scope entries: the root of the current checkout or worktree inside a git
@@ -527,7 +532,7 @@ index 0000000..1ffdc2e
 +}
 +function getProjectAgentSkillDirs(env, cwd) {
 +    const dirs = [];
-+    const repoRoot = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++    const repoRoot = findRepoRoot(env, cwd);
 +    const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
 +    const resolvedCwd = env.path.resolve(cwd);
 +    if (!env.fs.existsSync(resolvedCwd))
