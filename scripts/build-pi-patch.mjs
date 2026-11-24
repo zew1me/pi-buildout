@@ -272,25 +272,6 @@ async function assemblePatchedTree(target, baselineRoot, builtRoot, patchedSourc
   }
 }
 
-// Git exports these to hooks, so `npm run check` from pre-push would otherwise point the scratch repository at
-// this checkout instead of the temporary one created below. `GIT_CONFIG` would redirect the scratch
-// `git config` writes into the caller's configuration file.
-const repositoryGitEnvironment = [
-  "GIT_DIR",
-  "GIT_WORK_TREE",
-  "GIT_COMMON_DIR",
-  "GIT_INDEX_FILE",
-  "GIT_OBJECT_DIRECTORY",
-  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-  "GIT_CONFIG",
-];
-
-function scratchGitEnvironment() {
-  const env = { ...process.env };
-  for (const key of repositoryGitEnvironment) delete env[key];
-  return env;
-}
-
 /**
  * Produces the unified diff in the shape the installer expects.
  *
@@ -302,8 +283,9 @@ export function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
   const repo = join(workDir, "diff-repo");
   rmSync(repo, { recursive: true, force: true });
   mkdirSync(repo, { recursive: true });
-  const env = scratchGitEnvironment();
-  const git = (...args) => runOrThrow("git", args, { cwd: repo, stdio: "ignore", env });
+  // Git hooks export repository-specific variables; the temporary repository must not inherit them.
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const git = (...args) => runOrThrow("git", args, { cwd: repo, env, stdio: "ignore" });
   git("init", "--quiet");
   git("config", "user.email", "patch-build@example.invalid");
   git("config", "user.name", "patch build");
@@ -316,7 +298,7 @@ export function buildUnifiedDiff(workDir, baselineRoot, patchedRoot, manifest) {
     cpSync(from, join(repo, path));
   }
   git("add", "--all");
-  git("commit", "--quiet", "--message", "baseline");
+  git("-c", "commit.gpgSign=false", "commit", "--quiet", "--message", "baseline");
 
   for (const path of tracked) {
     mkdirSync(dirname(join(repo, path)), { recursive: true });

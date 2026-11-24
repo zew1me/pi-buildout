@@ -1,0 +1,80 @@
+{
+  "package": "@earendil-works/pi-coding-agent",
+  "version": "1.6.0",
+  "repository": "https://github.com/earendil-works/pi",
+  "packageSubpath": "packages/coding-agent",
+  "gitHead": "faac585884ae2c013a6b1400f3e9e77f10b34bac",
+  "sourceArchive": {
+    "url": "https://github.com/earendil-works/pi/releases/download/v1.6.0/pi-1.6.0-source.tar.gz",
+    "sha256": "14519e288e84e713629b220bb6ade6818e32d4ff23f205fd80a7cc49dedc413e",
+    "rootDirectory": "pi-1.6.0",
+    "checksumsUrl": "https://github.com/earendil-works/pi/releases/download/v1.6.0/SHA256SUMS"
+  },
+  "npmTarball": {
+    "url": "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-1.6.0.tgz",
+    "sha256": "85d5de404e019e850c90ee9ac6dc6c16240da122fdce0314895608164030336b",
+    "integrity": "sha512-zX1BVEsshx7A2MRuQ6jfr3RJGWw4Wn+vLq5ZfmlvS1RskhRmByaSZVXH/zcwRrWHO7qPgs98pNCbPOEti/t0fQ==",
+    "rootDirectory": "package"
+  },
+  "toolchain": {
+    "node": ">=22.19.0",
+    "typescript": "7.0.2"
+  },
+  "workspaceBuildOrder": [
+    "packages/telemetry",
+    "packages/schema",
+    "packages/chord",
+    "packages/tui",
+    "packages/codemode",
+    "packages/mcp",
+    "packages/ai",
+    "packages/durable",
+    "packages/env",
+    "packages/agent"
+  ],
+  "trackedFiles": [
+    {
+      "path": "dist/core/resource-loader.js",
+      "source": "built"
+    },
+    {
+      "path": "dist/core/slash-commands.js",
+      "source": "built"
+    },
+    {
+      "path": "dist/main.js",
+      "source": "built"
+    },
+    {
+      "path": "dist/modes/interactive/interactive-mode.js",
+      "source": "built"
+    },
+    {
+      "path": "dist/core/skill-management.js",
+      "source": "built",
+      "added": true
+    },
+    {
+      "path": "dist/core/skill-management-core.js",
+      "source": "built",
+      "added": true
+    },
+    {
+      "path": "docs/skills.md",
+      "source": "patched-source"
+    },
+    {
+      "path": "dist/bundle/cli-runtime.js",
+      "source": "replacement"
+    },
+    {
+      "path": "dist/bundle/rpc-entry.js",
+      "source": "replacement"
+    },
+    {
+      "path": "dist/bundle/cli.js",
+      "source": "unchanged"
+    }
+  ],
+  "maxUpstreamEditedLines": 48
+}

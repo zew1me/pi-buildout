@@ -130,10 +130,10 @@ index 19d2bf2..e2ee70b 100644
  Use a [Pi package](packages.md) to distribute one or more skills through npm or git. Keep environment setup inside the skill and declare any required runtime dependencies in the package.
  
 diff --git a/src/core/resource-loader.ts b/src/core/resource-loader.ts
-index fa877d8..4beda85 100644
+index 632ceee..6588682 100644
 --- a/src/core/resource-loader.ts
 +++ b/src/core/resource-loader.ts
-@@ -30,6 +30,7 @@ import type { PromptTemplate } from "./prompt-templates.ts";
+@@ -37,6 +37,7 @@ import type { PromptTemplate } from "./prompt-templates.ts";
  import { loadPromptTemplates } from "./prompt-templates.ts";
  import { SettingsManager } from "./settings-manager.ts";
  import type { Skill } from "./skills.ts";
@@ -141,7 +141,7 @@ index fa877d8..4beda85 100644
  import { loadSkills } from "./skills.ts";
  import {
  	BUILTIN_PATH_PREFIX,
-@@ -584,12 +585,24 @@ export class DefaultResourceLoader implements ResourceLoader {
+@@ -636,12 +637,24 @@ export class DefaultResourceLoader implements ResourceLoader {
  		this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
  		this.applyExtensionSourceInfo(this.extensionsResult.extensions, metadataByPath);
  
@@ -170,29 +170,29 @@ index fa877d8..4beda85 100644
  			if (isLocalPath(p)) {
  				const resolved = this.resolveResourcePath(p);
 diff --git a/src/core/slash-commands.ts b/src/core/slash-commands.ts
-index 934de40..830d012 100644
+index 97b2caa..595b12d 100644
 --- a/src/core/slash-commands.ts
 +++ b/src/core/slash-commands.ts
 @@ -40,5 +40,6 @@ export const BUILTIN_SLASH_COMMANDS: ReadonlyArray<BuiltinSlashCommand> = [
  	{ name: "compact", description: "Manually compact the session context" },
- 	{ name: "resume", description: "Resume a different session" },
+ 	{ name: "resume", description: "Resume another session" },
  	{ name: "reload", description: "Reload keybindings, extensions, skills, prompts, themes, and context files" },
 +	{ name: "skills", description: "List and manage active skills", argumentHint: "<active|list|search|add|remove|reload>" },
  	{ name: "quit", description: `Quit ${APP_NAME}` },
  ];
 diff --git a/src/main.ts b/src/main.ts
-index d9c6ce3..4a206c3 100644
+index bdbe86f..0ffbc2a 100644
 --- a/src/main.ts
 +++ b/src/main.ts
-@@ -46,6 +46,7 @@ import { exportFromFile } from "./core/export-html/index.ts";
+@@ -49,6 +49,7 @@ import { exportFromFile } from "./core/export-html/index.ts";
  import type { InlineExtension } from "./core/extensions/types.ts";
  import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.ts";
- import { resolveCliModel, resolveModelScope, type ScopedModel } from "./core/model-resolver.ts";
+ import { resolveCliModel, resolveModelScopeWithDiagnostics, type ScopedModel } from "./core/model-resolver.ts";
 +import { handleSkillsCli } from "./core/skill-management.ts";
  import { ModelRuntime } from "./core/model-runtime.ts";
  import { restoreStdout, takeOverStdout } from "./core/output-guard.ts";
- import { type AppMode, resolveProjectTrusted } from "./core/project-trust.ts";
-@@ -617,6 +618,11 @@ export async function main(args: string[], options?: MainOptions) {
+ import type { ProgressEvent } from "./core/package-manager.ts";
+@@ -662,6 +663,11 @@ export async function main(args: string[], options?: MainOptions) {
  		return;
  	}
  
@@ -205,27 +205,27 @@ index d9c6ce3..4a206c3 100644
  	if (parsed.diagnostics.length > 0) {
  		for (const d of parsed.diagnostics) {
 diff --git a/src/modes/interactive/interactive-mode.ts b/src/modes/interactive/interactive-mode.ts
-index 18d6d95..2e0da81 100644
+index e8b8552..20b009e 100644
 --- a/src/modes/interactive/interactive-mode.ts
 +++ b/src/modes/interactive/interactive-mode.ts
-@@ -114,6 +114,7 @@ import {
+@@ -122,6 +122,7 @@ import {
  	type UsageEntry,
  } from "../../core/session-manager.ts";
  import type { FullscreenExitOutput, TuiMode } from "../../core/settings-manager.ts";
 +import { handleSkillsInteractive } from "../../core/skill-management.ts";
  import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.ts";
- import type { SourceInfo } from "../../core/source-info.ts";
+ import { getSourcePackageKey, type SourceInfo } from "../../core/source-info.ts";
  import { isInstallTelemetryEnabled } from "../../core/telemetry.ts";
-@@ -127,7 +128,7 @@ import { copyToClipboard, readClipboardFilePaths, readClipboardText } from "../.
- import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.ts";
+@@ -136,7 +137,7 @@ import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipb
+ import { flushStdout } from "../../utils/flush-stdout.ts";
  import { parseGitUrl } from "../../utils/git.ts";
  import { ensurePngTranscoder } from "../../utils/image-convert.ts";
--import { getCwdRelativePath } from "../../utils/paths.ts";
-+import { getCwdRelativePath, resolvePath } from "../../utils/paths.ts";
+-import { getCwdRelativePath, shortenHomePath } from "../../utils/paths.ts";
++import { getCwdRelativePath, resolvePath, shortenHomePath } from "../../utils/paths.ts";
  import { getPiUserAgent } from "../../utils/pi-user-agent.ts";
  import { killTrackedDetachedChildren } from "../../utils/shell.ts";
  import { loadAllHighlightLanguages } from "../../utils/syntax-highlight.ts";
-@@ -3297,6 +3298,11 @@ export class InteractiveMode {
+@@ -3502,6 +3503,11 @@ export class InteractiveMode {
  				await this.handleReloadCommand();
  				return;
  			}
@@ -237,7 +237,7 @@ index 18d6d95..2e0da81 100644
  			if (text === "/debug") {
  				this.handleDebugCommand();
  				this.editor.setText("");
-@@ -6390,6 +6396,25 @@ export class InteractiveMode {
+@@ -6664,6 +6670,25 @@ export class InteractiveMode {
  	// Command handlers
  	// =========================================================================
  

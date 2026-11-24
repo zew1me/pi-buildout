@@ -9,14 +9,14 @@ Local pi customizations and supporting notes used to make pi the desired coding-
 | `extensions/effort`                    | `/effort`: select and persist thinking effort                                               | [`extensions/effort/README.md`](extensions/effort/README.md)                         |
 | `extensions/subagents`                 | Natural-language creation and control of isolated, recursively nestable Pi subagents        | [`extensions/subagents/README.md`](extensions/subagents/README.md)                   |
 | `.agents/skills/installed-pi-patching` | Notes for patching the installed pi skill-loading behavior                                  | [skill README](.agents/skills/installed-pi-patching/README.md)                       |
-| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-1.5.2/README.md`](patches/pi-1.5.2/README.md)                           |
+| `patches/pi-<version>`                 | Versioned runtime snapshots for the opt-in `/skills` behavior, one per supported pi version | [`patches/pi-1.6.0/README.md`](patches/pi-1.6.0/README.md)                           |
 | `pi-overlay`                           | Authored TypeScript the newest `/skills` patch is generated from                            | [`pi-overlay/README.md`](pi-overlay/README.md)                                       |
 
 ## Installation
 
 Public npm packages are defined under [`packages/`](packages/README.md), one per extension plus a separate, explicitly
-invoked `/skills` patch CLI. See that guide for npm installation commands, the version-bump-driven CI release policy,
-and the required npm trusted-publisher setup. Packages become installable after their first publish.
+invoked `/skills` patch CLI. See that guide for npm installation commands, the automatic alpha CI release policy, and
+the required npm trusted-publisher setup. Packages become installable after their first publish.
 
 From this repository, install the packaged extensions into the default pi extension directory:
 
@@ -67,7 +67,7 @@ The patch is **generated, not hand-authored**. Reviewed TypeScript in [`pi-overl
 each `patches/pi-<version>/*` is produced from it.
 
 The repository retains the latest patched Pi release and up to four previous releases, plus Pi 1.0.3 as the test
-baseline when it falls outside that window. The retained patches are 1.5.2, 1.4.0, 1.3.0, 1.1.0, 1.0.4, and 1.0.3. When
+baseline when it falls outside that window. The retained patches are 1.6.0, 1.5.2, 1.4.0, 1.3.0, 1.1.0, and 1.0.3. When
 the window advances, retire the oldest non-baseline patch directory and its `pi-overlay/versions/<version>` inputs. The
 installer refuses to patch any pi release without a patch directory; use `--skip-skill-loading-patch` to install only
 the extensions for those releases.
@@ -78,11 +78,11 @@ Regenerate or check a patch with:
 npm run patches:build                                   # regenerate every versioned patch and its checksum manifests
 npm run patches:check                                   # check every versioned patch in pi-overlay/versions
 node scripts/build-pi-patch.mjs --version 1.0.3 --check # check only the 1.0.3 patch
-node scripts/build-pi-patch.mjs --version 1.0.4 --check # check only the 1.0.4 patch
 node scripts/build-pi-patch.mjs --version 1.1.0 --check # check only the 1.1.0 patch
 node scripts/build-pi-patch.mjs --version 1.3.0 --check # check only the 1.3.0 patch
 node scripts/build-pi-patch.mjs --version 1.4.0 --check # check only the 1.4.0 patch
 node scripts/build-pi-patch.mjs --version 1.5.2 --check # check only the 1.5.2 patch
+node scripts/build-pi-patch.mjs --version 1.6.0 --check # check only the 1.6.0 patch
 ```
 
 The pipeline fetches the pinned upstream release source archive and npm tarball, verifies both against checksums

@@ -64,10 +64,13 @@ jobs:
           package-manager-cache: false
       - name: Use repository-pinned npm
         run: npm install --global npm@11.17.0 --registry=https://registry.npmjs.org/
-      - name: Validate and preview version-driven release candidates
+      - name: Prepare and preview changed package releases
         env:
           RELEASE_BASE: ${{ github.event.before || github.event.pull_request.base.sha }}
-        run: npm run release:packages -- plan --base "$RELEASE_BASE"
+          RELEASE_NUMBER: ${{ github.run_number }}
+        run: |
+          node scripts/prepare-auto-release.mjs "$RELEASE_BASE" "$RELEASE_NUMBER"
+          npm run release:packages -- plan --base "$RELEASE_BASE"
       - name: Pack all public packages without publishing credentials
         run: npm run release:packages -- pack --artifacts "$RUNNER_TEMP/pi-packages"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -102,7 +105,10 @@ jobs:
         with:
           name: npm-packages
           path: ${{ runner.temp }}/pi-packages/
-      - name: Publish only increased package versions via npm trusted publishing
+      - name: Publish changed packages via npm trusted publishing
         env:
           RELEASE_BASE: ${{ github.event.before }}
-        run: npm run release:packages -- publish --base "$RELEASE_BASE" --artifacts "$RUNNER_TEMP/pi-packages"
+          RELEASE_NUMBER: ${{ github.run_number }}
+        run: |
+          node scripts/prepare-auto-release.mjs "$RELEASE_BASE" "$RELEASE_NUMBER"
+          npm run release:packages -- publish --base "$RELEASE_BASE" --artifacts "$RUNNER_TEMP/pi-packages"

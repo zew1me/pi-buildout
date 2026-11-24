@@ -135,7 +135,7 @@ upstream's bundle output; Pi's published `dist/bundle/cli.js` compile-cache load
 checksum. Source inputs are fetched from the 1.0.3 release archive and npm tarball with committed checksums; no complete
 Pi source checkout is committed.
 
-## Pi 1.0.4 `/skills` runtime patch
+## Pi 1.0.4 `/skills` runtime patch (retired)
 
 - Source: `@earendil-works/pi-coding-agent@1.0.4`
 - Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
@@ -143,11 +143,10 @@ Pi source checkout is committed.
 - Source archive: `pi-1.0.4-source.tar.gz`, verified against the release's published `SHA256SUMS`
 - License declared by the package: MIT
 
-[`pi-overlay/versions/1.0.4/integration.patch`](pi-overlay/versions/1.0.4/integration.patch) adapts the opt-in skills
-integration seam to the MIT-licensed 1.0.4 TypeScript sources and documentation. The generated
-[`skills.patch`](patches/pi-1.0.4/skills.patch) modifies Pi's published resource loader, slash-command list, CLI and
-interactive entry points, and skill documentation. It adds this repository's original skill-management modules and
-reuses Pi's package/resource discovery, project-trust, and `proper-lockfile` APIs. It preserves explicit `--skill` with
+The retired 1.0.4 integration patch adapted the opt-in skills seam to the MIT-licensed TypeScript sources and
+documentation. Its generated patch modified Pi's published resource loader, slash-command list, CLI and interactive
+entry points, and skill documentation. It adds this repository's original skill-management modules and reuses Pi's
+package/resource discovery, project-trust, and `proper-lockfile` APIs. It preserves explicit `--skill` with
 `--no-skills`, makes discovered skills catalog-only until activated, and leaves unrelated extensions, prompts, themes,
 packages, providers, trust behavior, and bundled chunks unchanged. Pi's automatic loading of all discovered skills and
 its skill implementation were not copied into the overlay. The original `cli-runtime.js` and `rpc-entry.js` wrappers are
@@ -193,6 +192,18 @@ copy Pi's automatic skill loading or its skill implementation. The original `cli
 are reused byte-for-byte from 1.1.0 because Pi 1.3.0's `src/cli.ts`, `src/rpc-entry.ts`, and `src/cli/setup.ts` are
 unchanged. The published `dist/bundle/cli.js` loader remains unchanged and checksum-pinned. Upstream changes elsewhere
 in 1.3.0, including those near the seams, were not adopted. No complete Pi source checkout is committed.
+
+## Pi 1.6.0 `/skills` runtime patch
+
+- Source: `@earendil-works/pi-coding-agent@1.6.0` (MIT)
+- Canonical repository: <https://github.com/earendil-works/pi> (`packages/coding-agent`)
+- Upstream revision reviewed: `faac585884ae2c013a6b1400f3e9e77f10b34bac` (`v1.6.0`)
+
+The [1.6.0 integration patch](pi-overlay/versions/1.6.0/integration.patch) adapts the existing seam to Pi's 1.6.0
+TypeScript sources and skill documentation, including the changed model-resolver import context in `main.ts`. It reuses
+this repository's shared skill management (including directory scope) and CLI/RPC wrappers. The generated patch contains
+edits to upstream runtime files and docs; it does not vendor the upstream tree, adopt Pi's auto-loading policy, or
+rebuild its bundled chunks.
 
 ## Pi 1.5.2 `/skills` runtime patch
 

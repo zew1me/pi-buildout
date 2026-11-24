@@ -1,42 +1,48 @@
 diff --git a/dist/bundle/cli-runtime.js b/dist/bundle/cli-runtime.js
-index 64a996f..99f5492 100755
+index 91c449d..99f5492 100755
 --- a/dist/bundle/cli-runtime.js
 +++ b/dist/bundle/cli-runtime.js
 @@ -1,3 +1,5 @@
  #!/usr/bin/env node
 -import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url);
--import{configureHttpDispatcher,main}from"./chunks/chunk-H33F2TZD.js";import"./chunks/chunk-FKGBRPJC.js";import"./chunks/chunk-XXKX4I4Z.js";import"./chunks/chunk-VLMAON6X.js";import"./chunks/chunk-USJZMAIR.js";import"./chunks/chunk-YKYP4C4A.js";import"./chunks/chunk-F4TCZWQO.js";import{APP_NAME}from"./chunks/chunk-64GOPQSC.js";import"./chunks/chunk-S3GGRYIO.js";import"./chunks/chunk-22CYIUS4.js";import"./chunks/chunk-ZBURYEWF.js";import"./chunks/chunk-DRQDKNXA.js";import"./chunks/chunk-TRDNDS6A.js";import"./chunks/chunk-KJUDFE6Y.js";import"./chunks/chunk-A3JYRWB6.js";import"./chunks/chunk-4L3WN2XY.js";function setupCli(){process.title=APP_NAME,process.env.PI_CODING_AGENT="true",process.env.AI_AGENT="pi",process.emitWarning=(()=>{}),configureHttpDispatcher()}setupCli();main(process.argv.slice(2));
+-import{configureHttpDispatcher,main}from"./chunks/chunk-KSDI5FD4.js";import"./chunks/chunk-XGGZYFNG.js";import"./chunks/chunk-NRLRGOCX.js";import"./chunks/chunk-X26YOAEH.js";import"./chunks/chunk-P5VHIEWH.js";import"./chunks/chunk-I6HYYNH6.js";import"./chunks/chunk-NV3NPOPF.js";import"./chunks/chunk-Y55SJART.js";import"./chunks/chunk-6QGV3IWD.js";import{APP_NAME}from"./chunks/chunk-36QC74V4.js";import"./chunks/chunk-IEBK4HQA.js";import"./chunks/chunk-5AGIVGSV.js";import"./chunks/chunk-INODY4DR.js";import"./chunks/chunk-ZG74NES2.js";import"./chunks/chunk-TMTOQ7H7.js";import"./chunks/chunk-FFMDRXC4.js";import"./chunks/chunk-7DDKXS2Q.js";import"./chunks/chunk-NRY4NBZW.js";import"./chunks/chunk-LPXNMA2W.js";import"./chunks/chunk-ILDLA2JW.js";import"./chunks/chunk-JXWJOIH4.js";function setupCli(){process.title=APP_NAME,process.env.PI_CODING_AGENT="true",process.env.AI_AGENT="pi",process.emitWarning=(()=>{}),configureHttpDispatcher()}setupCli();main(process.argv.slice(2));
 +import { setupCli } from "../cli/setup.js";
 +import { main } from "../main.js";
 +setupCli();
 +main(process.argv.slice(2));
 diff --git a/dist/bundle/rpc-entry.js b/dist/bundle/rpc-entry.js
-index 2eae698..1ccec33 100755
+index 5e5de39..b571534 100755
 --- a/dist/bundle/rpc-entry.js
 +++ b/dist/bundle/rpc-entry.js
-@@ -1,3 +1,7 @@
+@@ -1,3 +1,13 @@
  #!/usr/bin/env node
 -import { createRequire as __piCreateRequire } from "node:module"; const require = __piCreateRequire(import.meta.url);
--import{configureHttpDispatcher,main}from"./chunks/chunk-H33F2TZD.js";import"./chunks/chunk-FKGBRPJC.js";import"./chunks/chunk-XXKX4I4Z.js";import"./chunks/chunk-VLMAON6X.js";import"./chunks/chunk-USJZMAIR.js";import"./chunks/chunk-YKYP4C4A.js";import"./chunks/chunk-F4TCZWQO.js";import{APP_NAME}from"./chunks/chunk-64GOPQSC.js";import"./chunks/chunk-S3GGRYIO.js";import"./chunks/chunk-22CYIUS4.js";import"./chunks/chunk-ZBURYEWF.js";import"./chunks/chunk-DRQDKNXA.js";import"./chunks/chunk-TRDNDS6A.js";import"./chunks/chunk-KJUDFE6Y.js";import"./chunks/chunk-A3JYRWB6.js";import"./chunks/chunk-4L3WN2XY.js";process.title=`${APP_NAME}-rpc`;process.env.PI_CODING_AGENT="true";process.env.AI_AGENT="pi";process.emitWarning=(()=>{});configureHttpDispatcher();main(["--mode","rpc",...process.argv.slice(2)]);
-+import { setupCli } from "../cli/setup.js";
+-import{configureHttpDispatcher,main}from"./chunks/chunk-KSDI5FD4.js";import"./chunks/chunk-XGGZYFNG.js";import"./chunks/chunk-NRLRGOCX.js";import"./chunks/chunk-X26YOAEH.js";import"./chunks/chunk-P5VHIEWH.js";import"./chunks/chunk-I6HYYNH6.js";import"./chunks/chunk-NV3NPOPF.js";import"./chunks/chunk-Y55SJART.js";import"./chunks/chunk-6QGV3IWD.js";import{APP_NAME}from"./chunks/chunk-36QC74V4.js";import"./chunks/chunk-IEBK4HQA.js";import"./chunks/chunk-5AGIVGSV.js";import"./chunks/chunk-INODY4DR.js";import"./chunks/chunk-ZG74NES2.js";import"./chunks/chunk-TMTOQ7H7.js";import"./chunks/chunk-FFMDRXC4.js";import"./chunks/chunk-7DDKXS2Q.js";import"./chunks/chunk-NRY4NBZW.js";import"./chunks/chunk-LPXNMA2W.js";import"./chunks/chunk-ILDLA2JW.js";import"./chunks/chunk-JXWJOIH4.js";process.title=`${APP_NAME}-rpc`;process.env.PI_CODING_AGENT="true";process.env.AI_AGENT="pi";process.emitWarning=(()=>{});configureHttpDispatcher();main(["--mode","rpc",...process.argv.slice(2)]);
 +import { APP_NAME } from "../config.js";
++import { configureHttpDispatcher } from "../core/http-dispatcher.js";
 +import { main } from "../main.js";
-+setupCli();
++
 +process.title = `${APP_NAME}-rpc`;
++process.env.PI_CODING_AGENT = "true";
++process.env.AI_AGENT = "pi";
++process.emitWarning = () => {};
++
++configureHttpDispatcher();
++
 +main(["--mode", "rpc", ...process.argv.slice(2)]);
 diff --git a/dist/core/resource-loader.js b/dist/core/resource-loader.js
-index 35ba09c..9d1e088 100644
+index 379db9e..7fb431e 100644
 --- a/dist/core/resource-loader.js
 +++ b/dist/core/resource-loader.js
 @@ -12,6 +12,7 @@ import { findGitPaths } from "./footer-data-provider.js";
- import { DefaultPackageManager } from "./package-manager.js";
+ import { DefaultPackageManager, } from "./package-manager.js";
  import { loadPromptTemplates } from "./prompt-templates.js";
  import { SettingsManager } from "./settings-manager.js";
 +import { resolveActiveSkillPaths } from "./skill-management.js";
  import { loadSkills } from "./skills.js";
- import { BUILTIN_PATH_PREFIX, createSourceInfo, getSyntheticPathSource, isSyntheticPath, } from "./source-info.js";
+ import { BUILTIN_PATH_PREFIX, createSourceInfo, getResourcePathKey, getSyntheticPathSource, isSyntheticPath, } from "./source-info.js";
  import { resetTimings } from "./timings.js";
-@@ -417,11 +418,20 @@ export class DefaultResourceLoader {
+@@ -438,11 +439,20 @@ export class DefaultResourceLoader {
          }
          this.extensionsResult = this.extensionsOverride ? this.extensionsOverride(extensionsResult) : extensionsResult;
          this.applyExtensionSourceInfo(this.extensionsResult.extensions, metadataByPath);
@@ -1012,12 +1018,12 @@ index 0000000..8b712ef
 +//# sourceMappingURL=skill-management.js.map
 \ No newline at end of file
 diff --git a/dist/core/slash-commands.js b/dist/core/slash-commands.js
-index 170a066..11b18fa 100644
+index 6ca9ad3..3c4d430 100644
 --- a/dist/core/slash-commands.js
 +++ b/dist/core/slash-commands.js
 @@ -23,6 +23,7 @@ export const BUILTIN_SLASH_COMMANDS = [
      { name: "compact", description: "Manually compact the session context" },
-     { name: "resume", description: "Resume a different session" },
+     { name: "resume", description: "Resume another session" },
      { name: "reload", description: "Reload keybindings, extensions, skills, prompts, themes, and context files" },
 +    { name: "skills", description: "List and manage active skills", argumentHint: "<active|list|search|add|remove|reload>" },
      { name: "quit", description: `Quit ${APP_NAME}` },
@@ -1025,18 +1031,18 @@ index 170a066..11b18fa 100644
  //# sourceMappingURL=slash-commands.js.map
 \ No newline at end of file
 diff --git a/dist/main.js b/dist/main.js
-index ac397ec..ac68822 100644
+index cb4ffba..9bb77fe 100644
 --- a/dist/main.js
 +++ b/dist/main.js
-@@ -26,6 +26,7 @@ import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.js";
+@@ -29,6 +29,7 @@ import { AuthStorage, ReadOnlyAuthStorage } from "./core/auth-storage.js";
  import { exportFromFile } from "./core/export-html/index.js";
  import { applyHttpProxySettings, configureHttpDispatcher } from "./core/http-dispatcher.js";
- import { resolveCliModel, resolveModelScope } from "./core/model-resolver.js";
+ import { resolveCliModel, resolveModelScopeWithDiagnostics } from "./core/model-resolver.js";
 +import { handleSkillsCli } from "./core/skill-management.js";
  import { ModelRuntime } from "./core/model-runtime.js";
  import { restoreStdout, takeOverStdout } from "./core/output-guard.js";
  import { resolveProjectTrusted } from "./core/project-trust.js";
-@@ -486,6 +487,10 @@ export async function main(args, options) {
+@@ -531,6 +532,10 @@ export async function main(args, options) {
          process.exitCode = await runMcpCommand(args.slice(1), { cwd, agentDir });
          return;
      }
@@ -1048,27 +1054,27 @@ index ac397ec..ac68822 100644
      if (parsed.diagnostics.length > 0) {
          for (const d of parsed.diagnostics) {
 diff --git a/dist/modes/interactive/interactive-mode.js b/dist/modes/interactive/interactive-mode.js
-index 7827bce..5df7c45 100644
+index cbd9365..6291a2b 100644
 --- a/dist/modes/interactive/interactive-mode.js
 +++ b/dist/modes/interactive/interactive-mode.js
-@@ -28,6 +28,7 @@ import { DefaultPackageManager } from "../../core/package-manager.js";
- import { RADIUS_MCP_URL, RADIUS_PROVIDER_ID } from "../../core/radius.js";
- import { formatMissingSessionCwdPrompt, MissingSessionCwdError } from "../../core/session-cwd.js";
+@@ -31,6 +31,7 @@ import { RADIUS_PROVIDER_ID } from "../../core/radius.js";
+ import { planRadiusMcpServer } from "../../core/radius-mcp.js";
+ import { formatMissingSessionCwdPrompt, getMissingSessionCwdOptions, MissingSessionCwdError, } from "../../core/session-cwd.js";
  import { SessionManager, sessionEntryToContextMessages, } from "../../core/session-manager.js";
 +import { handleSkillsInteractive } from "../../core/skill-management.js";
  import { BUILTIN_SLASH_COMMANDS } from "../../core/slash-commands.js";
+ import { getSourcePackageKey } from "../../core/source-info.js";
  import { isInstallTelemetryEnabled } from "../../core/telemetry.js";
- import { withBuiltInRenderers } from "../../core/tools/renderers/index.js";
-@@ -39,7 +40,7 @@ import { copyToClipboard, readClipboardFilePaths, readClipboardText } from "../.
- import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipboard-image.js";
+@@ -44,7 +45,7 @@ import { extensionForImageMimeType, readClipboardImage } from "../../utils/clipb
+ import { flushStdout } from "../../utils/flush-stdout.js";
  import { parseGitUrl } from "../../utils/git.js";
  import { ensurePngTranscoder } from "../../utils/image-convert.js";
--import { getCwdRelativePath } from "../../utils/paths.js";
-+import { getCwdRelativePath, resolvePath } from "../../utils/paths.js";
+-import { getCwdRelativePath, shortenHomePath } from "../../utils/paths.js";
++import { getCwdRelativePath, resolvePath, shortenHomePath } from "../../utils/paths.js";
  import { getPiUserAgent } from "../../utils/pi-user-agent.js";
  import { killTrackedDetachedChildren } from "../../utils/shell.js";
  import { loadAllHighlightLanguages } from "../../utils/syntax-highlight.js";
-@@ -2643,6 +2644,11 @@ export class InteractiveMode {
+@@ -2809,6 +2810,11 @@ export class InteractiveMode {
                  await this.handleReloadCommand();
                  return;
              }
@@ -1080,7 +1086,7 @@ index 7827bce..5df7c45 100644
              if (text === "/debug") {
                  this.handleDebugCommand();
                  this.editor.setText("");
-@@ -5333,6 +5339,24 @@ export class InteractiveMode {
+@@ -5533,6 +5539,24 @@ export class InteractiveMode {
      // =========================================================================
      // Command handlers
      // =========================================================================
