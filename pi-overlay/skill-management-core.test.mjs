@@ -967,6 +967,9 @@ test("directory-relative persistence preserves a literal tilde and avoids expand
     paths: ["/work/~/skill", "/work/$LITERAL/skill"],
     diagnostics: [],
   });
+  const removed = await runSkillsCommand(env, ["remove", "$SKILL_PATH", "--directory"], options);
+  assert.equal(removed.exitCode, 0, removed.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/directory-skills.json")["/work"].enabled, ["./~/skill"]);
 });
 
 test("a generated relative spelling with an unset variable keeps the typed variable spelling", async () => {

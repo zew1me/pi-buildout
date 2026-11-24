@@ -516,12 +516,17 @@ function normalizePersistedSource(
   context: EntryContext,
 ): string | undefined {
   if (!source) return undefined;
-  if (!looksLikePath(source) || expandsToEmptyPath(env, source)) return source;
+  if (!looksLikePath(source)) return source;
   const value = expandEnvironmentVariables(env, source).value.trim();
+  if (value === "") return source;
   const path =
     context.root !== undefined && !isAnchoredPath(env, value)
       ? env.path.resolve(context.root, value)
       : env.resolvePath(value, context.cwd, { trim: true });
+  return canonicalSkillPath(env, path);
+}
+
+function canonicalSkillPath(env: SkillEnvironment, path: string): string {
   return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
 }
 
@@ -549,11 +554,21 @@ export function updatePersistedSkill(
   options: { cwd: string; agentDir: string },
   resolvedTarget: MutationTarget = mutationTarget(env, scope, options.cwd, options.agentDir),
 ): boolean {
-  const { location, context } = resolvedTarget;
+  const key = normalizePersistedSource(env, source, resolvedTarget.context);
+  return updatePersistedSkillByKey(env, action, source, scope, resolvedTarget, key);
+}
+
+function updatePersistedSkillByKey(
+  env: SkillEnvironment,
+  action: "add" | "remove",
+  source: string,
+  scope: SkillScope,
+  { location, context }: MutationTarget,
+  key: string | undefined,
+): boolean {
   const path = location.path;
   if (path === undefined) throw new Error(`Scope ${scope} has no persisted configuration.`);
 
-  const key = normalizePersistedSource(env, source, context);
   const matches = (entry: unknown): boolean => normalizePersistedSource(env, sourceOf(entry), context) === key;
 
   return withSkillConfigLock(env, path, () => {
@@ -581,26 +596,23 @@ export function updatePersistedSkill(
 }
 
 /**
- * Removes a persisted entry by its normalized form first, then by each other reading of a bare name.
- *
- * A bare name is stored as the catalog name, or as the path it named when that path existed at add time.
- * Whether the path exists now says nothing about which form was stored: the path may have been deleted, or an
- * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
- * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
+ * Compares remove operands relative to cwd, while stored entries resolve against their scope's base.
+ * A path operand is expanded once; its resolved path may itself contain literal variable syntax.
+ * A bare name tries the catalog name first, then the cwd-relative path, even if that path was deleted.
  */
 function removePersistedSkill(
   env: SkillEnvironment,
   source: string,
-  target: string,
   scope: SkillScope,
-  options: { cwd: string; agentDir: string },
   resolvedTarget: MutationTarget,
 ): boolean {
-  const candidates = looksLikePath(source)
-    ? [target]
-    : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
-  return [...new Set(candidates)].some((candidate) =>
-    updatePersistedSkill(env, "remove", candidate, scope, options, resolvedTarget),
+  const { context } = resolvedTarget;
+  const operand = normalizePersistedSource(env, source, { ...context, root: undefined });
+  const remove = (key: string | undefined): boolean =>
+    updatePersistedSkillByKey(env, "remove", source, scope, resolvedTarget, key);
+  return (
+    remove(operand) ||
+    (!looksLikePath(source) && remove(canonicalSkillPath(env, env.resolvePath(source, context.cwd, { trim: true }))))
   );
 }
 
@@ -808,31 +820,26 @@ async function runMutationCommand(
   // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
   // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
   const resolution = command === "add" ? await resolveSkillSource(env, source, options) : undefined;
-  const target =
-    command === "remove"
-      ? looksLikePath(source) && !expandsToEmptyPath(env, source)
-        ? resolveSkillPath(env, source, options.cwd)
-        : source
-      : resolution?.normalized;
-  if (!target) throw new Error(`Skill source is invalid: ${source}`);
-  if (command === "add" && !resolution?.resolved) {
-    throw new Error(skillNotFoundMessage(env, source));
+  if (resolution && !resolution.resolved) throw new Error(skillNotFoundMessage(env, source));
+
+  if (scope === "session") {
+    const target =
+      resolution?.normalized ??
+      (looksLikePath(source) && !expandsToEmptyPath(env, source) ? resolveSkillPath(env, source, options.cwd) : source);
+    return { exitCode: 0, lines: [], session: { action: command, source: target } };
   }
 
-  if (scope === "session") return { exitCode: 0, lines: [], session: { action: command, source: target } };
-
   const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
-  const updated =
-    command === "add"
-      ? updatePersistedSkill(
-          env,
-          command,
-          persistedAddForm(env, source, target, resolvedTarget.context),
-          scope,
-          options,
-          resolvedTarget,
-        )
-      : removePersistedSkill(env, source, target, scope, options, resolvedTarget);
+  const updated = resolution
+    ? updatePersistedSkill(
+        env,
+        "add",
+        persistedAddForm(env, source, resolution.normalized, resolvedTarget.context),
+        scope,
+        options,
+        resolvedTarget,
+      )
+    : removePersistedSkill(env, source, scope, resolvedTarget);
   if (!updated) throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
   return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
 }

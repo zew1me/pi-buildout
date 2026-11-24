@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..a6a5f0d 100644
+index 0b4ae56..52a845e 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -69,13 +69,11 @@ function withSkillConfigLock(env, path, fn) {
@@ -189,7 +189,7 @@ index 0b4ae56..a6a5f0d 100644
  }
  function unresolvedSkillDiagnostic(env, entry) {
      const hint = unresolvedEntryHint(env, entry.source, entry.scope);
-@@ -291,29 +358,36 @@ function containsSkills(env, path, options) {
+@@ -291,7 +358,7 @@ function containsSkills(env, path, options) {
   * User input is normalized before it is stored, so a stored bare value is a catalog name and is compared
   * literally. Resolving it against whatever happens to exist in the current directory would let an unrelated
   * local folder make a catalog-name entry match, or block, a path entry. A path entry compares by the real path
@@ -198,16 +198,20 @@ index 0b4ae56..a6a5f0d 100644
   */
  function normalizePersistedSource(env, source, context) {
      if (!source)
-         return undefined;
--    if (!looksLikePath(source))
-+    if (!looksLikePath(source) || expandsToEmptyPath(env, source))
+@@ -299,22 +366,36 @@ function normalizePersistedSource(env, source, context) {
+     if (!looksLikePath(source))
          return source;
      const value = expandEnvironmentVariables(env, source).value.trim();
 -    const path = context.scope === "repo" && context.repoRoot !== undefined && !isAnchoredPath(env, value)
 -        ? env.path.resolve(context.repoRoot, value)
++    if (value === "")
++        return source;
 +    const path = context.root !== undefined && !isAnchoredPath(env, value)
 +        ? env.path.resolve(context.root, value)
          : env.resolvePath(value, context.cwd, { trim: true });
++    return canonicalSkillPath(env, path);
++}
++function canonicalSkillPath(env, path) {
      return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
  }
 -export function updatePersistedSkill(env, action, source, scope, options) {
@@ -225,7 +229,10 @@ index 0b4ae56..a6a5f0d 100644
 +    return { location, context: { cwd, scope, root } };
 +}
 +export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
-+    const { location, context } = resolvedTarget;
++    const key = normalizePersistedSource(env, source, resolvedTarget.context);
++    return updatePersistedSkillByKey(env, action, source, scope, resolvedTarget, key);
++}
++function updatePersistedSkillByKey(env, action, source, scope, { location, context }, key) {
      const path = location.path;
      if (path === undefined)
          throw new Error(`Scope ${scope} has no persisted configuration.`);
@@ -234,10 +241,11 @@ index 0b4ae56..a6a5f0d 100644
 -        scope,
 -        repoRoot: scope === "repo" ? findRepoRoot(env, options.cwd) : undefined,
 -    };
-     const key = normalizePersistedSource(env, source, context);
+-    const key = normalizePersistedSource(env, source, context);
      const matches = (entry) => normalizePersistedSource(env, sourceOf(entry), context) === key;
      return withSkillConfigLock(env, path, () => {
-@@ -326,7 +400,14 @@ export function updatePersistedSkill(env, action, source, scope, options) {
+         const config = readJson(env, path);
+@@ -326,27 +407,35 @@ export function updatePersistedSkill(env, action, source, scope, options) {
              return false;
          target.enabled =
              action === "add" ? (matched ? enabled : [...enabled, source]) : enabled.filter((entry) => !matches(entry));
@@ -253,17 +261,30 @@ index 0b4ae56..a6a5f0d 100644
              config[location.key] = target;
          writeJson(env, path, config);
          return true;
-@@ -340,13 +421,16 @@ export function updatePersistedSkill(env, action, source, scope, options) {
-  * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
-  * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
+     });
+ }
+ /**
+- * Removes a persisted entry by its normalized form first, then by each other reading of a bare name.
+- *
+- * A bare name is stored as the catalog name, or as the path it named when that path existed at add time.
+- * Whether the path exists now says nothing about which form was stored: the path may have been deleted, or an
+- * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
+- * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
++ * Compares remove operands relative to cwd, while stored entries resolve against their scope's base.
++ * A path operand is expanded once; its resolved path may itself contain literal variable syntax.
++ * A bare name tries the catalog name first, then the cwd-relative path, even if that path was deleted.
   */
 -function removePersistedSkill(env, source, target, scope, options) {
-+function removePersistedSkill(env, source, target, scope, options, resolvedTarget) {
-     const candidates = looksLikePath(source)
-         ? [target]
-         : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
+-    const candidates = looksLikePath(source)
+-        ? [target]
+-        : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
 -    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
-+    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options, resolvedTarget));
++function removePersistedSkill(env, source, scope, resolvedTarget) {
++    const { context } = resolvedTarget;
++    const operand = normalizePersistedSource(env, source, { ...context, root: undefined });
++    const remove = (key) => updatePersistedSkillByKey(env, "remove", source, scope, resolvedTarget, key);
++    return (remove(operand) ||
++        (!looksLikePath(source) && remove(canonicalSkillPath(env, env.resolvePath(source, context.cwd, { trim: true })))));
 +}
 +export function getActiveSkillEntries(env, options) {
 +    return readActiveSkillEntries(env, options).entries;
@@ -273,7 +294,7 @@ index 0b4ae56..a6a5f0d 100644
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -359,25 +443,28 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -359,25 +448,28 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -317,7 +338,7 @@ index 0b4ae56..a6a5f0d 100644
      const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
      const resolvedCwd = env.path.resolve(cwd);
      if (!env.fs.existsSync(resolvedCwd))
-@@ -430,7 +517,8 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+@@ -430,7 +522,8 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
  async function resolveSkillSource(env, source, options) {
      if (looksLikePath(source)) {
          const resolvedPath = resolveSkillPath(env, source, options.cwd);
@@ -327,7 +348,7 @@ index 0b4ae56..a6a5f0d 100644
      }
      const resolvedPath = env.resolvePath(source, options.cwd, { trim: true });
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
-@@ -445,7 +533,7 @@ function commandName(allowSession = false) {
+@@ -445,7 +538,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -336,7 +357,7 @@ index 0b4ae56..a6a5f0d 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -483,29 +571,25 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -483,42 +576,34 @@ async function runCatalogCommand(env, command, rest, surface, options) {
      };
  }
  /** What `add` writes for a resolved source: a catalog name as is, a path in its {@link persistedForm}. */
@@ -366,22 +387,30 @@ index 0b4ae56..a6a5f0d 100644
      // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
      // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
      const resolution = command === "add" ? await resolveSkillSource(env, source, options) : undefined;
-     const target = command === "remove"
+-    const target = command === "remove"
 -        ? looksLikePath(source)
-+        ? looksLikePath(source) && !expandsToEmptyPath(env, source)
-             ? resolveSkillPath(env, source, options.cwd)
-             : source
-         : resolution?.normalized;
-@@ -516,9 +600,10 @@ async function runMutationCommand(env, command, rest, surface, options) {
-     }
-     if (scope === "session")
+-            ? resolveSkillPath(env, source, options.cwd)
+-            : source
+-        : resolution?.normalized;
+-    if (!target)
+-        throw new Error(`Skill source is invalid: ${source}`);
+-    if (command === "add" && !resolution?.resolved) {
++    if (resolution && !resolution.resolved)
+         throw new Error(skillNotFoundMessage(env, source));
+-    }
+-    if (scope === "session")
++    if (scope === "session") {
++        const target = resolution?.normalized ??
++            (looksLikePath(source) && !expandsToEmptyPath(env, source) ? resolveSkillPath(env, source, options.cwd) : source);
          return { exitCode: 0, lines: [], session: { action: command, source: target } };
-+    const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
-     const updated = command === "add"
+-    const updated = command === "add"
 -        ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, scope, options.cwd), scope, options)
 -        : removePersistedSkill(env, source, target, scope, options);
-+        ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, resolvedTarget.context), scope, options, resolvedTarget)
-+        : removePersistedSkill(env, source, target, scope, options, resolvedTarget);
++    }
++    const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
++    const updated = resolution
++        ? updatePersistedSkill(env, "add", persistedAddForm(env, source, resolution.normalized, resolvedTarget.context), scope, options, resolvedTarget)
++        : removePersistedSkill(env, source, scope, resolvedTarget);
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
