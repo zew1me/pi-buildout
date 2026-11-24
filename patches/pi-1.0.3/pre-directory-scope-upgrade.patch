@@ -611,7 +611,7 @@ index 8b712ef..e8fe4e8 100644
      lockSync: (directory, options) => lockfile.lockSync(directory, options),
      sleepSync: (milliseconds) => {
 diff --git a/docs/skills.md b/docs/skills.md
-index 2a17b24..0a59142 100644
+index 2a17b24..8297c9a 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -80,8 +80,11 @@ A catalog skill enters the system prompt only when it is active. Active skills c
@@ -644,7 +644,7 @@ index 2a17b24..0a59142 100644
 +}
 +```
 +
-+Repository scope follows the remote, so every clone and every git worktree of a repository shares its entries. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. Keys are real paths, so a directory reached through a symlink shares the entries of its target. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
++Clones and worktrees share repository-scoped entries only if they resolve to the same repository key. For example, a fork that selects its own `origin` instead of the original repository's remote gets a different key. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. Keys are real paths, so a directory reached through a symlink shares the entries of its target. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
 +
  Manage activation with either the interactive `/skills` command or the one-shot CLI:
  
