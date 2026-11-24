@@ -1,12 +1,34 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 2fd4257..40ce2cb 100644
+index 2fd4257..07e3fea 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
-@@ -67,17 +67,18 @@ function withSkillConfigLock(env, path, fn) {
+@@ -67,17 +67,40 @@ function withSkillConfigLock(env, path, fn) {
          }
      }
  }
 -function git(env, cwd, args) {
++// `git rev-parse --local-env-vars` lists settings tied to a repository. These can override `git -C`.
++const repositoryGitVariables = new Set([
++    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
++    "GIT_CONFIG",
++    "GIT_CONFIG_PARAMETERS",
++    "GIT_CONFIG_COUNT",
++    "GIT_OBJECT_DIRECTORY",
++    "GIT_DIR",
++    "GIT_WORK_TREE",
++    "GIT_IMPLICIT_WORK_TREE",
++    "GIT_GRAFT_FILE",
++    "GIT_INDEX_FILE",
++    "GIT_NO_REPLACE_OBJECTS",
++    "GIT_REPLACE_REF_BASE",
++    "GIT_PREFIX",
++    "GIT_SHALLOW_FILE",
++    "GIT_COMMON_DIR",
++]);
++/** Filter actual keys because Windows child processes look up environment variables case-insensitively. */
++export function withoutRepositoryGitEnvironment(environment, caseInsensitive) {
++    return Object.fromEntries(Object.entries(environment).filter(([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name)));
++}
 +function git(env, cwd, args, failOnTimeout = false) {
      try {
 -        return env
@@ -27,7 +49,7 @@ index 2fd4257..40ce2cb 100644
          return undefined;
      }
  }
-@@ -118,12 +119,46 @@ export function resolveRepoKey(env, cwd) {
+@@ -118,12 +141,46 @@ export function resolveRepoKey(env, cwd) {
      const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
      if (firstKey)
          return firstKey;
@@ -75,7 +97,7 @@ index 2fd4257..40ce2cb 100644
  export function sourceOf(entry) {
      if (typeof entry === "string")
          return entry;
-@@ -139,12 +174,21 @@ export function enabledEntries(value) {
+@@ -139,12 +196,21 @@ export function enabledEntries(value) {
      const enabled = value.enabled;
      return Array.isArray(enabled) ? enabled : [];
  }
@@ -99,7 +121,7 @@ index 2fd4257..40ce2cb 100644
      }
      return scope.slice(2);
  }
-@@ -157,10 +201,156 @@ export function configLocation(env, scope, cwd, agentDir) {
+@@ -157,10 +223,156 @@ export function configLocation(env, scope, cwd, agentDir) {
              throw new Error("Repository scope requires a git repository.");
          return { path: env.path.join(agentDir, "repo-skills.json"), key };
      }
@@ -257,7 +279,7 @@ index 2fd4257..40ce2cb 100644
  }
  /** True when `path` exists and Pi's own loader finds at least one skill in it. */
  function containsSkills(env, path, options) {
-@@ -175,57 +365,89 @@ function containsSkills(env, path, options) {
+@@ -175,57 +387,89 @@ function containsSkills(env, path, options) {
      return skills.length > 0;
  }
  /**
@@ -372,7 +394,7 @@ index 2fd4257..40ce2cb 100644
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -238,25 +460,30 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -238,25 +482,30 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -418,7 +440,7 @@ index 2fd4257..40ce2cb 100644
      const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
      const resolvedCwd = env.path.resolve(cwd);
      if (!env.fs.existsSync(resolvedCwd))
-@@ -307,10 +534,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+@@ -307,10 +556,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
  }
  async function resolveSkillSource(env, source, options) {
@@ -433,7 +455,7 @@ index 2fd4257..40ce2cb 100644
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
      // resolve the selected skill. A bare local folder is retained as a path only when no catalog entry wins.
      const catalog = await getSkillCatalog(env, options);
-@@ -323,7 +552,7 @@ function commandName(allowSession = false) {
+@@ -323,7 +574,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -442,7 +464,7 @@ index 2fd4257..40ce2cb 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -337,11 +566,30 @@ export function usage(allowSession = false) {
+@@ -337,11 +588,30 @@ export function usage(allowSession = false) {
  function runActiveCommand(env, rest, surface, options) {
      if (rest.length !== 0)
          throw new Error(`Usage: ${surface} active`);
@@ -475,7 +497,7 @@ index 2fd4257..40ce2cb 100644
              : ["Skills: none"],
          activeEntries: entries,
      };
-@@ -360,33 +608,33 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -360,33 +630,33 @@ async function runCatalogCommand(env, command, rest, surface, options) {
              : [query ? "No matching skills." : "No catalog skills found."],
      };
  }
@@ -527,7 +549,7 @@ index 2fd4257..40ce2cb 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -412,48 +660,60 @@ export async function runSkillsCommand(env, args, options) {
+@@ -412,48 +682,60 @@ export async function runSkillsCommand(env, args, options) {
  /**
   * Resolves the skills that are explicitly active for this session into concrete paths.
   *
@@ -616,7 +638,7 @@ index 2fd4257..40ce2cb 100644
  /**
   * Resolves a single skill entry for session scope.
   *
-@@ -464,8 +724,9 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -464,8 +746,9 @@ export async function resolveActiveSkillPaths(env, context) {
  export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
@@ -628,7 +650,7 @@ index 2fd4257..40ce2cb 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -500,17 +761,23 @@ async function applySessionSkillChange(env, session, context) {
+@@ -500,17 +783,23 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.
@@ -656,7 +678,7 @@ index 2fd4257..40ce2cb 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -518,17 +785,13 @@ async function applySessionSkillChange(env, session, context) {
+@@ -518,17 +807,13 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -679,7 +701,7 @@ index 2fd4257..40ce2cb 100644
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -557,7 +820,7 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -557,7 +842,7 @@ export async function handleSkillsInteractive(env, text, context) {
          lines = [line];
      }
      if (args[0] === "active") {
@@ -689,7 +711,7 @@ index 2fd4257..40ce2cb 100644
      if (args[0] === "add" || args[0] === "remove") {
          if (context.isBusy()) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index 3d18e7d..e1790d4 100644
+index 3d18e7d..aceea89 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
 @@ -10,7 +10,7 @@
@@ -701,29 +723,9 @@ index 3d18e7d..e1790d4 100644
  import { homedir } from "node:os";
  import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
  import lockfile from "proper-lockfile";
-@@ -24,11 +24,51 @@ import { SettingsManager } from "./settings-manager.js";
- import { loadSkills, loadSkillsFromDir } from "./skills.js";
+@@ -25,10 +25,29 @@ import { loadSkills, loadSkillsFromDir } from "./skills.js";
  import * as core from "./skill-management-core.js";
  const lockWait = new Int32Array(new SharedArrayBuffer(4));
-+// `git rev-parse --local-env-vars` lists settings tied to a repository. In particular,
-+// inherited GIT_DIR and GIT_WORK_TREE can override the checkout selected with `git -C`.
-+const repositoryGitVariables = [
-+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-+    "GIT_CONFIG",
-+    "GIT_CONFIG_PARAMETERS",
-+    "GIT_CONFIG_COUNT",
-+    "GIT_OBJECT_DIRECTORY",
-+    "GIT_DIR",
-+    "GIT_WORK_TREE",
-+    "GIT_IMPLICIT_WORK_TREE",
-+    "GIT_GRAFT_FILE",
-+    "GIT_INDEX_FILE",
-+    "GIT_NO_REPLACE_OBJECTS",
-+    "GIT_REPLACE_REF_BASE",
-+    "GIT_PREFIX",
-+    "GIT_SHALLOW_FILE",
-+    "GIT_COMMON_DIR",
-+];
  const env = {
 -    fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
 +    fs: {
@@ -746,12 +748,10 @@ index 3d18e7d..e1790d4 100644
      homedir,
 -    execFileSync,
 +    environmentVariable: (name) => process.env[name],
-+    execFileSync: (file, args, options) => {
-+        const childEnv = { ...process.env };
-+        for (const name of repositoryGitVariables)
-+            delete childEnv[name];
-+        return execFileSync(file, args, { ...options, env: childEnv });
-+    },
++    execFileSync: (file, args, options) => execFileSync(file, args, {
++        ...options,
++        env: core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"),
++    }),
      processId: () => process.pid,
      lockSync: (directory, options) => lockfile.lockSync(directory, options),
      sleepSync: (milliseconds) => {

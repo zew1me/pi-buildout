@@ -17,6 +17,7 @@ import {
   runSkillsCommand,
   scopeFromArgs,
   sourceOf,
+  withoutRepositoryGitEnvironment,
   updatePersistedSkill,
   usage,
 } from "./skill-management-core.ts";
@@ -168,6 +169,24 @@ function firstLine(result) {
   assert.ok(line !== undefined, "expected at least one output line");
   return line;
 }
+
+test("repository subprocesses clear mixed-case Git overrides only on Windows", () => {
+  const inherited = {
+    GIT_DIR: "main",
+    gIt_Work_Tree: "main",
+    git_config_count: "2",
+    GIT_TRACE: "1",
+    PATH: "/usr/bin",
+  };
+  assert.deepEqual(withoutRepositoryGitEnvironment(inherited, true), { GIT_TRACE: "1", PATH: "/usr/bin" });
+  assert.deepEqual(withoutRepositoryGitEnvironment(inherited, false), {
+    gIt_Work_Tree: "main",
+    git_config_count: "2",
+    GIT_TRACE: "1",
+    PATH: "/usr/bin",
+  });
+  assert.equal(inherited.GIT_DIR, "main", "the caller environment is unchanged");
+});
 
 test("normalizeGitRemoteUrl normalizes SCP-like, URL, and prefixed forms to one key", () => {
   const expected = "github.com:earendil-works/pi";

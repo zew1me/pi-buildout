@@ -189,6 +189,37 @@ function withSkillConfigLock<T>(env: SkillEnvironment, path: string, fn: () => T
   }
 }
 
+// `git rev-parse --local-env-vars` lists settings tied to a repository. These can override `git -C`.
+const repositoryGitVariables = new Set([
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+]);
+
+/** Filter actual keys because Windows child processes look up environment variables case-insensitively. */
+export function withoutRepositoryGitEnvironment(
+  environment: Record<string, string | undefined>,
+  caseInsensitive: boolean,
+): Record<string, string | undefined> {
+  return Object.fromEntries(
+    Object.entries(environment).filter(
+      ([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name),
+    ),
+  );
+}
+
 function git(env: SkillEnvironment, cwd: string, args: string[], failOnTimeout = false): string | undefined {
   try {
     return env.execFileSync("git", ["-C", cwd, ...args], {

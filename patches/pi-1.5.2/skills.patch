@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..40ce2cb
+index 0000000..07e3fea
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,836 @@
+@@ -0,0 +1,858 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -140,6 +140,28 @@ index 0000000..40ce2cb
 +            env.reportError(`Could not release skill configuration lock ${path}: ${error instanceof Error ? error.message : String(error)}`);
 +        }
 +    }
++}
++// `git rev-parse --local-env-vars` lists settings tied to a repository. These can override `git -C`.
++const repositoryGitVariables = new Set([
++    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
++    "GIT_CONFIG",
++    "GIT_CONFIG_PARAMETERS",
++    "GIT_CONFIG_COUNT",
++    "GIT_OBJECT_DIRECTORY",
++    "GIT_DIR",
++    "GIT_WORK_TREE",
++    "GIT_IMPLICIT_WORK_TREE",
++    "GIT_GRAFT_FILE",
++    "GIT_INDEX_FILE",
++    "GIT_NO_REPLACE_OBJECTS",
++    "GIT_REPLACE_REF_BASE",
++    "GIT_PREFIX",
++    "GIT_SHALLOW_FILE",
++    "GIT_COMMON_DIR",
++]);
++/** Filter actual keys because Windows child processes look up environment variables case-insensitively. */
++export function withoutRepositoryGitEnvironment(environment, caseInsensitive) {
++    return Object.fromEntries(Object.entries(environment).filter(([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name)));
 +}
 +function git(env, cwd, args, failOnTimeout = false) {
 +    try {
@@ -911,10 +933,10 @@ index 0000000..40ce2cb
 \ No newline at end of file
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..e1790d4
+index 0000000..aceea89
 --- /dev/null
 +++ b/dist/core/skill-management.js
-@@ -0,0 +1,171 @@
+@@ -0,0 +1,150 @@
 +/**
 + * Pi-facing entry point for opt-in skill management.
 + *
@@ -941,25 +963,6 @@ index 0000000..e1790d4
 +import { loadSkills, loadSkillsFromDir } from "./skills.js";
 +import * as core from "./skill-management-core.js";
 +const lockWait = new Int32Array(new SharedArrayBuffer(4));
-+// `git rev-parse --local-env-vars` lists settings tied to a repository. In particular,
-+// inherited GIT_DIR and GIT_WORK_TREE can override the checkout selected with `git -C`.
-+const repositoryGitVariables = [
-+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-+    "GIT_CONFIG",
-+    "GIT_CONFIG_PARAMETERS",
-+    "GIT_CONFIG_COUNT",
-+    "GIT_OBJECT_DIRECTORY",
-+    "GIT_DIR",
-+    "GIT_WORK_TREE",
-+    "GIT_IMPLICIT_WORK_TREE",
-+    "GIT_GRAFT_FILE",
-+    "GIT_INDEX_FILE",
-+    "GIT_NO_REPLACE_OBJECTS",
-+    "GIT_REPLACE_REF_BASE",
-+    "GIT_PREFIX",
-+    "GIT_SHALLOW_FILE",
-+    "GIT_COMMON_DIR",
-+];
 +const env = {
 +    fs: {
 +        existsSync,
@@ -980,12 +983,10 @@ index 0000000..e1790d4
 +    path: { dirname, isAbsolute, join, relative, resolve, sep },
 +    homedir,
 +    environmentVariable: (name) => process.env[name],
-+    execFileSync: (file, args, options) => {
-+        const childEnv = { ...process.env };
-+        for (const name of repositoryGitVariables)
-+            delete childEnv[name];
-+        return execFileSync(file, args, { ...options, env: childEnv });
-+    },
++    execFileSync: (file, args, options) => execFileSync(file, args, {
++        ...options,
++        env: core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"),
++    }),
 +    processId: () => process.pid,
 +    lockSync: (directory, options) => lockfile.lockSync(directory, options),
 +    sleepSync: (milliseconds) => {
