@@ -292,6 +292,16 @@ provider behavior.
 This repository vendors no upstream source and maintains no fork. Upstream source is fetched per generation run against
 pinned, checksum-verified inputs, and is not committed here.
 
+## Downstream skills comparison
+
+- Source: [nigel-upstart/pi-buildout](https://github.com/nigel-upstart/pi-buildout), MIT; reviewed downstream `main` at
+  `5853d0a1834f3c361f9a3ccc8985e86a1ecb54c8`.
+- `dc102aa22b5fb616b4e3b014e08b2fc67dc527e2` independently separates resolved remove paths from stored spellings in the
+  fork's global/repository scopes. This cross-check confirmed the single-expansion behavior; this branch computes a
+  comparison key from the original operand and retains its own directory-scope and empty-expansion rules.
+- The downstream Git builder hardening and Pi 1.6.0 overlay were inspected for overlap. No downstream code, artifacts,
+  fork-specific trust rules, release policy, or retained-version choices were imported in this comparison.
+
 ## Git checkout discovery
 
 - Source: [Git](https://git-scm.com/), [canonical source repository](https://github.com/git/git), `v2.55.0`, GPL-2.0.
