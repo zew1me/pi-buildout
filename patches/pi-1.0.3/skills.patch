@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..4ca03e9
+index 0000000..13fda5b
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,827 @@
+@@ -0,0 +1,829 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -531,7 +531,9 @@ index 0000000..4ca03e9
 +    // loads first and wins, as global already does over repository.
 +    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
 +    const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
-+    if (directoryKey !== undefined)
++    // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
++    // activate them even if the entries themselves point to paths that still exist outside the base.
++    if (directoryKey !== undefined && env.fs.existsSync(directoryKey))
 +        append("directory", directoryConfig[directoryKey]);
 +    return { entries, directoryKey };
 +}

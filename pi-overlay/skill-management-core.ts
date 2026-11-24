@@ -650,7 +650,9 @@ function readActiveSkillEntries(
   // loads first and wins, as global already does over repository.
   const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
   const directoryKey = Object.keys(directoryConfig).length > 0 ? resolveDirectoryKey(env, cwd) : undefined;
-  if (directoryKey !== undefined) append("directory", directoryConfig[directoryKey]);
+  // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
+  // activate them even if the entries themselves point to paths that still exist outside the base.
+  if (directoryKey !== undefined && env.fs.existsSync(directoryKey)) append("directory", directoryConfig[directoryKey]);
   return { entries, directoryKey };
 }
 

@@ -370,7 +370,7 @@ test("updatePersistedSkill scopes repository entries under the normalized repo k
 });
 
 test("worktrees of one repository share repository entries but keep separate directory entries", () => {
-  const { env, store } = createEnvironment();
+  const { env, store } = createEnvironment({ files: { "/home/dev/app": "", "/home/dev/worktrees/feature": "" } });
   withCheckouts(env, {
     "/home/dev/app": "/home/dev/app",
     "/home/dev/worktrees/feature": "/home/dev/worktrees/feature",
@@ -612,6 +612,7 @@ test("runSkillsCommand reports active skills and an empty state", async () => {
 test("active shows distinct removal operands for checkout-relative entries from a subdirectory", async () => {
   const { env, store } = createEnvironment({
     files: {
+      "/work": "",
       "/agent/directory-skills.json": JSON.stringify({
         "/work": { enabled: ["skills/review", "sub/skills/review"] },
       }),
@@ -948,7 +949,7 @@ test("a repository-relative entry resolves in, and is removable from, any checko
 test("a directory path is persisted relative to its base and resolves from any subdirectory", async () => {
   const { env, store } = createEnvironment();
   withCheckouts(env, { "/home/dev/app": "/home/dev/app", "/home/dev/app/docs": "/home/dev/app" });
-  const existing = new Set(["/home/dev/app/docs/delta", "/home/dev/shared/gamma"]);
+  const existing = new Set(["/home/dev/app", "/home/dev/app/docs/delta", "/home/dev/shared/gamma"]);
   env.fs.existsSync = (path) => existing.has(path) || store.has(path);
 
   for (const source of ["./delta", "~/shared/gamma"]) {
@@ -981,7 +982,7 @@ test("a directory path is persisted relative to its base and resolves from any s
 
 test("directory-relative persistence preserves a literal tilde and avoids expanding a variable twice", async () => {
   const { env, store } = createEnvironment({
-    files: { "/work/~/skill": "", "/work/$LITERAL/skill": "" },
+    files: { "/work": "", "/work/~/skill": "", "/work/$LITERAL/skill": "" },
     variables: { SKILL_PATH: "/work/$LITERAL/skill", LITERAL: "different" },
   });
   env.path.resolve = posix.resolve;
@@ -1027,7 +1028,7 @@ test("a fallback spelling whose literal variable is set now is rejected rather t
 });
 
 test("a directory-relative spelling that starts with whitespace keeps its ./ prefix", async () => {
-  const { env, store } = createEnvironment({ files: { "/work/ notes/SKILL.md": "" } });
+  const { env, store } = createEnvironment({ files: { "/work": "", "/work/ notes/SKILL.md": "" } });
   env.path.resolve = posix.resolve;
   const options = { cwd: "/work", agentDir: "/agent" };
   const result = await runSkillsCommand(env, ["add", "./ notes/SKILL.md", "--directory"], options);
@@ -1065,6 +1066,7 @@ test("a directory mutation formats, matches, and stores under one base lookup", 
 test("relative directory entries resolve against the same base used to select them", async () => {
   const { env } = createEnvironment({
     files: {
+      "/checkout": "",
       "/agent/directory-skills.json": JSON.stringify({ "/checkout": { enabled: ["skills/local"] } }),
       "/checkout/skills/local": "",
     },
@@ -1090,11 +1092,35 @@ test("relative directory entries resolve against the same base used to select th
   assert.equal(lookups, 1);
 });
 
+test("a vanished directory base does not activate its absolute paths on reload", async () => {
+  const config = JSON.stringify({ "/work": { enabled: ["/skills/directory"] } });
+  const { env, store, writes } = createEnvironment({
+    files: {
+      "/work": "",
+      "/agent/skills.json": JSON.stringify({ enabled: ["/skills/global"] }),
+      "/agent/directory-skills.json": config,
+      "/skills/directory": "",
+      "/skills/global": "",
+    },
+  });
+  const options = { cwd: "/work", agentDir: "/agent", resolveResourcePath: (path) => path };
+  assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, ["/skills/global", "/skills/directory"]);
+
+  store.delete("/work");
+  assert.deepEqual(await resolveActiveSkillPaths(env, options), { paths: ["/skills/global"], diagnostics: [] });
+  assert.deepEqual(writes, []);
+  assert.equal(store.get("/agent/directory-skills.json"), config);
+
+  store.set("/work", "");
+  assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, ["/skills/global", "/skills/directory"]);
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {
       "/agent/skills.json": JSON.stringify({ enabled: ["/skills/global/review"] }),
       "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: ["/skills/repo/review"] } }),
+      "/home/dev/app": "",
       "/agent/directory-skills.json": JSON.stringify({ "/home/dev/app": { enabled: ["/skills/dir/review"] } }),
       "/skills/global/review": "",
       "/skills/repo/review": "",
@@ -1123,7 +1149,10 @@ test("active entries list directory scope after global and repository scopes", a
 
 test("an unresolvable directory-relative entry says what it resolves against", async () => {
   const { env } = createEnvironment({
-    files: { "/agent/directory-skills.json": JSON.stringify({ "/scratch": { enabled: ["skills/missing"] } }) },
+    files: {
+      "/scratch": "",
+      "/agent/directory-skills.json": JSON.stringify({ "/scratch": { enabled: ["skills/missing"] } }),
+    },
   });
 
   const result = await resolveActiveSkillPaths(env, {
