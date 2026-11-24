@@ -290,6 +290,13 @@ provider behavior.
 This repository vendors no upstream source and maintains no fork. Upstream source is fetched per generation run against
 pinned, checksum-verified inputs, and is not committed here.
 
+## Git checkout discovery
+
+- Source: [Git](https://git-scm.com/), [canonical source repository](https://github.com/git/git), `v2.55.0`, GPL-2.0.
+- The output of `git rev-parse --local-env-vars` identified repository-local environment variable names to exclude from
+  the overlay's checkout discovery subprocess. The overlay still delegates discovery to Git; it does not copy Git source
+  or adopt Git's repository discovery implementation.
+
 ## Pi documentation and examples
 
 - Source: `@earendil-works/pi-coding-agent`

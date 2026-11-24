@@ -136,13 +136,15 @@ async function runPatchedCli(target, args, { agentDir, cwd, home = process.env.H
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [join(target, "dist", "bundle", "cli.js"), ...args], {
       cwd,
-      env: testEnvironment({
-        ...(home === undefined ? {} : { HOME: home }),
-        PI_CODING_AGENT_DIR: agentDir,
-        PI_OFFLINE: "1",
-        PI_SKIP_VERSION_CHECK: "1",
+      env: {
+        ...testEnvironment({
+          ...(home === undefined ? {} : { HOME: home }),
+          PI_CODING_AGENT_DIR: agentDir,
+          PI_OFFLINE: "1",
+          PI_SKIP_VERSION_CHECK: "1",
+        }),
         ...env,
-      }),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -614,6 +616,13 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
     const plainSkill = join(await realpath(plainDirectory), ".agents", "skills", "local", "SKILL.md");
     assert.deepEqual(await directoryPaths(mainCheckout), [mainSkill]);
     assert.deepEqual(await directoryPaths(featureWorktree), [], "another worktree of the same remote is unaffected");
+    const inheritedGit = await runPatchedCli(patchedPackage, ["skills", "active"], {
+      agentDir: worktreeAgentDir,
+      cwd: featureWorktree,
+      env: { GIT_DIR: join(mainCheckout, ".git"), GIT_WORK_TREE: mainCheckout },
+    });
+    assert.equal(inheritedGit.code, 0, inheritedGit.stderr);
+    assert.equal(inheritedGit.stdout.trim(), "Skills: none", "inherited Git settings must not select another checkout");
     assert.deepEqual(await directoryPaths(plainDirectory), [plainSkill]);
     assert.deepEqual(
       await directoryPaths(mainCheckout, { noSkills: true }),

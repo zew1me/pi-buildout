@@ -50,12 +50,36 @@ export type {
 
 const lockWait = new Int32Array(new SharedArrayBuffer(4));
 
+// `git rev-parse --local-env-vars` lists settings tied to a repository. In particular,
+// inherited GIT_DIR and GIT_WORK_TREE can override the checkout selected with `git -C`.
+const repositoryGitVariables = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
 const env: SkillEnvironment = {
   fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
   path: { dirname, isAbsolute, join, relative, resolve, sep },
   homedir,
   environmentVariable: (name) => process.env[name],
-  execFileSync,
+  execFileSync: (file, args, options) => {
+    const childEnv = { ...process.env };
+    for (const name of repositoryGitVariables) delete childEnv[name];
+    return execFileSync(file, args, { ...options, env: childEnv });
+  },
   processId: () => process.pid,
   lockSync: (directory, options) => lockfile.lockSync(directory, options),
   sleepSync: (milliseconds) => {
