@@ -1161,6 +1161,37 @@ test("directory discovery failures skip cwd entries but keep the other scopes av
   assert.match(result.diagnostics[0]?.message ?? "", /Ignoring directory skills: Git checkout discovery failed/);
 });
 
+test("active keeps listing other scopes when directory discovery fails", async () => {
+  const { env, writes } = createEnvironment({
+    files: {
+      "/srv/bare.git": "",
+      "/srv/bare.git/skill": "",
+      "/agent/skills.json": JSON.stringify({ enabled: ["global-skill"] }),
+      "/agent/directory-skills.json": JSON.stringify({ "/work/other": { enabled: ["./skills/review"] } }),
+    },
+  });
+  env.execFileSync = () => {
+    throw Object.assign(new Error("bare repository"), {
+      status: 128,
+      stderr: "fatal: this operation must be run in a work tree\n",
+    });
+  };
+  const result = await runSkillsCommand(env, ["active"], { cwd: "/srv/bare.git", agentDir: "/agent" });
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.deepEqual(result.lines.slice(0, 2), ["Active skills:", "  global: global-skill"]);
+  assert.match(result.lines[2] ?? "", /Ignoring directory skills: Git checkout discovery failed/);
+  assert.deepEqual(result.activeEntries, [{ scope: "global", source: "global-skill" }]);
+  assert.deepEqual(writes, []);
+
+  const mutation = await runSkillsCommand(env, ["add", "./skill", "--directory"], {
+    cwd: "/srv/bare.git",
+    agentDir: "/agent",
+  });
+  assert.equal(mutation.exitCode, 1, mutation.lines.join("\n"));
+  assert.match(mutation.lines.join("\n"), /Git checkout discovery failed/);
+  assert.deepEqual(writes, []);
+});
+
 test("directory discovery recognizes Git's filesystem-boundary diagnostic", () => {
   const { env } = createEnvironment();
   env.execFileSync = () => {

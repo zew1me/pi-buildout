@@ -68,10 +68,10 @@ index 563d7d5..786a237 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..faace70
+index 0000000..7ac34d9
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,885 @@
+@@ -0,0 +1,890 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -559,7 +559,11 @@ index 0000000..faace70
 +export function getActiveSkillEntries(env, options) {
 +    return readActiveSkillEntries(env, options).entries;
 +}
-+function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
++/**
++ * `strictDirectory` defaults to `strict`. Listing passes `false` so a Git discovery failure is reported through
++ * `onWarn` while the other scopes still list; only mutations need strict discovery to avoid a fallback bucket.
++ */
++function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }, strictDirectory = strict) {
 +    const entries = [];
 +    const safeRead = (path) => {
 +        try {
@@ -586,7 +590,7 @@ index 0000000..faace70
 +    // Directory entries come last, so on a name collision between different files the broader scope's skill
 +    // loads first and wins, as global already does over repository.
 +    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-+    const directoryKey = Object.keys(directoryConfig).length > 0 ? readDirectoryKey(env, cwd, strict, onWarn) : undefined;
++    const directoryKey = Object.keys(directoryConfig).length > 0 ? readDirectoryKey(env, cwd, strictDirectory, onWarn) : undefined;
 +    // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
 +    // activate them even if the entries themselves point to paths that still exist outside the base.
 +    if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
@@ -689,7 +693,8 @@ index 0000000..faace70
 +function runActiveCommand(env, rest, surface, options) {
 +    if (rest.length !== 0)
 +        throw new Error(`Usage: ${surface} active`);
-+    const { entries, directoryKey } = readActiveSkillEntries(env, { ...options, strict: true });
++    const warnings = [];
++    const { entries, directoryKey } = readActiveSkillEntries(env, { ...options, strict: true, onWarn: (message) => warnings.push(message) }, false);
 +    let repoRoot;
 +    const operand = ({ source, scope }) => {
 +        if (scope === "global" || !looksLikePath(source))
@@ -712,8 +717,8 @@ index 0000000..faace70
 +    return {
 +        exitCode: 0,
 +        lines: entries.length
-+            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`)]
-+            : ["Skills: none"],
++            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`), ...warnings]
++            : ["Skills: none", ...warnings],
 +        activeEntries: entries,
 +    };
 +}

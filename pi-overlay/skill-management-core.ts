@@ -685,9 +685,14 @@ export function getActiveSkillEntries(env: SkillEnvironment, options: ActiveSkil
   return readActiveSkillEntries(env, options).entries;
 }
 
+/**
+ * `strictDirectory` defaults to `strict`. Listing passes `false` so a Git discovery failure is reported through
+ * `onWarn` while the other scopes still list; only mutations need strict discovery to avoid a fallback bucket.
+ */
 function readActiveSkillEntries(
   env: SkillEnvironment,
   { cwd, agentDir, strict = false, onWarn }: ActiveSkillEntriesOptions,
+  strictDirectory = strict,
 ): { entries: ActiveSkillEntry[]; directoryKey: string | undefined } {
   const entries: ActiveSkillEntry[] = [];
   const safeRead = (path: string): JsonRecord => {
@@ -714,7 +719,8 @@ function readActiveSkillEntries(
   // Directory entries come last, so on a name collision between different files the broader scope's skill
   // loads first and wins, as global already does over repository.
   const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-  const directoryKey = Object.keys(directoryConfig).length > 0 ? readDirectoryKey(env, cwd, strict, onWarn) : undefined;
+  const directoryKey =
+    Object.keys(directoryConfig).length > 0 ? readDirectoryKey(env, cwd, strictDirectory, onWarn) : undefined;
   // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
   // activate them even if the entries themselves point to paths that still exist outside the base.
   if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
@@ -846,7 +852,12 @@ function runActiveCommand(
   options: SkillCommandOptions,
 ): SkillCommandResult {
   if (rest.length !== 0) throw new Error(`Usage: ${surface} active`);
-  const { entries, directoryKey } = readActiveSkillEntries(env, { ...options, strict: true });
+  const warnings: string[] = [];
+  const { entries, directoryKey } = readActiveSkillEntries(
+    env,
+    { ...options, strict: true, onWarn: (message) => warnings.push(message) },
+    false,
+  );
   let repoRoot: { value: string | undefined } | undefined;
   const operand = ({ source, scope }: ActiveSkillEntry): string => {
     if (scope === "global" || !looksLikePath(source)) return source;
@@ -867,8 +878,8 @@ function runActiveCommand(
   return {
     exitCode: 0,
     lines: entries.length
-      ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`)]
-      : ["Skills: none"],
+      ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`), ...warnings]
+      : ["Skills: none", ...warnings],
     activeEntries: entries,
   };
 }
