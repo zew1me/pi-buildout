@@ -1016,6 +1016,12 @@ export async function resolveActiveSkillPaths(
     onWarn: (message) => diagnostics.push({ type: "warning", message }),
   });
 
+  // Look up the checkout root next to the repository key, before the catalog wait below. A checkout that
+  // changes during the wait must not supply the base for entries selected through the earlier checkout's key.
+  const repoRoot = entries.some((entry) => entry.scope === "repo" && isCheckoutRelative(env, entry.source))
+    ? findRepoRoot(env, cwd)
+    : undefined;
+
   let catalogPathsByName: Map<string, string> | undefined;
   if (entries.some((entry) => !looksLikePath(entry.source))) {
     const catalog = await getSkillCatalog(env, context);
@@ -1025,7 +1031,7 @@ export async function resolveActiveSkillPaths(
   const directoryUnavailable =
     catalogPathsByName !== undefined && directoryKey !== undefined && !env.fs.isDirectory(directoryKey);
 
-  const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey);
+  const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey, repoRoot);
   for (const entry of entries) {
     if (entry.scope === "directory" && directoryUnavailable) continue;
     const path = looksLikePath(entry.source) ? resolveEntryPath(entry) : catalogPathsByName?.get(entry.source);
@@ -1035,19 +1041,26 @@ export async function resolveActiveSkillPaths(
   return { paths, diagnostics };
 }
 
+/** Whether a path entry resolves against its scope's base rather than standing on its own. */
+function isCheckoutRelative(env: SkillEnvironment, source: string): boolean {
+  if (!looksLikePath(source)) return false;
+  const value = expandEnvironmentVariables(env, source).value.trim();
+  return value !== "" && !isAnchoredPath(env, value);
+}
+
 function activeEntryPathResolver(
   env: SkillEnvironment,
-  { cwd, resolveResourcePath }: ActiveSkillPathsContext,
+  { resolveResourcePath }: ActiveSkillPathsContext,
   directoryKey: string | undefined,
+  repoRoot: string | undefined,
 ): (entry: ActiveSkillEntry) => string | undefined {
-  let repoRoot: { value: string | undefined } | undefined;
   return ({ source, scope }) => {
     const value = expandEnvironmentVariables(env, source).value.trim();
     if (value === "") return undefined;
     let base: string | undefined;
     if (!isAnchoredPath(env, value)) {
       if (scope === "directory") base = directoryKey;
-      if (scope === "repo") base = (repoRoot ??= { value: findRepoRoot(env, cwd) }).value;
+      if (scope === "repo") base = repoRoot;
     }
     const path = base === undefined ? resolveResourcePath(value) : env.path.resolve(base, value);
     return env.fs.existsSync(path) ? path : undefined;

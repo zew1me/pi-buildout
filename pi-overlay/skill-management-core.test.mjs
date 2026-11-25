@@ -1312,6 +1312,36 @@ test("reload skips directory entries if the captured base vanishes during catalo
   assert.equal(store.get("/agent/directory-skills.json"), config);
 });
 
+test("repository entries resolve against the checkout observed before the catalog wait", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/agent/skills.json": JSON.stringify({ enabled: ["global-skill"] }),
+      "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: ["skills/review"] } }),
+      "/work/app/skills/review": "",
+      "/work/app/sub/skills/review": "",
+    },
+  });
+  env.path.resolve = posix.resolve;
+  withCheckouts(env, { "/work/app/sub": "/work/app" });
+  env.resolvePackageResources = async () => {
+    await Promise.resolve();
+    // `sub` becomes a nested checkout of the same remote while the catalog builds.
+    withCheckouts(env, { "/work/app/sub": "/work/app/sub" });
+    return {
+      skills: [{ enabled: true, path: "/skills/global", metadata: { origin: "package", source: "local" } }],
+    };
+  };
+  env.loadSkills = () => ({
+    skills: [{ name: "global-skill", description: "From catalog", filePath: "/skills/global" }],
+  });
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/work/app/sub",
+    agentDir: "/agent",
+    resolveResourcePath: (path) => path,
+  });
+  assert.deepEqual(result, { paths: ["/skills/global", "/work/app/skills/review"], diagnostics: [] });
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {

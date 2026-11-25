@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..7ac34d9
+index 0000000..9769889
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,890 @@
+@@ -0,0 +1,901 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -800,6 +800,11 @@ index 0000000..7ac34d9
 +        agentDir,
 +        onWarn: (message) => diagnostics.push({ type: "warning", message }),
 +    });
++    // Look up the checkout root next to the repository key, before the catalog wait below. A checkout that
++    // changes during the wait must not supply the base for entries selected through the earlier checkout's key.
++    const repoRoot = entries.some((entry) => entry.scope === "repo" && isCheckoutRelative(env, entry.source))
++        ? findRepoRoot(env, cwd)
++        : undefined;
 +    let catalogPathsByName;
 +    if (entries.some((entry) => !looksLikePath(entry.source))) {
 +        const catalog = await getSkillCatalog(env, context);
@@ -807,7 +812,7 @@ index 0000000..7ac34d9
 +    }
 +    // Catalog lookup can yield while the base disappears. Validate the captured key, not another checkout lookup.
 +    const directoryUnavailable = catalogPathsByName !== undefined && directoryKey !== undefined && !env.fs.isDirectory(directoryKey);
-+    const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey);
++    const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey, repoRoot);
 +    for (const entry of entries) {
 +        if (entry.scope === "directory" && directoryUnavailable)
 +            continue;
@@ -819,8 +824,14 @@ index 0000000..7ac34d9
 +    }
 +    return { paths, diagnostics };
 +}
-+function activeEntryPathResolver(env, { cwd, resolveResourcePath }, directoryKey) {
-+    let repoRoot;
++/** Whether a path entry resolves against its scope's base rather than standing on its own. */
++function isCheckoutRelative(env, source) {
++    if (!looksLikePath(source))
++        return false;
++    const value = expandEnvironmentVariables(env, source).value.trim();
++    return value !== "" && !isAnchoredPath(env, value);
++}
++function activeEntryPathResolver(env, { resolveResourcePath }, directoryKey, repoRoot) {
 +    return ({ source, scope }) => {
 +        const value = expandEnvironmentVariables(env, source).value.trim();
 +        if (value === "")
@@ -830,7 +841,7 @@ index 0000000..7ac34d9
 +            if (scope === "directory")
 +                base = directoryKey;
 +            if (scope === "repo")
-+                base = (repoRoot ??= { value: findRepoRoot(env, cwd) }).value;
++                base = repoRoot;
 +        }
 +        const path = base === undefined ? resolveResourcePath(value) : env.path.resolve(base, value);
 +        return env.fs.existsSync(path) ? path : undefined;
