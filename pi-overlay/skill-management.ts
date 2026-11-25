@@ -62,7 +62,15 @@ const env: SkillEnvironment = {
     },
     mkdirSync,
     readFileSync,
-    realpathSync,
+    // The native call returns the filesystem's own spelling on macOS and Windows, so casing aliases on a
+    // case-insensitive volume share one directory key. Some Windows volumes reject it; use the JS fallback there.
+    realpathSync: (path) => {
+      try {
+        return realpathSync.native(path);
+      } catch {
+        return realpathSync(path);
+      }
+    },
     renameSync,
     writeFileSync,
   },

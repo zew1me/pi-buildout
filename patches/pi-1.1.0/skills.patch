@@ -976,10 +976,10 @@ index 0000000..9769889
 \ No newline at end of file
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..53d7e3a
+index 0000000..4a2a414
 --- /dev/null
 +++ b/dist/core/skill-management.js
-@@ -0,0 +1,150 @@
+@@ -0,0 +1,159 @@
 +/**
 + * Pi-facing entry point for opt-in skill management.
 + *
@@ -1019,7 +1019,16 @@ index 0000000..53d7e3a
 +        },
 +        mkdirSync,
 +        readFileSync,
-+        realpathSync,
++        // The native call returns the filesystem's own spelling on macOS and Windows, so casing aliases on a
++        // case-insensitive volume share one directory key. Some Windows volumes reject it; use the JS fallback there.
++        realpathSync: (path) => {
++            try {
++                return realpathSync.native(path);
++            }
++            catch {
++                return realpathSync(path);
++            }
++        },
 +        renameSync,
 +        writeFileSync,
 +    },
@@ -1226,7 +1235,7 @@ index 421255a..7bf38fa 100644
          if (this.session.isStreaming) {
              this.showWarning("Wait for the current response to finish before reloading.");
 diff --git a/docs/skills.md b/docs/skills.md
-index 19d2bf2..cc1fbf4 100644
+index 19d2bf2..f32a19e 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -40,9 +40,11 @@ Use relative paths from the skill directory when referring to bundled files. Pi
@@ -1315,7 +1324,7 @@ index 19d2bf2..cc1fbf4 100644
 +}
 +```
 +
-+Clones and worktrees share repository-scoped entries only if they resolve to the same repository key. For example, a fork that selects its own `origin` instead of the original repository's remote gets a different key. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. Keys are real paths, so a directory reached through a symlink shares the entries of its target. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
++Clones and worktrees share repository-scoped entries only if they resolve to the same repository key. For example, a fork that selects its own `origin` instead of the original repository's remote gets a different key. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. Keys are real paths, so a directory reached through a symlink shares the entries of its target. On macOS and Windows a key uses the spelling stored on disk, so a differently cased path to the same directory on a case-insensitive volume shares its entries too. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
 +
 +Manage activation with either the interactive `/skills` command or the one-shot CLI:
 +
