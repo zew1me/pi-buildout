@@ -772,7 +772,7 @@ test("runSkillsCommand defers session scope to the caller instead of persisting 
   });
 
   assert.equal(result.exitCode, 0);
-  assert.deepEqual(result.session, { action: "add", source: "alpha" });
+  assert.deepEqual(result.session, { action: "add", path: "/pkg/alpha/SKILL.md" });
   assert.equal(store.has("/agent/skills.json"), false, "session scope writes nothing to disk");
 });
 
@@ -1974,6 +1974,25 @@ test("/skills add and remove --session expand variables in path inputs", async (
   await handleSkillsInteractive(env, "/skills remove $SKILLS/alpha --session", context);
   assert.deepEqual(calls.errors, []);
   assert.deepEqual(paths, []);
+});
+
+test("session add and remove agree when an expanded value contains a literal variable", async () => {
+  const literal = "/opt/$PROFILE/tool";
+  const expandedAgain = "/opt/prod/tool";
+  const { env } = createEnvironment({
+    variables: { SKILL_DIR: literal, PROFILE: "prod" },
+    files: { [literal]: "", [expandedAgain]: "" },
+  });
+  const paths = [expandedAgain];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+
+  await handleSkillsInteractive(env, "/skills add $SKILL_DIR --session", context);
+  assert.deepEqual(paths, [expandedAgain, literal]);
+
+  await handleSkillsInteractive(env, "/skills remove $SKILL_DIR --session", context);
+  assert.deepEqual(paths, [expandedAgain]);
+  assert.deepEqual(calls.errors, []);
+  assert.equal(calls.reloads, 2);
 });
 
 test("/skills remove --session does not treat an empty expanded path as the working directory", async () => {

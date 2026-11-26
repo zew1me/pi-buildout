@@ -276,7 +276,10 @@ and `docs/skills.md`. Its unchanged context and modified lines derive from the M
 is original overlay logic; it reuses Pi's existing path order and `loadSkills` behavior (first name wins and symlink
 aliases of an already-loaded skill are skipped). In the retained releases, Pi's `src/main.ts` passes `--skill` as
 `additionalSkillPaths`; the overlay preserves upstream's placement of those paths after the primary list. It does not
-adopt a new collision policy or copy the loader implementation.
+adopt a new collision policy or copy the loader implementation. Pi 1.6.0 (`faac585884ae2c013a6b1400f3e9e77f10b34bac`,
+MIT) also confirms the boundary used for session activation: `additionalSkillPaths` accepts already resolved paths, and
+ordinary resource paths use Pi's existing `resolvePath`. The overlay passes the validated path without adding another
+expansion step or copying the upstream resolver.
 
 `pi-overlay/versions/<version>/replacements/dist/bundle/cli-runtime.js` and `rpc-entry.js` are original hand-written
 wrappers, not derived from upstream's generated bundle output. They replace Pi's esbuild-produced bundled entrypoints so

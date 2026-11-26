@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..1bbe3b2
+index 0000000..fe65146
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,911 @@
+@@ -0,0 +1,907 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -767,7 +767,10 @@ index 0000000..1bbe3b2
 +    if (resolution && !resolution.resolved)
 +        throw new Error(skillNotFoundMessage(env, source));
 +    if (scope === "session") {
-+        return { exitCode: 0, lines: [], session: { action: command, source: resolution?.normalized ?? source } };
++        // Add already resolved the path or catalog name. Do not interpret the resolved path as another operand.
++        const path = resolution?.resolved;
++        const session = path === undefined ? { action: "remove", source } : { action: "add", path };
++        return { exitCode: 0, lines: [], session };
 +    }
 +    const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
 +    const updated = resolution
@@ -858,11 +861,10 @@ index 0000000..1bbe3b2
 +    };
 +}
 +/**
-+ * Resolves a single skill entry for session scope.
++ * Resolves a single skill entry against the loader's path and catalog context.
 + *
 + * Returns both the normalized form (an expanded path, or the catalog name unchanged) and the concrete file
-+ * path when one exists. Session activation needs both: the normalized form to match entries already in the
-+ * session list, and the resolved path to add.
++ * path when one exists.
 + */
 +export async function resolveSkillEntryPath(env, context, source) {
 +    const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
@@ -885,22 +887,16 @@ index 0000000..1bbe3b2
 + * Returns the line to show, or `undefined` when it has already reported an error. The list is mutated in
 + * place because the loader holds the same array.
 + */
-+async function applySessionSkillChange(env, session, context) {
-+    const { cwd, agentDir, settingsManager, additionalSkillPaths, resolveResourcePath } = context;
++function applySessionSkillChange(env, session, context) {
++    const { cwd, agentDir, additionalSkillPaths, resolveResourcePath } = context;
 +    if (!additionalSkillPaths) {
 +        context.showError("Session skill activation is unavailable for this resource loader.");
 +        return undefined;
 +    }
 +    if (session.action === "add") {
-+        const pathContext = { cwd, agentDir, settingsManager, resolveResourcePath };
-+        const { resolved } = await resolveSkillEntryPath(env, pathContext, session.source);
-+        if (!resolved) {
-+            context.showError(`Skill not found in the catalog: ${session.source}`);
-+            return undefined;
-+        }
-+        if (!additionalSkillPaths.includes(resolved))
-+            additionalSkillPaths.push(resolved);
-+        return `Enabled ${resolved} for this session.`;
++        if (!additionalSkillPaths.includes(session.path))
++            additionalSkillPaths.push(session.path);
++        return `Enabled ${session.path} for this session.`;
 +    }
 +    // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
 +    // paths after applying the same resolution used by the resource loader.
@@ -957,7 +953,7 @@ index 0000000..1bbe3b2
 +    }
 +    let lines = result.lines;
 +    if (result.session) {
-+        const line = await applySessionSkillChange(env, result.session, context);
++        const line = applySessionSkillChange(env, result.session, context);
 +        if (line === undefined)
 +            return;
 +        lines = [line];

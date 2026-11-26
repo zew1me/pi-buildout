@@ -116,11 +116,13 @@ export type SkillCommandOptions = {
   allowSession?: boolean;
 };
 
+type SessionSkillChange = { action: "add"; path: string } | { action: "remove"; source: string };
+
 export type SkillCommandResult = {
   exitCode: number;
   lines: string[];
   activeEntries?: ActiveSkillEntry[];
-  session?: { action: "add" | "remove"; source: string };
+  session?: SessionSkillChange;
 };
 
 export type ActiveSkillEntriesOptions = {
@@ -964,7 +966,10 @@ async function runMutationCommand(
   if (resolution && !resolution.resolved) throw new Error(skillNotFoundMessage(env, source));
 
   if (scope === "session") {
-    return { exitCode: 0, lines: [], session: { action: command, source: resolution?.normalized ?? source } };
+    // Add already resolved the path or catalog name. Do not interpret the resolved path as another operand.
+    const path = resolution?.resolved;
+    const session: SessionSkillChange = path === undefined ? { action: "remove", source } : { action: "add", path };
+    return { exitCode: 0, lines: [], session };
   }
 
   const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
@@ -1090,11 +1095,10 @@ function activeEntryPathResolver(
 }
 
 /**
- * Resolves a single skill entry for session scope.
+ * Resolves a single skill entry against the loader's path and catalog context.
  *
  * Returns both the normalized form (an expanded path, or the catalog name unchanged) and the concrete file
- * path when one exists. Session activation needs both: the normalized form to match entries already in the
- * session list, and the resolved path to add.
+ * path when one exists.
  */
 export async function resolveSkillEntryPath(
   env: SkillEnvironment,
@@ -1145,26 +1149,20 @@ export type InteractiveSkillsContext = {
  * Returns the line to show, or `undefined` when it has already reported an error. The list is mutated in
  * place because the loader holds the same array.
  */
-async function applySessionSkillChange(
+function applySessionSkillChange(
   env: SkillEnvironment,
-  session: { action: "add" | "remove"; source: string },
+  session: SessionSkillChange,
   context: InteractiveSkillsContext,
-): Promise<string | undefined> {
-  const { cwd, agentDir, settingsManager, additionalSkillPaths, resolveResourcePath } = context;
+): string | undefined {
+  const { cwd, agentDir, additionalSkillPaths, resolveResourcePath } = context;
   if (!additionalSkillPaths) {
     context.showError("Session skill activation is unavailable for this resource loader.");
     return undefined;
   }
 
   if (session.action === "add") {
-    const pathContext = { cwd, agentDir, settingsManager, resolveResourcePath };
-    const { resolved } = await resolveSkillEntryPath(env, pathContext, session.source);
-    if (!resolved) {
-      context.showError(`Skill not found in the catalog: ${session.source}`);
-      return undefined;
-    }
-    if (!additionalSkillPaths.includes(resolved)) additionalSkillPaths.push(resolved);
-    return `Enabled ${resolved} for this session.`;
+    if (!additionalSkillPaths.includes(session.path)) additionalSkillPaths.push(session.path);
+    return `Enabled ${session.path} for this session.`;
   }
 
   // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
@@ -1229,7 +1227,7 @@ export async function handleSkillsInteractive(
 
   let lines = result.lines;
   if (result.session) {
-    const line = await applySessionSkillChange(env, result.session, context);
+    const line = applySessionSkillChange(env, result.session, context);
     if (line === undefined) return;
     lines = [line];
   }
