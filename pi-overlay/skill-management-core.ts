@@ -594,13 +594,17 @@ function normalizePersistedSource(
   env: SkillEnvironment,
   source: string | undefined,
   context: EntryContext,
+  kind: "stored" | "candidate",
 ): string | undefined {
   if (!source) return undefined;
   if (!looksLikePath(source)) return source;
   const value = expandEnvironmentVariables(env, source).value.trim();
   if (value === "") return source;
+  const anchored = isAnchoredPath(env, value);
+  // Stored relative repo paths name a checkout, not the cwd of a bare repo or other rootless caller.
+  if (!anchored && kind === "stored" && context.scope === "repo" && context.root === undefined) return undefined;
   const path =
-    context.root !== undefined && !isAnchoredPath(env, value)
+    context.root !== undefined && !anchored
       ? env.path.resolve(context.root, value)
       : env.resolvePath(value, context.cwd, { trim: true });
   return canonicalSkillPath(env, path);
@@ -639,7 +643,7 @@ export function updatePersistedSkill(
   options: { cwd: string; agentDir: string },
   resolvedTarget: MutationTarget = mutationTarget(env, scope, options.cwd, options.agentDir),
 ): boolean {
-  const key = normalizePersistedSource(env, source, resolvedTarget.context);
+  const key = normalizePersistedSource(env, source, resolvedTarget.context, "candidate");
   return updatePersistedSkillByKey(env, action, source, scope, resolvedTarget, key);
 }
 
@@ -654,7 +658,8 @@ function updatePersistedSkillByKey(
   const path = location.path;
   if (path === undefined) throw new Error(`Scope ${scope} has no persisted configuration.`);
 
-  const matches = (entry: unknown): boolean => normalizePersistedSource(env, sourceOf(entry), context) === key;
+  const matches = (entry: unknown): boolean =>
+    key !== undefined && normalizePersistedSource(env, sourceOf(entry), context, "stored") === key;
 
   return withSkillConfigLock(env, path, () => {
     const config = readJson(env, path);
@@ -692,7 +697,7 @@ function removePersistedSkill(
   resolvedTarget: MutationTarget,
 ): boolean {
   const { context } = resolvedTarget;
-  const operand = normalizePersistedSource(env, source, { ...context, root: undefined });
+  const operand = normalizePersistedSource(env, source, { ...context, root: undefined }, "candidate");
   const remove = (key: string | undefined): boolean =>
     updatePersistedSkillByKey(env, "remove", source, scope, resolvedTarget, key);
   return (

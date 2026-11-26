@@ -1439,6 +1439,40 @@ test("relative repository entries stay unresolved when no checkout root was obse
   assert.equal(result.diagnostics.length, 1);
 });
 
+test("rootless repository mutations never match stored checkout-relative paths", async () => {
+  const shared = "github.com:team/app";
+  const config = "/agent/repo-skills.json";
+  const relative = { source: "./skills/review" };
+  const variable = "$REVIEW";
+  const absolute = "/bare/skills/review";
+  const { env, store } = createEnvironment({
+    git: { "remote get-url origin": "https://github.com/team/app.git" },
+    variables: { REVIEW: "./skills/review" },
+    files: {
+      [config]: JSON.stringify({ [shared]: { enabled: [relative, variable, "catalog-skill"] } }),
+      [absolute]: "",
+    },
+  });
+  const options = { cwd: "/bare", agentDir: "/agent" };
+  const entries = () => readStored(store, config)[shared].enabled;
+
+  const add = await runSkillsCommand(env, ["add", absolute, "--repo"], options);
+  assert.equal(add.exitCode, 0, add.lines.join("\n"));
+  assert.deepEqual(entries(), [relative, variable, "catalog-skill", absolute]);
+
+  const remove = await runSkillsCommand(env, ["remove", "./skills/review", "--repo"], options);
+  assert.equal(remove.exitCode, 0, remove.lines.join("\n"));
+  assert.deepEqual(entries(), [relative, variable, "catalog-skill"]);
+
+  const missing = await runSkillsCommand(env, ["remove", absolute, "--repo"], options);
+  assert.equal(missing.exitCode, 1);
+  assert.deepEqual(entries(), [relative, variable, "catalog-skill"]);
+
+  const catalog = await runSkillsCommand(env, ["remove", "catalog-skill", "--repo"], options);
+  assert.equal(catalog.exitCode, 0, catalog.lines.join("\n"));
+  assert.deepEqual(entries(), [relative, variable]);
+});
+
 test("a repository add selects its bucket and its stored path from one checkout lookup", async () => {
   const { env, store } = createEnvironment({ files: { "/work/outer/sub/skills/review": "" } });
   env.path.resolve = posix.resolve;

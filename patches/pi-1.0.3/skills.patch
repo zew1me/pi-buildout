@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..fe65146
+index 0000000..c559759
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,907 @@
+@@ -0,0 +1,911 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -479,7 +479,7 @@ index 0000000..fe65146
 + * local folder make a catalog-name entry match, or block, a path entry. A path entry compares by the real path
 + * it names, so `~/x`, `$HOME/x`, and a repository- or directory-relative `x` all match the same absolute path.
 + */
-+function normalizePersistedSource(env, source, context) {
++function normalizePersistedSource(env, source, context, kind) {
 +    if (!source)
 +        return undefined;
 +    if (!looksLikePath(source))
@@ -487,7 +487,11 @@ index 0000000..fe65146
 +    const value = expandEnvironmentVariables(env, source).value.trim();
 +    if (value === "")
 +        return source;
-+    const path = context.root !== undefined && !isAnchoredPath(env, value)
++    const anchored = isAnchoredPath(env, value);
++    // Stored relative repo paths name a checkout, not the cwd of a bare repo or other rootless caller.
++    if (!anchored && kind === "stored" && context.scope === "repo" && context.root === undefined)
++        return undefined;
++    const path = context.root !== undefined && !anchored
 +        ? env.path.resolve(context.root, value)
 +        : env.resolvePath(value, context.cwd, { trim: true });
 +    return canonicalSkillPath(env, path);
@@ -513,14 +517,14 @@ index 0000000..fe65146
 +    return { location, context: { cwd, scope, root: scope === "directory" ? location.key : undefined } };
 +}
 +export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
-+    const key = normalizePersistedSource(env, source, resolvedTarget.context);
++    const key = normalizePersistedSource(env, source, resolvedTarget.context, "candidate");
 +    return updatePersistedSkillByKey(env, action, source, scope, resolvedTarget, key);
 +}
 +function updatePersistedSkillByKey(env, action, source, scope, { location, context }, key) {
 +    const path = location.path;
 +    if (path === undefined)
 +        throw new Error(`Scope ${scope} has no persisted configuration.`);
-+    const matches = (entry) => normalizePersistedSource(env, sourceOf(entry), context) === key;
++    const matches = (entry) => key !== undefined && normalizePersistedSource(env, sourceOf(entry), context, "stored") === key;
 +    return withSkillConfigLock(env, path, () => {
 +        const config = readJson(env, path);
 +        const existing = location.key === undefined ? config : config[location.key];
@@ -551,7 +555,7 @@ index 0000000..fe65146
 + */
 +function removePersistedSkill(env, source, scope, resolvedTarget) {
 +    const { context } = resolvedTarget;
-+    const operand = normalizePersistedSource(env, source, { ...context, root: undefined });
++    const operand = normalizePersistedSource(env, source, { ...context, root: undefined }, "candidate");
 +    const remove = (key) => updatePersistedSkillByKey(env, "remove", source, scope, resolvedTarget, key);
 +    return (remove(operand) ||
 +        (!looksLikePath(source) && remove(canonicalSkillPath(env, env.resolvePath(source, context.cwd, { trim: true })))));
