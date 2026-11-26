@@ -480,7 +480,7 @@ test("directory removal does not re-evaluate a stored alias after it matches", a
 });
 
 test("updatePersistedSkill locks the directory configuration under its own lock file", () => {
-  const { env, locks } = createEnvironment();
+  const { env, locks } = createEnvironment({ files: { "/work": "" } });
   updatePersistedSkill(env, "add", "alpha", "directory", { cwd: "/work", agentDir: "/agent" });
   assert.deepEqual(locks, [{ lockfilePath: "/agent/directory-skills.json.lock", held: false }]);
 });
@@ -539,6 +539,36 @@ test("updatePersistedSkill retries while another process holds the lock", () => 
   assert.equal(attempts, 3);
   assert.deepEqual(sleeps, [20, 20], "waits between attempts instead of spinning");
   assert.deepEqual(readStored(store, "/agent/skills.json").enabled, ["alpha"]);
+});
+
+test("directory add does not write if its base disappears while waiting for the lock", async () => {
+  const config = "/agent/directory-skills.json";
+  const before = JSON.stringify({ "/work": { enabled: ["old"] }, "/other": { enabled: ["untouched"] } });
+  const { env, store, locks, writes } = createEnvironment({
+    files: { [config]: before, "/work": "", "/skills/new": "" },
+  });
+  const lockSync = env.lockSync;
+  let attempts = 0;
+  env.lockSync = (directory, options) => {
+    attempts += 1;
+    if (attempts === 1) throw lockError("ELOCKED");
+    return lockSync(directory, options);
+  };
+  env.sleepSync = () => {
+    store.delete("/work");
+  };
+  const options = { cwd: "/work", agentDir: "/agent" };
+  const add = await runSkillsCommand(env, ["add", "/skills/new", "--directory"], options);
+  assert.equal(add.exitCode, 1);
+  assert.match(add.lines[0] ?? "", /Directory scope base is unavailable: \/work/);
+  assert.equal(attempts, 2);
+  assert.equal(locks[0]?.held, false);
+  assert.equal(store.get(config), before);
+  assert.deepEqual(writes, []);
+
+  const remove = await runSkillsCommand(env, ["remove", "old", "--directory"], options);
+  assert.equal(remove.exitCode, 0, remove.lines.join("\n"));
+  assert.deepEqual(readStored(store, config), { "/other": { enabled: ["untouched"] } });
 });
 
 test("updatePersistedSkill gives up on a lock that stays held, and never retries other lock errors", () => {
@@ -1066,7 +1096,7 @@ test("directory-relative persistence preserves a literal tilde and avoids expand
 
 test("a generated relative spelling with an unset variable keeps the typed variable spelling", async () => {
   const { env, store } = createEnvironment({
-    files: { "/work/$LITERAL/skill": "" },
+    files: { "/work": "", "/work/$LITERAL/skill": "" },
     variables: { SKILL_PATH: "/work/$LITERAL/skill" },
   });
   env.path.resolve = posix.resolve;
@@ -1123,7 +1153,7 @@ test("a generated directory spelling cannot turn a trailing-space alias target i
 });
 
 test("a directory mutation formats, matches, and stores under one base lookup", async () => {
-  const { env, store } = createEnvironment({ files: { "/work/sub/skills/review": "" } });
+  const { env, store } = createEnvironment({ files: { "/work/sub": "", "/work/sub/skills/review": "" } });
   env.path.resolve = posix.resolve;
   let lookups = 0;
   env.execFileSync = (_file, args) => {
@@ -1146,7 +1176,7 @@ test("a directory mutation formats, matches, and stores under one base lookup", 
 });
 
 test("directory mutations do not fall back to a subdirectory when Git times out", async () => {
-  const { env, store, writes } = createEnvironment({ files: { "/work/app/docs/skill": "" } });
+  const { env, store, writes } = createEnvironment({ files: { "/work/app": "", "/work/app/docs/skill": "" } });
   env.path.resolve = posix.resolve;
   env.execFileSync = () => {
     throw Object.assign(new Error("git did not finish"), { code: "ETIMEDOUT", signal: "SIGTERM" });

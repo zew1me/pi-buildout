@@ -683,6 +683,10 @@ function updatePersistedSkillByKey(
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the key is a path, so a Map-shaped object is the stored format
       delete config[location.key];
     } else if (location.key !== undefined) config[location.key] = target;
+    // The captured directory may disappear while a command waits for the lock. Do not rediscover a new key.
+    if (action === "add" && scope === "directory" && location.key !== undefined && !env.fs.isDirectory(location.key)) {
+      throw new Error(`Directory scope base is unavailable: ${location.key}`);
+    }
     writeJson(env, path, config);
     return true;
   });

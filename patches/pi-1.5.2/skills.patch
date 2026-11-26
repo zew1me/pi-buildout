@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..186e181
+index 0000000..8f93ff4
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,916 @@
+@@ -0,0 +1,920 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -555,6 +555,10 @@ index 0000000..186e181
 +        }
 +        else if (location.key !== undefined)
 +            config[location.key] = target;
++        // The captured directory may disappear while a command waits for the lock. Do not rediscover a new key.
++        if (action === "add" && scope === "directory" && location.key !== undefined && !env.fs.isDirectory(location.key)) {
++            throw new Error(`Directory scope base is unavailable: ${location.key}`);
++        }
 +        writeJson(env, path, config);
 +        return true;
 +    });
