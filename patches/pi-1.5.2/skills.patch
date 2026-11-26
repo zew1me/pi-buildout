@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..c559759
+index 0000000..186e181
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,911 @@
+@@ -0,0 +1,916 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -536,11 +536,16 @@ index 0000000..c559759
 +        const existing = location.key === undefined ? config : config[location.key];
 +        const target = location.key === undefined ? config : isObjectRecord(existing) ? existing : {};
 +        const enabled = enabledEntries(target);
-+        const matched = enabled.some(matches);
-+        if (action === "remove" && !matched)
-+            return false;
-+        target.enabled =
-+            action === "add" ? (matched ? enabled : [...enabled, source]) : enabled.filter((entry) => !matches(entry));
++        if (action === "add") {
++            target.enabled = enabled.some(matches) ? enabled : [...enabled, source];
++        }
++        else {
++            // The lock protects the JSON, not symlink targets. Decide whether anything was removed from this pass only.
++            const retained = enabled.filter((entry) => !matches(entry));
++            if (retained.length === enabled.length)
++                return false;
++            target.enabled = retained;
++        }
 +        // Directory keys are paths, one per checkout, worktree, or plain directory ever used, so a key is dropped
 +        // once nothing is enabled under it. Keys are never pruned for a directory that no longer exists: such a key
 +        // is inert, and the directory may only be temporarily unavailable, such as on an unmounted volume.

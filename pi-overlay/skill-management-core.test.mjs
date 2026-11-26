@@ -452,6 +452,33 @@ test("removing the last directory entry drops its key, and other keys are never 
   assert.equal(updatePersistedSkill(env, "remove", "alpha", "directory", options), false);
 });
 
+test("directory removal does not re-evaluate a stored alias after it matches", async () => {
+  const config = "/agent/directory-skills.json";
+  const { env, store } = createEnvironment({
+    files: {
+      [config]: JSON.stringify({ "/work": { enabled: ["./alias", "keep"] } }),
+      "/work": "",
+      "/work/alias": "",
+      "/work/skill": "",
+    },
+  });
+  env.path.resolve = posix.resolve;
+  let resolutions = 0;
+  env.fs.realpathSync = (path) => {
+    if (path !== "/work/alias") return path;
+    resolutions += 1;
+    return resolutions === 1 ? "/work/skill" : "/work/retargeted";
+  };
+
+  const result = await runSkillsCommand(env, ["remove", "./skill", "--directory"], {
+    cwd: "/work",
+    agentDir: "/agent",
+  });
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.deepEqual(readStored(store, config)["/work"].enabled, ["keep"]);
+  assert.equal(resolutions, 1);
+});
+
 test("updatePersistedSkill locks the directory configuration under its own lock file", () => {
   const { env, locks } = createEnvironment();
   updatePersistedSkill(env, "add", "alpha", "directory", { cwd: "/work", agentDir: "/agent" });

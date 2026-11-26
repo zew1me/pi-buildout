@@ -667,11 +667,14 @@ function updatePersistedSkillByKey(
     const target: JsonRecord = location.key === undefined ? config : isObjectRecord(existing) ? existing : {};
 
     const enabled = enabledEntries(target);
-    const matched = enabled.some(matches);
-    if (action === "remove" && !matched) return false;
-
-    target.enabled =
-      action === "add" ? (matched ? enabled : [...enabled, source]) : enabled.filter((entry) => !matches(entry));
+    if (action === "add") {
+      target.enabled = enabled.some(matches) ? enabled : [...enabled, source];
+    } else {
+      // The lock protects the JSON, not symlink targets. Decide whether anything was removed from this pass only.
+      const retained = enabled.filter((entry) => !matches(entry));
+      if (retained.length === enabled.length) return false;
+      target.enabled = retained;
+    }
 
     // Directory keys are paths, one per checkout, worktree, or plain directory ever used, so a key is dropped
     // once nothing is enabled under it. Keys are never pruned for a directory that no longer exists: such a key
