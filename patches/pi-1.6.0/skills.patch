@@ -68,10 +68,10 @@ index 379db9e..7fb431e 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..8f93ff4
+index 0000000..b169ad6
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,920 @@
+@@ -0,0 +1,928 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -641,11 +641,19 @@ index 0000000..8f93ff4
 +function getProjectAgentSkillDirs(env, cwd) {
 +    const dirs = [];
 +    const repoRoot = findRepoRoot(env, cwd);
-+    const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
 +    const resolvedCwd = env.path.resolve(cwd);
 +    if (!env.fs.existsSync(resolvedCwd))
 +        return dirs;
-+    let current = env.fs.realpathSync(resolvedCwd);
++    let stopAt;
++    let current;
++    try {
++        stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
++        current = env.fs.realpathSync(resolvedCwd);
++    }
++    catch {
++        // A checkout or cwd may disappear after discovery. Skip ancestor search rather than guessing its boundary.
++        return dirs;
++    }
 +    for (;;) {
 +        if (stopAt !== undefined) {
 +            const fromRoot = env.path.relative(stopAt, current);

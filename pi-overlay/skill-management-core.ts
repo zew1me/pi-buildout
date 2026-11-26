@@ -791,11 +791,18 @@ function readDirectoryKey(
 function getProjectAgentSkillDirs(env: SkillEnvironment, cwd: string): string[] {
   const dirs: string[] = [];
   const repoRoot = findRepoRoot(env, cwd);
-  const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
   const resolvedCwd = env.path.resolve(cwd);
   if (!env.fs.existsSync(resolvedCwd)) return dirs;
 
-  let current = env.fs.realpathSync(resolvedCwd);
+  let stopAt: string | undefined;
+  let current: string;
+  try {
+    stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
+    current = env.fs.realpathSync(resolvedCwd);
+  } catch {
+    // A checkout or cwd may disappear after discovery. Skip ancestor search rather than guessing its boundary.
+    return dirs;
+  }
   for (;;) {
     if (stopAt !== undefined) {
       const fromRoot = env.path.relative(stopAt, current);

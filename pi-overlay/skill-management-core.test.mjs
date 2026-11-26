@@ -1377,6 +1377,70 @@ test("reload skips directory entries if the captured base vanishes during catalo
   assert.equal(store.get("/agent/directory-skills.json"), config);
 });
 
+test("trusted catalog discovery preserves other scopes if the checkout vanishes before realpath", async () => {
+  const root = "/work/project";
+  const cwd = "/work/project/sub";
+  const directoryConfig = JSON.stringify({ [root]: { enabled: ["project-skill"] } });
+  const { env, store } = createEnvironment({
+    files: {
+      [root]: "",
+      [cwd]: "",
+      "/agent/directory-skills.json": directoryConfig,
+      "/agent/skills.json": JSON.stringify({ enabled: ["global-skill"] }),
+      "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: ["/skills/repo"] } }),
+      "/skills/repo": "",
+    },
+  });
+  withCheckouts(env, { [cwd]: root });
+  let rootResolutions = 0;
+  env.fs.realpathSync = (path) => {
+    if (path === root) {
+      rootResolutions += 1;
+      if (rootResolutions === 2) {
+        store.delete(root);
+        store.delete(cwd);
+        throw Object.assign(new Error("checkout vanished"), { code: "ENOENT" });
+      }
+    }
+    return path;
+  };
+  /** @type {string[]} */
+  const searched = [];
+  env.loadSkillsFromDir = ({ dir }) => {
+    searched.push(dir);
+    if (dir === "/agent/skills") {
+      return { skills: [{ name: "global-skill", description: "Global", filePath: "/skills/global" }] };
+    }
+    if (dir === `${root}/.agents/skills`) {
+      return { skills: [{ name: "project-skill", description: "Project", filePath: "/skills/project" }] };
+    }
+    return { skills: [] };
+  };
+  const options = {
+    cwd,
+    agentDir: "/agent",
+    settingsManager: { isProjectTrusted: () => true },
+    resolveResourcePath: (/** @type {string} */ path) => path,
+  };
+  assert.deepEqual(await resolveActiveSkillPaths(env, options), {
+    paths: ["/skills/global", "/skills/repo"],
+    diagnostics: [],
+  });
+  assert.equal(
+    searched.some((dir) => dir.startsWith("/work") && dir.endsWith("/.agents/skills")),
+    false,
+  );
+  assert.equal(store.get("/agent/directory-skills.json"), directoryConfig);
+
+  store.set(root, "");
+  store.set(cwd, "");
+  assert.deepEqual((await resolveActiveSkillPaths(env, options)).paths, [
+    "/skills/global",
+    "/skills/repo",
+    "/skills/project",
+  ]);
+});
+
 test("repository entries resolve against the checkout observed before the catalog wait", async () => {
   const { env } = createEnvironment({
     files: {
