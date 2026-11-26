@@ -1431,6 +1431,31 @@ test("relative repository entries stay unresolved when no checkout root was obse
   assert.equal(result.diagnostics.length, 1);
 });
 
+test("a repository add selects its bucket and its stored path from one checkout lookup", async () => {
+  const { env, store } = createEnvironment({ files: { "/work/outer/sub/skills/review": "" } });
+  env.path.resolve = posix.resolve;
+  let lookups = 0;
+  env.execFileSync = (_file, args) => {
+    const command = args.slice(2).join(" ");
+    if (command === "remote get-url upstream") return "git@github.com:team/outer.git";
+    if (command === "rev-parse --show-toplevel") {
+      lookups += 1;
+      // `sub` becomes a nested checkout after the first lookup.
+      return lookups === 1 ? "/work/outer" : "/work/outer/sub";
+    }
+    throw nonRepositoryError();
+  };
+  const result = await runSkillsCommand(env, ["add", "skills/review", "--repo"], {
+    cwd: "/work/outer/sub",
+    agentDir: "/agent",
+  });
+  assert.equal(result.exitCode, 0, result.lines.join("\n"));
+  assert.deepEqual(readStored(store, "/agent/repo-skills.json")["github.com:team/outer"].enabled, [
+    "sub/skills/review",
+  ]);
+  assert.equal(lookups, 1);
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {

@@ -388,10 +388,11 @@ export function configLocation(
   scope: SkillScope,
   cwd: string,
   agentDir: string,
+  checkoutRoot?: { value: string | undefined },
 ): { path?: string; key?: string } {
   if (scope === "global") return { path: env.path.join(agentDir, "skills.json") };
   if (scope === "repo") {
-    const key = resolveRepoKey(env, cwd);
+    const key = resolveRepoKey(env, cwd, checkoutRoot);
     if (!key) throw new Error("Repository scope requires a git repository.");
     return { path: env.path.join(agentDir, "repo-skills.json"), key };
   }
@@ -467,13 +468,6 @@ function pathInside(env: SkillEnvironment, root: string, path: string): string |
  * against the working directory.
  */
 type EntryContext = { cwd: string; scope: SkillScope; root: string | undefined };
-
-/** The base relative entries of `scope` resolve against; see {@link EntryContext}. */
-function scopeRoot(env: SkillEnvironment, scope: SkillScope, cwd: string): string | undefined {
-  if (scope === "repo") return findRepoRoot(env, cwd);
-  if (scope === "directory") return resolveDirectoryKey(env, cwd);
-  return undefined;
-}
 
 /**
  * Chooses how an added path is written to configuration.
@@ -619,9 +613,14 @@ type MutationTarget = { location: { path?: string; key?: string }; context: Entr
  * under the key of another. A directory key is its base, so it is looked up only once.
  */
 function mutationTarget(env: SkillEnvironment, scope: SkillScope, cwd: string, agentDir: string): MutationTarget {
+  if (scope === "repo") {
+    // One checkout lookup selects the bucket and is the base its relative entries are written against.
+    const checkoutRoot = { value: findRepoRoot(env, cwd) };
+    const location = configLocation(env, scope, cwd, agentDir, checkoutRoot);
+    return { location, context: { cwd, scope, root: checkoutRoot.value } };
+  }
   const location = configLocation(env, scope, cwd, agentDir);
-  const root = scope === "directory" ? location.key : scopeRoot(env, scope, cwd);
-  return { location, context: { cwd, scope, root } };
+  return { location, context: { cwd, scope, root: scope === "directory" ? location.key : undefined } };
 }
 
 export function updatePersistedSkill(

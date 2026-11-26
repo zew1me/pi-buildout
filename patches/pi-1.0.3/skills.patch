@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..eaf3d3e
+index 0000000..f49ea5e
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,911 @@
+@@ -0,0 +1,908 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -305,11 +305,11 @@ index 0000000..eaf3d3e
 +    }
 +    return scope.slice(2);
 +}
-+export function configLocation(env, scope, cwd, agentDir) {
++export function configLocation(env, scope, cwd, agentDir, checkoutRoot) {
 +    if (scope === "global")
 +        return { path: env.path.join(agentDir, "skills.json") };
 +    if (scope === "repo") {
-+        const key = resolveRepoKey(env, cwd);
++        const key = resolveRepoKey(env, cwd, checkoutRoot);
 +        if (!key)
 +            throw new Error("Repository scope requires a git repository.");
 +        return { path: env.path.join(agentDir, "repo-skills.json"), key };
@@ -370,14 +370,6 @@ index 0000000..eaf3d3e
 +    if (relative === ".." || relative.startsWith(`..${env.path.sep}`) || env.path.isAbsolute(relative))
 +        return undefined;
 +    return relative.split(env.path.sep).join("/");
-+}
-+/** The base relative entries of `scope` resolve against; see {@link EntryContext}. */
-+function scopeRoot(env, scope, cwd) {
-+    if (scope === "repo")
-+        return findRepoRoot(env, cwd);
-+    if (scope === "directory")
-+        return resolveDirectoryKey(env, cwd);
-+    return undefined;
 +}
 +/**
 + * Chooses how an added path is written to configuration.
@@ -508,9 +500,14 @@ index 0000000..eaf3d3e
 + * under the key of another. A directory key is its base, so it is looked up only once.
 + */
 +function mutationTarget(env, scope, cwd, agentDir) {
++    if (scope === "repo") {
++        // One checkout lookup selects the bucket and is the base its relative entries are written against.
++        const checkoutRoot = { value: findRepoRoot(env, cwd) };
++        const location = configLocation(env, scope, cwd, agentDir, checkoutRoot);
++        return { location, context: { cwd, scope, root: checkoutRoot.value } };
++    }
 +    const location = configLocation(env, scope, cwd, agentDir);
-+    const root = scope === "directory" ? location.key : scopeRoot(env, scope, cwd);
-+    return { location, context: { cwd, scope, root } };
++    return { location, context: { cwd, scope, root: scope === "directory" ? location.key : undefined } };
 +}
 +export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
 +    const key = normalizePersistedSource(env, source, resolvedTarget.context);
