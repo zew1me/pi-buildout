@@ -1406,6 +1406,31 @@ test("a lookup that found no checkout keys directory entries without asking Git 
   assert.equal(lookups, 1);
 });
 
+test("relative repository entries stay unresolved when no checkout root was observed", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/agent/repo-skills.json": JSON.stringify({
+        "github.com:team/app": { enabled: ["skills/review", "/skills/absolute"] },
+      }),
+      "/work/skills/review": "",
+      "/skills/absolute": "",
+    },
+  });
+  env.execFileSync = (_file, args) => {
+    const command = args.slice(2).join(" ");
+    // The root lookup finds no checkout; one appears before the remote lookup.
+    if (command === "remote get-url upstream") return "git@github.com:team/app.git";
+    throw nonRepositoryError();
+  };
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/work",
+    agentDir: "/agent",
+    resolveResourcePath: (path) => posix.resolve("/work", path),
+  });
+  assert.deepEqual(result.paths, ["/skills/absolute"]);
+  assert.equal(result.diagnostics.length, 1);
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {

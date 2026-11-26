@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..bbf50fd 100644
+index 0b4ae56..eaf3d3e 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -67,20 +67,58 @@ function withSkillConfigLock(env, path, fn) {
@@ -549,7 +549,7 @@ index 0b4ae56..bbf50fd 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -546,58 +732,59 @@ export async function runSkillsCommand(env, args, options) {
+@@ -546,58 +732,63 @@ export async function runSkillsCommand(env, args, options) {
   *
   * Entries are either paths, which must exist, or catalog names, which are looked up by name. Path entries
   * are expanded here, each time skills load, rather than when they are added: `~` and `$NAME` take the current
@@ -630,6 +630,10 @@ index 0b4ae56..bbf50fd 100644
 +        if (!isAnchoredPath(env, value)) {
 +            if (scope === "directory")
 +                base = directoryKey;
++            // A relative repository entry names a path inside its checkout. Without an observed root (a bare
++            // repository, or a checkout that appeared after the lookup) there is nothing to resolve it against.
++            if (scope === "repo" && repoRoot === undefined)
++                return undefined;
 +            if (scope === "repo")
 +                base = repoRoot;
 +        }
@@ -640,7 +644,7 @@ index 0b4ae56..bbf50fd 100644
  /**
   * Resolves a single skill entry for session scope.
   *
-@@ -609,7 +796,8 @@ export async function resolveSkillEntryPath(env, context, source) {
+@@ -609,7 +800,8 @@ export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
          const normalized = resolveResourcePath(expandEnvironmentVariables(env, source).value);
@@ -650,7 +654,7 @@ index 0b4ae56..bbf50fd 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -644,19 +832,23 @@ async function applySessionSkillChange(env, session, context) {
+@@ -644,19 +836,23 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.
@@ -680,7 +684,7 @@ index 0b4ae56..bbf50fd 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -664,17 +856,13 @@ async function applySessionSkillChange(env, session, context) {
+@@ -664,17 +860,13 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -703,7 +707,7 @@ index 0b4ae56..bbf50fd 100644
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -703,7 +891,7 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -703,7 +895,7 @@ export async function handleSkillsInteractive(env, text, context) {
          lines = [line];
      }
      if (args[0] === "active") {

@@ -68,10 +68,10 @@ index 563d7d5..786a237 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..bbf50fd
+index 0000000..eaf3d3e
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,907 @@
+@@ -0,0 +1,911 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -852,6 +852,10 @@ index 0000000..bbf50fd
 +        if (!isAnchoredPath(env, value)) {
 +            if (scope === "directory")
 +                base = directoryKey;
++            // A relative repository entry names a path inside its checkout. Without an observed root (a bare
++            // repository, or a checkout that appeared after the lookup) there is nothing to resolve it against.
++            if (scope === "repo" && repoRoot === undefined)
++                return undefined;
 +            if (scope === "repo")
 +                base = repoRoot;
 +        }

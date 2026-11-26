@@ -1074,6 +1074,9 @@ function activeEntryPathResolver(
     let base: string | undefined;
     if (!isAnchoredPath(env, value)) {
       if (scope === "directory") base = directoryKey;
+      // A relative repository entry names a path inside its checkout. Without an observed root (a bare
+      // repository, or a checkout that appeared after the lookup) there is nothing to resolve it against.
+      if (scope === "repo" && repoRoot === undefined) return undefined;
       if (scope === "repo") base = repoRoot;
     }
     const path = base === undefined ? resolveResourcePath(value) : env.path.resolve(base, value);
