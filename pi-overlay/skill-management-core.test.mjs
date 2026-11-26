@@ -1456,6 +1456,21 @@ test("a repository add selects its bucket and its stored path from one checkout 
   assert.equal(lookups, 1);
 });
 
+test("remote lookups do not search above the captured checkout root", () => {
+  const { env } = createEnvironment();
+  /** @type {(string | undefined)[]} */
+  const ceilings = [];
+  env.execFileSync = (_file, args, options) => {
+    const command = args.slice(2).join(" ");
+    if (command === "rev-parse --show-toplevel") return "/work/outer/sub\n";
+    if (command.startsWith("remote")) ceilings.push(options.env?.GIT_CEILING_DIRECTORIES);
+    if (command === "remote get-url upstream") return "git@github.com:team/sub.git";
+    throw nonRepositoryError();
+  };
+  assert.equal(resolveRepoKey(env, "/work/outer/sub/docs"), "github.com:team/sub");
+  assert.deepEqual(ceilings, ["/work/outer"]);
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {

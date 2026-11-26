@@ -68,10 +68,10 @@ index 35ba09c..9d1e088 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..f49ea5e
+index 0000000..6095067
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,908 @@
+@@ -0,0 +1,915 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -163,14 +163,15 @@ index 0000000..f49ea5e
 +export function withoutRepositoryGitEnvironment(environment, caseInsensitive) {
 +    return Object.fromEntries(Object.entries(environment).filter(([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name)));
 +}
-+function git(env, cwd, args, strictDiscovery = false) {
++function git(env, cwd, args, strictDiscovery = false, extraEnv = {}) {
++    // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
++    const overrides = strictDiscovery ? { ...extraEnv, LC_ALL: "C" } : extraEnv;
 +    try {
 +        return env.execFileSync("git", ["-C", cwd, ...args], {
 +            encoding: "utf-8",
 +            stdio: ["ignore", "pipe", strictDiscovery ? "pipe" : "ignore"],
 +            timeout: 2000,
-+            // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
-+            ...(strictDiscovery ? { env: { LC_ALL: "C" } } : {}),
++            ...(Object.keys(overrides).length > 0 ? { env: overrides } : {}),
 +        });
 +    }
 +    catch (error) {
@@ -222,18 +223,24 @@ index 0000000..f49ea5e
 + * then read from the root, and the no-remote fallback uses it rather than a second lookup.
 + */
 +export function resolveRepoKey(env, cwd, checkoutRoot = { value: findRepoRoot(env, cwd) }) {
-+    if (checkoutRoot.value !== undefined)
++    // Read remotes from the captured root, and stop Git from searching above it: if that checkout disappears
++    // before these calls, they must not report an enclosing checkout's remote for the captured root.
++    let ceiling = {};
++    if (checkoutRoot.value !== undefined) {
 +        cwd = checkoutRoot.value;
++        ceiling = { GIT_CEILING_DIRECTORIES: env.path.dirname(env.path.resolve(cwd)) };
++    }
++    const remoteUrl = (name) => normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", name], false, ceiling));
 +    for (const remote of ["upstream", "origin"]) {
-+        const key = normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", remote]));
++        const key = remoteUrl(remote);
 +        if (key)
 +            return key;
 +    }
-+    const firstRemote = git(env, cwd, ["remote"])
++    const firstRemote = git(env, cwd, ["remote"], false, ceiling)
 +        ?.split(/\r?\n/)
 +        .map((name) => name.trim())
 +        .find(Boolean);
-+    const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
++    const firstKey = firstRemote && remoteUrl(firstRemote);
 +    if (firstKey)
 +        return firstKey;
 +    // Keep the legacy on-disk key for repositories without a remote. Only the directory identity and
