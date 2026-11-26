@@ -68,10 +68,10 @@ index 563d7d5..786a237 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..f253deb
+index 0000000..bbf50fd
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,906 @@
+@@ -0,0 +1,907 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -265,8 +265,8 @@ index 0000000..f253deb
 + * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
 + * base it points to.
 + */
-+export function resolveDirectoryKey(env, cwd, checkoutRoot = findRepoRoot(env, cwd, true)) {
-+    const base = env.path.resolve(checkoutRoot ?? cwd);
++export function resolveDirectoryKey(env, cwd, checkoutRoot = { value: findRepoRoot(env, cwd, true) }) {
++    const base = env.path.resolve(checkoutRoot.value ?? cwd);
 +    if (!env.fs.existsSync(base))
 +        return base;
 +    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
@@ -616,8 +616,9 @@ index 0000000..f253deb
 +    return { entries, directoryKey, repoRoot };
 +}
 +function readDirectoryKey(env, cwd, discovery, strict, onWarn) {
++    // A lookup that found no checkout is still an answer: key by cwd rather than asking Git again.
 +    if ("value" in discovery)
-+        return resolveDirectoryKey(env, cwd, discovery.value);
++        return resolveDirectoryKey(env, cwd, discovery);
 +    if (strict)
 +        throw discovery.error;
 +    const { error } = discovery;

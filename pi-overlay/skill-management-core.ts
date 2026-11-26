@@ -335,9 +335,9 @@ function findRepoRoot(env: SkillEnvironment, cwd: string, strictDiscovery = fals
 export function resolveDirectoryKey(
   env: SkillEnvironment,
   cwd: string,
-  checkoutRoot: string | undefined = findRepoRoot(env, cwd, true),
+  checkoutRoot: { value: string | undefined } = { value: findRepoRoot(env, cwd, true) },
 ): string {
-  const base = env.path.resolve(checkoutRoot ?? cwd);
+  const base = env.path.resolve(checkoutRoot.value ?? cwd);
   if (!env.fs.existsSync(base)) return base;
   // The base can disappear between the two calls; its unresolved path keeps global and repository skills
   // loading, and the next reload looks it up again.
@@ -761,7 +761,8 @@ function readDirectoryKey(
   strict: boolean,
   onWarn: ActiveSkillEntriesOptions["onWarn"],
 ): string | undefined {
-  if ("value" in discovery) return resolveDirectoryKey(env, cwd, discovery.value);
+  // A lookup that found no checkout is still an answer: key by cwd rather than asking Git again.
+  if ("value" in discovery) return resolveDirectoryKey(env, cwd, discovery);
   if (strict) throw discovery.error;
   const { error } = discovery;
   onWarn?.(`Ignoring directory skills: ${error instanceof Error ? error.message : String(error)}`);

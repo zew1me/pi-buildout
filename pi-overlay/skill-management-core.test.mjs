@@ -1378,6 +1378,34 @@ test("repository entries resolve against the checkout whose key selected them", 
   assert.equal(lookups, 1);
 });
 
+test("a lookup that found no checkout keys directory entries without asking Git again", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/scratch": "",
+      "/agent/skills.json": JSON.stringify({ enabled: ["/skills/global"] }),
+      "/agent/directory-skills.json": JSON.stringify({ "/scratch": { enabled: ["/skills/directory"] } }),
+      "/skills/global": "",
+      "/skills/directory": "",
+    },
+  });
+  let lookups = 0;
+  env.execFileSync = (_file, args) => {
+    if (args.slice(2).join(" ") === "rev-parse --show-toplevel") {
+      lookups += 1;
+      // A second probe would time out and abort loading.
+      if (lookups > 1) throw Object.assign(new Error("timed out"), { code: "ETIMEDOUT" });
+    }
+    throw nonRepositoryError();
+  };
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/scratch",
+    agentDir: "/agent",
+    resolveResourcePath: (path) => path,
+  });
+  assert.deepEqual(result, { paths: ["/skills/global", "/skills/directory"], diagnostics: [] });
+  assert.equal(lookups, 1);
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {
