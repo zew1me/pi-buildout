@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..9769889
+index 0000000..f253deb
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,901 @@
+@@ -0,0 +1,906 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -217,7 +217,13 @@ index 0000000..9769889
 +        return undefined;
 +    }
 +}
-+export function resolveRepoKey(env, cwd) {
++/**
++ * `checkoutRoot` lets a caller that already looked up the checkout root key that same checkout: remotes are
++ * then read from the root, and the no-remote fallback uses it rather than a second lookup.
++ */
++export function resolveRepoKey(env, cwd, checkoutRoot = { value: findRepoRoot(env, cwd) }) {
++    if (checkoutRoot.value !== undefined)
++        cwd = checkoutRoot.value;
 +    for (const remote of ["upstream", "origin"]) {
 +        const key = normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", remote]));
 +        if (key)
@@ -232,7 +238,7 @@ index 0000000..9769889
 +        return firstKey;
 +    // Keep the legacy on-disk key for repositories without a remote. Only the directory identity and
 +    // path resolution need the untrimmed checkout root; do not look up a second repo bucket.
-+    const root = findRepoRoot(env, cwd)?.trim();
++    const root = checkoutRoot.value?.trim();
 +    if (!root)
 +        return undefined;
 +    const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
@@ -259,8 +265,8 @@ index 0000000..9769889
 + * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
 + * base it points to.
 + */
-+export function resolveDirectoryKey(env, cwd) {
-+    const base = env.path.resolve(findRepoRoot(env, cwd, true) ?? cwd);
++export function resolveDirectoryKey(env, cwd, checkoutRoot = findRepoRoot(env, cwd, true)) {
++    const base = env.path.resolve(checkoutRoot ?? cwd);
 +    if (!env.fs.existsSync(base))
 +        return base;
 +    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
@@ -584,29 +590,39 @@ index 0000000..9769889
 +        }
 +    };
 +    append("global", safeRead(env.path.join(agentDir, "skills.json")));
-+    const key = resolveRepoKey(env, cwd);
++    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
++    const needsDirectoryKey = Object.keys(directoryConfig).length > 0;
++    // One checkout lookup selects the repository bucket, keys the directory bucket and supplies the base for
++    // relative repository entries, so a checkout that appears or changes in between cannot pair one checkout's
++    // entries with another's root. Discovery is strict only when a directory key depends on it.
++    let discovery;
++    try {
++        discovery = { value: findRepoRoot(env, cwd, needsDirectoryKey) };
++    }
++    catch (error) {
++        discovery = { error };
++    }
++    const repoRoot = "value" in discovery ? discovery.value : undefined;
++    const key = resolveRepoKey(env, cwd, { value: repoRoot });
 +    if (key)
 +        append("repo", safeRead(env.path.join(agentDir, "repo-skills.json"))[key]);
 +    // Directory entries come last, so on a name collision between different files the broader scope's skill
 +    // loads first and wins, as global already does over repository.
-+    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
-+    const directoryKey = Object.keys(directoryConfig).length > 0 ? readDirectoryKey(env, cwd, strictDirectory, onWarn) : undefined;
++    const directoryKey = needsDirectoryKey ? readDirectoryKey(env, cwd, discovery, strictDirectory, onWarn) : undefined;
 +    // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
 +    // activate them even if the entries themselves point to paths that still exist outside the base.
 +    if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
 +        append("directory", directoryConfig[directoryKey]);
-+    return { entries, directoryKey };
++    return { entries, directoryKey, repoRoot };
 +}
-+function readDirectoryKey(env, cwd, strict, onWarn) {
-+    try {
-+        return resolveDirectoryKey(env, cwd);
-+    }
-+    catch (error) {
-+        if (strict)
-+            throw error;
-+        onWarn?.(`Ignoring directory skills: ${error instanceof Error ? error.message : String(error)}`);
-+        return undefined;
-+    }
++function readDirectoryKey(env, cwd, discovery, strict, onWarn) {
++    if ("value" in discovery)
++        return resolveDirectoryKey(env, cwd, discovery.value);
++    if (strict)
++        throw discovery.error;
++    const { error } = discovery;
++    onWarn?.(`Ignoring directory skills: ${error instanceof Error ? error.message : String(error)}`);
++    return undefined;
 +}
 +function getProjectAgentSkillDirs(env, cwd) {
 +    const dirs = [];
@@ -694,15 +710,14 @@ index 0000000..9769889
 +    if (rest.length !== 0)
 +        throw new Error(`Usage: ${surface} active`);
 +    const warnings = [];
-+    const { entries, directoryKey } = readActiveSkillEntries(env, { ...options, strict: true, onWarn: (message) => warnings.push(message) }, false);
-+    let repoRoot;
++    const { entries, directoryKey, repoRoot } = readActiveSkillEntries(env, { ...options, strict: true, onWarn: (message) => warnings.push(message) }, false);
 +    const operand = ({ source, scope }) => {
 +        if (scope === "global" || !looksLikePath(source))
 +            return source;
 +        const value = expandEnvironmentVariables(env, source).value.trim();
 +        if (value === "" || isAnchoredPath(env, value))
 +            return source;
-+        const root = scope === "directory" ? directoryKey : (repoRoot ??= { value: findRepoRoot(env, options.cwd) }).value;
++        const root = scope === "directory" ? directoryKey : repoRoot;
 +        if (root === undefined)
 +            return source;
 +        // `remove` resolves an operand against cwd, not the base of a stored entry. Show a path that names
@@ -801,16 +816,13 @@ index 0000000..9769889
 +    const { cwd, agentDir } = context;
 +    const paths = [];
 +    const diagnostics = [];
-+    const { entries, directoryKey } = readActiveSkillEntries(env, {
++    // The checkout root comes from the same lookup that selected the repository bucket, before the catalog wait
++    // below, so a checkout that changes afterwards cannot supply the base for that bucket's entries.
++    const { entries, directoryKey, repoRoot } = readActiveSkillEntries(env, {
 +        cwd,
 +        agentDir,
 +        onWarn: (message) => diagnostics.push({ type: "warning", message }),
 +    });
-+    // Look up the checkout root next to the repository key, before the catalog wait below. A checkout that
-+    // changes during the wait must not supply the base for entries selected through the earlier checkout's key.
-+    const repoRoot = entries.some((entry) => entry.scope === "repo" && isCheckoutRelative(env, entry.source))
-+        ? findRepoRoot(env, cwd)
-+        : undefined;
 +    let catalogPathsByName;
 +    if (entries.some((entry) => !looksLikePath(entry.source))) {
 +        const catalog = await getSkillCatalog(env, context);
@@ -829,13 +841,6 @@ index 0000000..9769889
 +            diagnostics.push(unresolvedSkillDiagnostic(env, entry));
 +    }
 +    return { paths, diagnostics };
-+}
-+/** Whether a path entry resolves against its scope's base rather than standing on its own. */
-+function isCheckoutRelative(env, source) {
-+    if (!looksLikePath(source))
-+        return false;
-+    const value = expandEnvironmentVariables(env, source).value.trim();
-+    return value !== "" && !isAnchoredPath(env, value);
 +}
 +function activeEntryPathResolver(env, { resolveResourcePath }, directoryKey, repoRoot) {
 +    return ({ source, scope }) => {

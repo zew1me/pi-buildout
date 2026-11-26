@@ -1342,6 +1342,42 @@ test("repository entries resolve against the checkout observed before the catalo
   assert.deepEqual(result, { paths: ["/skills/global", "/work/app/skills/review"], diagnostics: [] });
 });
 
+test("repository entries resolve against the checkout whose key selected them", async () => {
+  const { env } = createEnvironment({
+    files: {
+      "/agent/repo-skills.json": JSON.stringify({ "github.com:team/app": { enabled: ["skills/review"] } }),
+      "/work/app/skills/review": "",
+      "/work/app/sub/skills/review": "",
+    },
+  });
+  env.path.resolve = posix.resolve;
+  let nested = false;
+  let lookups = 0;
+  env.execFileSync = (_file, args) => {
+    const [, cwd = "", ...rest] = args;
+    const command = rest.join(" ");
+    if (command === "remote get-url upstream") {
+      const remote =
+        nested && cwd === "/work/app/sub" ? "git@github.com:team/other.git" : "git@github.com:team/app.git";
+      // `sub` becomes a nested checkout of another remote right after the bucket is chosen.
+      nested = true;
+      return remote;
+    }
+    if (command === "rev-parse --show-toplevel") {
+      lookups += 1;
+      return nested && cwd.startsWith("/work/app/sub") ? "/work/app/sub" : "/work/app";
+    }
+    throw nonRepositoryError();
+  };
+  const result = await resolveActiveSkillPaths(env, {
+    cwd: "/work/app/sub",
+    agentDir: "/agent",
+    resolveResourcePath: (path) => path,
+  });
+  assert.deepEqual(result, { paths: ["/work/app/skills/review"], diagnostics: [] });
+  assert.equal(lookups, 1);
+});
+
 test("active entries list directory scope after global and repository scopes", async () => {
   const { env } = createEnvironment({
     files: {
