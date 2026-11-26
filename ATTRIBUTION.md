@@ -309,6 +309,8 @@ pinned, checksum-verified inputs, and is not committed here.
   the overlay's checkout discovery subprocess. Git's `setup.c` identifies the two C-locale non-repository diagnostics
   used to distinguish them from other `rev-parse` failures with the same status. The overlay matches those diagnostic
   strings but does not copy Git's repository discovery implementation.
+- Git's documented `--git-dir` option lets remote lookup open the captured checkout's `.git` directly, including a
+  linked worktree's gitfile. The overlay uses that CLI contract instead of a path-list ceiling; no Git code was copied.
 
 ## Pi documentation and examples
 

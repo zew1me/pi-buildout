@@ -62,10 +62,10 @@ index 0345dcb..3a90de3 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..6095067
+index 0000000..1bbe3b2
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,915 @@
+@@ -0,0 +1,911 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -157,15 +157,14 @@ index 0000000..6095067
 +export function withoutRepositoryGitEnvironment(environment, caseInsensitive) {
 +    return Object.fromEntries(Object.entries(environment).filter(([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name)));
 +}
-+function git(env, cwd, args, strictDiscovery = false, extraEnv = {}) {
-+    // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
-+    const overrides = strictDiscovery ? { ...extraEnv, LC_ALL: "C" } : extraEnv;
++function git(env, cwd, args, strictDiscovery = false) {
 +    try {
 +        return env.execFileSync("git", ["-C", cwd, ...args], {
 +            encoding: "utf-8",
 +            stdio: ["ignore", "pipe", strictDiscovery ? "pipe" : "ignore"],
 +            timeout: 2000,
-+            ...(Object.keys(overrides).length > 0 ? { env: overrides } : {}),
++            // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
++            ...(strictDiscovery ? { env: { LC_ALL: "C" } } : {}),
 +        });
 +    }
 +    catch (error) {
@@ -217,20 +216,17 @@ index 0000000..6095067
 + * then read from the root, and the no-remote fallback uses it rather than a second lookup.
 + */
 +export function resolveRepoKey(env, cwd, checkoutRoot = { value: findRepoRoot(env, cwd) }) {
-+    // Read remotes from the captured root, and stop Git from searching above it: if that checkout disappears
-+    // before these calls, they must not report an enclosing checkout's remote for the captured root.
-+    let ceiling = {};
-+    if (checkoutRoot.value !== undefined) {
-+        cwd = checkoutRoot.value;
-+        ceiling = { GIT_CEILING_DIRECTORIES: env.path.dirname(env.path.resolve(cwd)) };
-+    }
-+    const remoteUrl = (name) => normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", name], false, ceiling));
++    // A captured checkout has a .git directory or gitfile. Open it directly, without ancestor discovery or
++    // a path-list ceiling that cannot represent every checkout path. Without a root, still support bare repos.
++    const gitDir = checkoutRoot.value === undefined ? [] : ["--git-dir=.git"];
++    const remoteCwd = checkoutRoot.value ?? cwd;
++    const remoteUrl = (name) => normalizeGitRemoteUrl(git(env, remoteCwd, [...gitDir, "remote", "get-url", name]));
 +    for (const remote of ["upstream", "origin"]) {
 +        const key = remoteUrl(remote);
 +        if (key)
 +            return key;
 +    }
-+    const firstRemote = git(env, cwd, ["remote"], false, ceiling)
++    const firstRemote = git(env, remoteCwd, [...gitDir, "remote"])
 +        ?.split(/\r?\n/)
 +        .map((name) => name.trim())
 +        .find(Boolean);

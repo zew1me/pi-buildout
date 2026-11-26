@@ -1,8 +1,8 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 2fd4257..6095067 100644
+index 2fd4257..1bbe3b2 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
-@@ -67,20 +67,59 @@ function withSkillConfigLock(env, path, fn) {
+@@ -67,20 +67,58 @@ function withSkillConfigLock(env, path, fn) {
          }
      }
  }
@@ -29,9 +29,7 @@ index 2fd4257..6095067 100644
 +export function withoutRepositoryGitEnvironment(environment, caseInsensitive) {
 +    return Object.fromEntries(Object.entries(environment).filter(([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name)));
 +}
-+function git(env, cwd, args, strictDiscovery = false, extraEnv = {}) {
-+    // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
-+    const overrides = strictDiscovery ? { ...extraEnv, LC_ALL: "C" } : extraEnv;
++function git(env, cwd, args, strictDiscovery = false) {
      try {
 -        return env
 -            .execFileSync("git", ["-C", cwd, ...args], {
@@ -42,7 +40,8 @@ index 2fd4257..6095067 100644
              timeout: 2000,
 -        })
 -            .trim();
-+            ...(Object.keys(overrides).length > 0 ? { env: overrides } : {}),
++            // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
++            ...(strictDiscovery ? { env: { LC_ALL: "C" } } : {}),
 +        });
      }
 -    catch {
@@ -69,7 +68,7 @@ index 2fd4257..6095067 100644
  export function normalizeGitRemoteUrl(rawUrl) {
      if (!rawUrl)
          return undefined;
-@@ -105,25 +144,73 @@ export function normalizeGitRemoteUrl(rawUrl) {
+@@ -105,25 +143,70 @@ export function normalizeGitRemoteUrl(rawUrl) {
          return undefined;
      }
  }
@@ -79,14 +78,11 @@ index 2fd4257..6095067 100644
 + * then read from the root, and the no-remote fallback uses it rather than a second lookup.
 + */
 +export function resolveRepoKey(env, cwd, checkoutRoot = { value: findRepoRoot(env, cwd) }) {
-+    // Read remotes from the captured root, and stop Git from searching above it: if that checkout disappears
-+    // before these calls, they must not report an enclosing checkout's remote for the captured root.
-+    let ceiling = {};
-+    if (checkoutRoot.value !== undefined) {
-+        cwd = checkoutRoot.value;
-+        ceiling = { GIT_CEILING_DIRECTORIES: env.path.dirname(env.path.resolve(cwd)) };
-+    }
-+    const remoteUrl = (name) => normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", name], false, ceiling));
++    // A captured checkout has a .git directory or gitfile. Open it directly, without ancestor discovery or
++    // a path-list ceiling that cannot represent every checkout path. Without a root, still support bare repos.
++    const gitDir = checkoutRoot.value === undefined ? [] : ["--git-dir=.git"];
++    const remoteCwd = checkoutRoot.value ?? cwd;
++    const remoteUrl = (name) => normalizeGitRemoteUrl(git(env, remoteCwd, [...gitDir, "remote", "get-url", name]));
      for (const remote of ["upstream", "origin"]) {
 -        const key = normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", remote]));
 +        const key = remoteUrl(remote);
@@ -94,7 +90,7 @@ index 2fd4257..6095067 100644
              return key;
      }
 -    const firstRemote = git(env, cwd, ["remote"])
-+    const firstRemote = git(env, cwd, ["remote"], false, ceiling)
++    const firstRemote = git(env, remoteCwd, [...gitDir, "remote"])
          ?.split(/\r?\n/)
          .map((name) => name.trim())
          .find(Boolean);
@@ -148,7 +144,7 @@ index 2fd4257..6095067 100644
  export function sourceOf(entry) {
      if (typeof entry === "string")
          return entry;
-@@ -139,28 +226,174 @@ export function enabledEntries(value) {
+@@ -139,28 +222,174 @@ export function enabledEntries(value) {
      const enabled = value.enabled;
      return Array.isArray(enabled) ? enabled : [];
  }
@@ -328,7 +324,7 @@ index 2fd4257..6095067 100644
  }
  /** True when `path` exists and Pi's own loader finds at least one skill in it. */
  function containsSkills(env, path, options) {
-@@ -175,57 +408,98 @@ function containsSkills(env, path, options) {
+@@ -175,57 +404,98 @@ function containsSkills(env, path, options) {
      return skills.length > 0;
  }
  /**
@@ -452,7 +448,7 @@ index 2fd4257..6095067 100644
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -238,25 +512,52 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -238,25 +508,52 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -519,7 +515,7 @@ index 2fd4257..6095067 100644
      const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
      const resolvedCwd = env.path.resolve(cwd);
      if (!env.fs.existsSync(resolvedCwd))
-@@ -307,10 +608,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+@@ -307,10 +604,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
  }
  async function resolveSkillSource(env, source, options) {
@@ -534,7 +530,7 @@ index 2fd4257..6095067 100644
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
      // resolve the selected skill. A bare local folder is retained as a path only when no catalog entry wins.
      const catalog = await getSkillCatalog(env, options);
-@@ -323,7 +626,7 @@ function commandName(allowSession = false) {
+@@ -323,7 +622,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -543,7 +539,7 @@ index 2fd4257..6095067 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -337,12 +640,31 @@ export function usage(allowSession = false) {
+@@ -337,12 +636,31 @@ export function usage(allowSession = false) {
  function runActiveCommand(env, rest, surface, options) {
      if (rest.length !== 0)
          throw new Error(`Usage: ${surface} active`);
@@ -578,7 +574,7 @@ index 2fd4257..6095067 100644
          activeEntries: entries,
      };
  }
-@@ -360,33 +682,33 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -360,33 +678,33 @@ async function runCatalogCommand(env, command, rest, surface, options) {
              : [query ? "No matching skills." : "No catalog skills found."],
      };
  }
@@ -630,7 +626,7 @@ index 2fd4257..6095067 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -412,48 +734,65 @@ export async function runSkillsCommand(env, args, options) {
+@@ -412,48 +730,65 @@ export async function runSkillsCommand(env, args, options) {
  /**
   * Resolves the skills that are explicitly active for this session into concrete paths.
   *
@@ -724,7 +720,7 @@ index 2fd4257..6095067 100644
  /**
   * Resolves a single skill entry for session scope.
   *
-@@ -464,8 +803,9 @@ export async function resolveActiveSkillPaths(env, context) {
+@@ -464,8 +799,9 @@ export async function resolveActiveSkillPaths(env, context) {
  export async function resolveSkillEntryPath(env, context, source) {
      const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
      if (looksLikePath(source)) {
@@ -736,7 +732,7 @@ index 2fd4257..6095067 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -500,17 +840,23 @@ async function applySessionSkillChange(env, session, context) {
+@@ -500,17 +836,23 @@ async function applySessionSkillChange(env, session, context) {
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
      // paths after applying the same resolution used by the resource loader.
@@ -764,7 +760,7 @@ index 2fd4257..6095067 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -518,17 +864,13 @@ async function applySessionSkillChange(env, session, context) {
+@@ -518,17 +860,13 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -787,7 +783,7 @@ index 2fd4257..6095067 100644
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -557,7 +899,7 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -557,7 +895,7 @@ export async function handleSkillsInteractive(env, text, context) {
          lines = [line];
      }
      if (args[0] === "active") {

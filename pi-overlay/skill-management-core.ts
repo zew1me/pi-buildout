@@ -53,9 +53,6 @@ type PathSeam = {
 };
 
 /** Everything environmental or upstream that this module needs. */
-/** Environment variables the core sets for Git, merged over the inherited environment by the shell. */
-type GitEnvironmentOverrides = { LC_ALL?: "C"; GIT_CEILING_DIRECTORIES?: string };
-
 export type SkillEnvironment = {
   fs: FileSystemSeam;
   path: PathSeam;
@@ -71,7 +68,7 @@ export type SkillEnvironment = {
       stdio: ["ignore", "pipe", "pipe" | "ignore"];
       timeout: number;
       /** Overrides merged over the inherited environment. */
-      env?: GitEnvironmentOverrides;
+      env?: { LC_ALL: "C" };
     },
   ) => string;
   /** Process id, used only to make the atomic-write temp filename unique. */
@@ -229,21 +226,14 @@ export function withoutRepositoryGitEnvironment(
   );
 }
 
-function git(
-  env: SkillEnvironment,
-  cwd: string,
-  args: string[],
-  strictDiscovery = false,
-  extraEnv: GitEnvironmentOverrides = {},
-): string | undefined {
-  // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
-  const overrides: GitEnvironmentOverrides = strictDiscovery ? { ...extraEnv, LC_ALL: "C" } : extraEnv;
+function git(env: SkillEnvironment, cwd: string, args: string[], strictDiscovery = false): string | undefined {
   try {
     return env.execFileSync("git", ["-C", cwd, ...args], {
       encoding: "utf-8",
       stdio: ["ignore", "pipe", strictDiscovery ? "pipe" : "ignore"],
       timeout: 2000,
-      ...(Object.keys(overrides).length > 0 ? { env: overrides } : {}),
+      // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
+      ...(strictDiscovery ? { env: { LC_ALL: "C" } } : {}),
     });
   } catch (error) {
     if (strictDiscovery && !gitReportedNoRepository(error)) {
@@ -300,21 +290,18 @@ export function resolveRepoKey(
   cwd: string,
   checkoutRoot: { value: string | undefined } = { value: findRepoRoot(env, cwd) },
 ): string | undefined {
-  // Read remotes from the captured root, and stop Git from searching above it: if that checkout disappears
-  // before these calls, they must not report an enclosing checkout's remote for the captured root.
-  let ceiling: GitEnvironmentOverrides = {};
-  if (checkoutRoot.value !== undefined) {
-    cwd = checkoutRoot.value;
-    ceiling = { GIT_CEILING_DIRECTORIES: env.path.dirname(env.path.resolve(cwd)) };
-  }
+  // A captured checkout has a .git directory or gitfile. Open it directly, without ancestor discovery or
+  // a path-list ceiling that cannot represent every checkout path. Without a root, still support bare repos.
+  const gitDir = checkoutRoot.value === undefined ? [] : ["--git-dir=.git"];
+  const remoteCwd = checkoutRoot.value ?? cwd;
   const remoteUrl = (name: string): string | undefined =>
-    normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", name], false, ceiling));
+    normalizeGitRemoteUrl(git(env, remoteCwd, [...gitDir, "remote", "get-url", name]));
   for (const remote of ["upstream", "origin"]) {
     const key = remoteUrl(remote);
     if (key) return key;
   }
 
-  const firstRemote = git(env, cwd, ["remote"], false, ceiling)
+  const firstRemote = git(env, remoteCwd, [...gitDir, "remote"])
     ?.split(/\r?\n/)
     .map((name) => name.trim())
     .find(Boolean);

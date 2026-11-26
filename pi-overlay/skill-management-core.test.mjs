@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { posix } from "node:path";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { delimiter, join, posix } from "node:path";
 import { test } from "node:test";
 
 import {
@@ -21,6 +24,11 @@ import {
   updatePersistedSkill,
   usage,
 } from "./skill-management-core.ts";
+
+/** @param {string[]} args */
+function gitCommand(args) {
+  return args.slice(args[2] === "--git-dir=.git" ? 3 : 2).join(" ");
+}
 
 /**
  * Builds a fake {@link SkillEnvironment}. Nothing here touches the real filesystem or runs git, so the tests
@@ -82,7 +90,7 @@ function createEnvironment({ files = {}, git = {}, catalog = [], variables = {} 
     homedir: () => "/home/dev",
     environmentVariable: (name) => (Object.hasOwn(variables, name) ? variables[name] : undefined),
     execFileSync: (_file, args) => {
-      const key = args.slice(2).join(" ");
+      const key = gitCommand(args);
       const response = git[key];
       if (response === undefined) throw nonRepositoryError();
       return response;
@@ -903,8 +911,8 @@ test("other global paths are persisted absolute, under ~ when they are in the ho
  */
 function withCheckouts(env, roots) {
   env.execFileSync = (_file, args) => {
-    const [, cwd = "", ...rest] = args;
-    const command = rest.join(" ");
+    const cwd = args[1] ?? "";
+    const command = gitCommand(args);
     if (command === "remote get-url upstream") return "git@github.com:team/app.git";
     if (command === "rev-parse --show-toplevel" && roots[cwd] !== undefined) return roots[cwd];
     throw nonRepositoryError();
@@ -1354,8 +1362,8 @@ test("repository entries resolve against the checkout whose key selected them", 
   let nested = false;
   let lookups = 0;
   env.execFileSync = (_file, args) => {
-    const [, cwd = "", ...rest] = args;
-    const command = rest.join(" ");
+    const cwd = args[1] ?? "";
+    const command = gitCommand(args);
     if (command === "remote get-url upstream") {
       const remote =
         nested && cwd === "/work/app/sub" ? "git@github.com:team/other.git" : "git@github.com:team/app.git";
@@ -1436,7 +1444,7 @@ test("a repository add selects its bucket and its stored path from one checkout 
   env.path.resolve = posix.resolve;
   let lookups = 0;
   env.execFileSync = (_file, args) => {
-    const command = args.slice(2).join(" ");
+    const command = gitCommand(args);
     if (command === "remote get-url upstream") return "git@github.com:team/outer.git";
     if (command === "rev-parse --show-toplevel") {
       lookups += 1;
@@ -1456,19 +1464,51 @@ test("a repository add selects its bucket and its stored path from one checkout 
   assert.equal(lookups, 1);
 });
 
-test("remote lookups do not search above the captured checkout root", () => {
+test("remote lookups stay in the captured checkout even with a path-list separator in its parent", (t) => {
   const { env } = createEnvironment();
-  /** @type {(string | undefined)[]} */
-  const ceilings = [];
-  env.execFileSync = (_file, args, options) => {
-    const command = args.slice(2).join(" ");
-    if (command === "rev-parse --show-toplevel") return "/work/outer/sub\n";
-    if (command.startsWith("remote")) ceilings.push(options.env?.GIT_CEILING_DIRECTORIES);
-    if (command === "remote get-url upstream") return "git@github.com:team/sub.git";
-    throw nonRepositoryError();
+  const area = mkdtempSync(join(tmpdir(), "pi-skills-checkout-"));
+  t.after(() => rmSync(area, { recursive: true, force: true }));
+  const outer = join(area, `team${delimiter}tools`);
+  const nested = join(outer, "nested");
+  const linked = join(area, "linked");
+  const childEnv = {
+    ...withoutRepositoryGitEnvironment(process.env, process.platform === "win32"),
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_GLOBAL: join(area, "nonexistent-config"),
   };
-  assert.equal(resolveRepoKey(env, "/work/outer/sub/docs"), "github.com:team/sub");
-  assert.deepEqual(ceilings, ["/work/outer"]);
+  /** @param {...string} args */
+  const git = (...args) => execFileSync("git", args, { env: childEnv, stdio: "ignore" });
+  mkdirSync(nested, { recursive: true });
+  git("-C", outer, "init", "--template=");
+  git("-C", outer, "remote", "add", "origin", "https://github.com/team/outer.git");
+  git(
+    "-C",
+    outer,
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--no-gpg-sign",
+    "-m",
+    "fixture",
+  );
+  git("-C", outer, "worktree", "add", "--detach", linked, "HEAD");
+  git("-C", nested, "init", "--template=");
+  git("-C", nested, "remote", "add", "origin", "https://github.com/team/nested.git");
+  env.execFileSync = (file, args, { env: overrides, ...options }) =>
+    execFileSync(file, args, { ...options, env: { ...childEnv, ...overrides } });
+
+  assert.ok(statSync(join(linked, ".git")).isFile(), "exercise a linked worktree's gitfile");
+  assert.equal(resolveRepoKey(env, linked), "github.com:team/outer");
+  const nestedRoot = execFileSync("git", ["-C", nested, "rev-parse", "--show-toplevel"], {
+    encoding: "utf-8",
+    env: childEnv,
+  }).trimEnd();
+  assert.equal(resolveRepoKey(env, nested, { value: nestedRoot }), "github.com:team/nested");
+  renameSync(join(nested, ".git"), join(area, "saved-metadata"));
+  assert.match(resolveRepoKey(env, nested, { value: nestedRoot }) ?? "", /^local:/);
 });
 
 test("active entries list directory scope after global and repository scopes", async () => {
