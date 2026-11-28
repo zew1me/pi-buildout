@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { delimiter, dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
+import { delimiter, dirname, isAbsolute, join, posix, relative, resolve, sep, win32 } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -1572,6 +1572,59 @@ test("a lookup that found no checkout keys directory entries without asking Git 
   });
   assert.deepEqual(result, { paths: ["/skills/global", "/skills/directory"], diagnostics: [] });
   assert.equal(lookups, 1);
+});
+
+test("Windows home-relative entries round-trip in both keyed scopes without changing POSIX resolution", async () => {
+  const source = String.raw`~\skills\review`;
+  const path = String.raw`C:\home\dev\skills\review`;
+  const cwd = String.raw`C:\work`;
+  const agentDir = String.raw`C:\agent`;
+  const directoryConfig = win32.join(agentDir, "directory-skills.json");
+  const repoConfig = win32.join(agentDir, "repo-skills.json");
+  const { env } = createEnvironment({
+    git: { "rev-parse --show-toplevel": cwd, "remote get-url origin": "https://github.com/team/app.git" },
+    files: {
+      [cwd]: "",
+      [path]: "",
+      [directoryConfig]: JSON.stringify({ [cwd]: { enabled: [source] } }),
+      [repoConfig]: JSON.stringify({ "github.com:team/app": { enabled: [source] } }),
+    },
+  });
+  env.path = win32;
+  env.homedir = () => String.raw`C:\home\dev`;
+  env.resolvePath = (input, base) => win32.resolve(base, input.replace(/^~[\\/]/, `${env.homedir()}\\`));
+  const options = { cwd, agentDir };
+  const active = await runSkillsCommand(env, ["active"], options);
+  assert.deepEqual(active.lines, ["Active skills:", `  repo: ${source}`, `  directory: ${source}`]);
+  const loaded = await resolveActiveSkillPaths(env, {
+    ...options,
+    resolveResourcePath: (input) => env.resolvePath(input, cwd, { trim: true }),
+  });
+  assert.deepEqual(loaded, { paths: [path, path], diagnostics: [] });
+  for (const scope of ["--repo", "--directory"]) {
+    const result = await runSkillsCommand(env, ["remove", source, scope], options);
+    assert.equal(result.exitCode, 0, result.lines.join("\n"));
+    const added = await runSkillsCommand(env, ["add", source, scope], options);
+    assert.equal(added.exitCode, 0, added.lines.join("\n"));
+  }
+  assert.deepEqual((await runSkillsCommand(env, ["active"], options)).lines, active.lines);
+
+  const literalPath = `/work/${source}`;
+  const plain = createEnvironment({
+    files: {
+      "/work": "",
+      [literalPath]: "",
+      "/agent/directory-skills.json": JSON.stringify({ "/work": { enabled: [source] } }),
+    },
+  });
+  const posixLoaded = await resolveActiveSkillPaths(plain.env, {
+    cwd: "/work",
+    agentDir: "/agent",
+    resolveResourcePath: () => {
+      throw new Error("expected base-relative resolution");
+    },
+  });
+  assert.deepEqual(posixLoaded, { paths: [literalPath], diagnostics: [] });
 });
 
 test("relative repository entries stay unresolved when no checkout root was observed", async () => {

@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..7c7a63a
+index 0000000..f84cac1
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,959 @@
+@@ -0,0 +1,962 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -391,7 +391,10 @@ index 0000000..7c7a63a
 +}
 +/** True for a path that does not depend on the directory it is read from: absolute, `~`, or a `file:` URL. */
 +function isAnchoredPath(env, value) {
-+    return env.path.isAbsolute(value) || value === "~" || value.startsWith("~/") || value.startsWith("file:");
++    return env.path.isAbsolute(value) || isHomeRelativePath(env, value) || value.startsWith("file:");
++}
++function isHomeRelativePath(env, value) {
++    return value === "~" || value.startsWith("~/") || (env.path.sep === "\\" && value.startsWith("~\\"));
 +}
 +/** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
 +function pathInside(env, root, path) {
@@ -445,7 +448,7 @@ index 0000000..7c7a63a
 +}
 +/** True for a `~` or `$NAME` path that resolves the same way from any directory in the current environment. */
 +function isPortableSpelling(env, typed) {
-+    const spelled = typed === "~" || typed.startsWith("~/") || typed.search(environmentVariableReference) !== -1;
++    const spelled = isHomeRelativePath(env, typed) || typed.search(environmentVariableReference) !== -1;
 +    if (!spelled || !looksLikePath(typed) || referencesDirectoryVariable(typed))
 +        return false;
 +    const { value, unset } = expandEnvironmentVariables(env, typed);

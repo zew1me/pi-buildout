@@ -308,7 +308,8 @@ pinned, checksum-verified inputs, and is not committed here.
 The session skill listing uses Pi's existing `file://` operand support in `packages/coding-agent/src/utils/paths.ts`
 (verified across the pinned releases, including 1.6.0 at `faac585884ae2c013a6b1400f3e9e77f10b34bac`) so displayed paths
 with spaces or literal variable syntax can be removed. The overlay delegates decoding to Pi and does not copy its path
-resolver or add a new escape syntax.
+resolver or add a new escape syntax. The overlay also recognizes Pi's Windows-only `~\` home-path convention before
+choosing a base for persisted entries; it leaves that spelling literal on POSIX.
 
 ## Git checkout discovery
 

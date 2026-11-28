@@ -484,7 +484,11 @@ function expandsToEmptyPath(env: SkillEnvironment, source: string): boolean {
 
 /** True for a path that does not depend on the directory it is read from: absolute, `~`, or a `file:` URL. */
 function isAnchoredPath(env: SkillEnvironment, value: string): boolean {
-  return env.path.isAbsolute(value) || value === "~" || value.startsWith("~/") || value.startsWith("file:");
+  return env.path.isAbsolute(value) || isHomeRelativePath(env, value) || value.startsWith("file:");
+}
+
+function isHomeRelativePath(env: SkillEnvironment, value: string): boolean {
+  return value === "~" || value.startsWith("~/") || (env.path.sep === "\\" && value.startsWith("~\\"));
 }
 
 /** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
@@ -553,7 +557,7 @@ function referencesDirectoryVariable(typed: string): boolean {
 
 /** True for a `~` or `$NAME` path that resolves the same way from any directory in the current environment. */
 function isPortableSpelling(env: SkillEnvironment, typed: string): boolean {
-  const spelled = typed === "~" || typed.startsWith("~/") || typed.search(environmentVariableReference) !== -1;
+  const spelled = isHomeRelativePath(env, typed) || typed.search(environmentVariableReference) !== -1;
   if (!spelled || !looksLikePath(typed) || referencesDirectoryVariable(typed)) return false;
   const { value, unset } = expandEnvironmentVariables(env, typed);
   return unset.length === 0 && isAnchoredPath(env, value.trim());

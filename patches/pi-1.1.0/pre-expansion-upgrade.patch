@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 2fd4257..7c7a63a 100644
+index 2fd4257..f84cac1 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -67,20 +67,58 @@ function withSkillConfigLock(env, path, fn) {
@@ -165,7 +165,7 @@ index 2fd4257..7c7a63a 100644
  export function sourceOf(entry) {
      if (typeof entry === "string")
          return entry;
-@@ -139,28 +243,174 @@ export function enabledEntries(value) {
+@@ -139,28 +243,177 @@ export function enabledEntries(value) {
      const enabled = value.enabled;
      return Array.isArray(enabled) ? enabled : [];
  }
@@ -248,7 +248,10 @@ index 2fd4257..7c7a63a 100644
 +}
 +/** True for a path that does not depend on the directory it is read from: absolute, `~`, or a `file:` URL. */
 +function isAnchoredPath(env, value) {
-+    return env.path.isAbsolute(value) || value === "~" || value.startsWith("~/") || value.startsWith("file:");
++    return env.path.isAbsolute(value) || isHomeRelativePath(env, value) || value.startsWith("file:");
++}
++function isHomeRelativePath(env, value) {
++    return value === "~" || value.startsWith("~/") || (env.path.sep === "\\" && value.startsWith("~\\"));
 +}
 +/** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
 +function pathInside(env, root, path) {
@@ -302,7 +305,7 @@ index 2fd4257..7c7a63a 100644
 +}
 +/** True for a `~` or `$NAME` path that resolves the same way from any directory in the current environment. */
 +function isPortableSpelling(env, typed) {
-+    const spelled = typed === "~" || typed.startsWith("~/") || typed.search(environmentVariableReference) !== -1;
++    const spelled = isHomeRelativePath(env, typed) || typed.search(environmentVariableReference) !== -1;
 +    if (!spelled || !looksLikePath(typed) || referencesDirectoryVariable(typed))
 +        return false;
 +    const { value, unset } = expandEnvironmentVariables(env, typed);
@@ -345,7 +348,7 @@ index 2fd4257..7c7a63a 100644
  }
  /** True when `path` exists and Pi's own loader finds at least one skill in it. */
  function containsSkills(env, path, options) {
-@@ -175,57 +425,114 @@ function containsSkills(env, path, options) {
+@@ -175,57 +428,114 @@ function containsSkills(env, path, options) {
      return skills.length > 0;
  }
  /**
@@ -376,7 +379,9 @@ index 2fd4257..7c7a63a 100644
 +        ? env.path.resolve(context.root, value)
 +        : env.resolvePath(value, context.cwd, { trim: true });
 +    return canonicalSkillPath(env, path);
-+}
+ }
+-export function updatePersistedSkill(env, action, source, scope, options) {
+-    const location = configLocation(env, scope, options.cwd, options.agentDir);
 +function canonicalSkillPath(env, path) {
 +    return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
 +}
@@ -396,9 +401,7 @@ index 2fd4257..7c7a63a 100644
 +    }
 +    const location = configLocation(env, scope, cwd, agentDir);
 +    return { location, context: { cwd, scope, root: scope === "directory" ? location.key : undefined } };
- }
--export function updatePersistedSkill(env, action, source, scope, options) {
--    const location = configLocation(env, scope, options.cwd, options.agentDir);
++}
 +export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
 +    const key = normalizePersistedSource(env, source, resolvedTarget.context, "candidate");
 +    return updatePersistedSkillByKey(env, action, source, scope, resolvedTarget, key);
@@ -488,7 +491,7 @@ index 2fd4257..7c7a63a 100644
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -238,30 +545,65 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -238,30 +548,65 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -570,7 +573,7 @@ index 2fd4257..7c7a63a 100644
      for (;;) {
          if (stopAt !== undefined) {
              const fromRoot = env.path.relative(stopAt, current);
-@@ -307,10 +649,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+@@ -307,10 +652,12 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
      return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
  }
  async function resolveSkillSource(env, source, options) {
@@ -585,7 +588,7 @@ index 2fd4257..7c7a63a 100644
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
      // resolve the selected skill. A bare local folder is retained as a path only when no catalog entry wins.
      const catalog = await getSkillCatalog(env, options);
-@@ -323,7 +667,7 @@ function commandName(allowSession = false) {
+@@ -323,7 +670,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -594,7 +597,7 @@ index 2fd4257..7c7a63a 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -337,12 +681,31 @@ export function usage(allowSession = false) {
+@@ -337,12 +684,31 @@ export function usage(allowSession = false) {
  function runActiveCommand(env, rest, surface, options) {
      if (rest.length !== 0)
          throw new Error(`Usage: ${surface} active`);
@@ -629,7 +632,7 @@ index 2fd4257..7c7a63a 100644
          activeEntries: entries,
      };
  }
-@@ -360,33 +723,36 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -360,33 +726,36 @@ async function runCatalogCommand(env, command, rest, surface, options) {
              : [query ? "No matching skills." : "No catalog skills found."],
      };
  }
@@ -684,7 +687,7 @@ index 2fd4257..7c7a63a 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -412,60 +778,77 @@ export async function runSkillsCommand(env, args, options) {
+@@ -412,60 +781,77 @@ export async function runSkillsCommand(env, args, options) {
  /**
   * Resolves the skills that are explicitly active for this session into concrete paths.
   *
@@ -795,7 +798,7 @@ index 2fd4257..7c7a63a 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -481,36 +864,36 @@ export async function resolveSkillEntryPath(env, context, source) {
+@@ -481,36 +867,36 @@ export async function resolveSkillEntryPath(env, context, source) {
   * Returns the line to show, or `undefined` when it has already reported an error. The list is mutated in
   * place because the loader holds the same array.
   */
@@ -848,7 +851,7 @@ index 2fd4257..7c7a63a 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -518,17 +901,20 @@ async function applySessionSkillChange(env, session, context) {
+@@ -518,17 +904,20 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -878,7 +881,7 @@ index 2fd4257..7c7a63a 100644
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -551,13 +937,13 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -551,13 +940,13 @@ export async function handleSkillsInteractive(env, text, context) {
      }
      let lines = result.lines;
      if (result.session) {
