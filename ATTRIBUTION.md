@@ -201,8 +201,9 @@ in 1.3.0, including those near the seams, were not adopted. No complete Pi sourc
 
 The [1.6.0 integration patch](pi-overlay/versions/1.6.0/integration.patch) adapts the existing seam to Pi's 1.6.0
 TypeScript sources and skill documentation, including the changed model-resolver import context in `main.ts`. It reuses
-this repository's shared skill management and CLI/RPC wrappers. The generated patch contains edits to upstream runtime
-files and docs; it does not vendor the upstream tree, adopt Pi's auto-loading policy, or rebuild its bundled chunks.
+this repository's shared skill management (including directory scope) and CLI/RPC wrappers. The generated patch contains
+edits to upstream runtime files and docs; it does not vendor the upstream tree, adopt Pi's auto-loading policy, or
+rebuild its bundled chunks.
 
 ## Pi 1.5.2 `/skills` runtime patch
 
@@ -271,7 +272,14 @@ Pi's existing `proper-lockfile` dependency; no new upstream dependency is introd
 
 `pi-overlay/versions/<version>/integration.patch` is a modified-code patch against Pi's MIT-licensed TypeScript sources:
 `src/core/resource-loader.ts`, `src/core/slash-commands.ts`, `src/main.ts`, `src/modes/interactive/interactive-mode.ts`,
-and `docs/skills.md`. Its unchanged context and modified lines derive from the MIT-licensed Pi package.
+and `docs/skills.md`. Its unchanged context and modified lines derive from the MIT-licensed Pi package. Directory scope
+is original overlay logic; it reuses Pi's existing path order and `loadSkills` behavior (first name wins and symlink
+aliases of an already-loaded skill are skipped). In the retained releases, Pi's `src/main.ts` passes `--skill` as
+`additionalSkillPaths`; the overlay preserves upstream's placement of those paths after the primary list. It does not
+adopt a new collision policy or copy the loader implementation. Pi 1.6.0 (`faac585884ae2c013a6b1400f3e9e77f10b34bac`,
+MIT) also confirms the boundary used for session activation: `additionalSkillPaths` accepts already resolved paths, and
+ordinary resource paths use Pi's existing `resolvePath`. The overlay passes the validated path without adding another
+expansion step or copying the upstream resolver.
 
 `pi-overlay/versions/<version>/replacements/dist/bundle/cli-runtime.js` and `rpc-entry.js` are original hand-written
 wrappers, not derived from upstream's generated bundle output. They replace Pi's esbuild-produced bundled entrypoints so
@@ -286,6 +294,34 @@ provider behavior.
 
 This repository vendors no upstream source and maintains no fork. Upstream source is fetched per generation run against
 pinned, checksum-verified inputs, and is not committed here.
+
+## Downstream skills comparison
+
+- Source: [nigel-upstart/pi-buildout](https://github.com/nigel-upstart/pi-buildout), MIT; reviewed downstream `main` at
+  `5853d0a1834f3c361f9a3ccc8985e86a1ecb54c8`.
+- `dc102aa22b5fb616b4e3b014e08b2fc67dc527e2` independently separates resolved remove paths from stored spellings in the
+  fork's global/repository scopes. This cross-check confirmed the single-expansion behavior; this branch computes a
+  comparison key from the original operand and retains its own directory-scope and empty-expansion rules.
+- The downstream Git builder hardening and Pi 1.6.0 overlay were inspected for overlap. No downstream code, artifacts,
+  fork-specific trust rules, release policy, or retained-version choices were imported in this comparison.
+
+The session skill listing uses Pi's existing `file://` operand support in `packages/coding-agent/src/utils/paths.ts`
+(verified across the pinned releases, including 1.6.0 at `faac585884ae2c013a6b1400f3e9e77f10b34bac`) so displayed paths
+with spaces or literal variable syntax can be removed. The overlay delegates decoding to Pi and does not copy its path
+resolver or add a new escape syntax. The overlay also recognizes Pi's Windows-only `~\` home-path convention before
+choosing a base for persisted entries; it leaves that spelling literal on POSIX.
+
+## Git checkout discovery
+
+- Source: [Git](https://git-scm.com/), [canonical source repository](https://github.com/git/git), `v2.55.0`, GPL-2.0.
+- The output of `git rev-parse --local-env-vars` identified repository-local environment variable names to exclude from
+  the overlay's checkout discovery subprocess. Git's `setup.c` identifies the two C-locale non-repository diagnostics
+  used to distinguish them from other `rev-parse` failures with the same status. The overlay matches those diagnostic
+  strings but does not copy Git's repository discovery implementation. For repository keys, it uses Git's documented
+  `rev-parse` options (`--show-toplevel`, `--is-inside-work-tree`, `--absolute-git-dir`) to capture the worktree and
+  metadata together, then uses `--git-dir` to pin remote lookups. The overlay does not infer Git metadata locations.
+- Git's documented `--git-dir` option lets remote lookup open the captured checkout's `.git` directly, including a
+  linked worktree's gitfile. The overlay uses that CLI contract instead of a path-list ceiling; no Git code was copied.
 
 ## Pi documentation and examples
 

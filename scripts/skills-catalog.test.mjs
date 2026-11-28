@@ -136,13 +136,15 @@ async function runPatchedCli(target, args, { agentDir, cwd, home = process.env.H
   return new Promise((resolvePromise, reject) => {
     const child = spawn(process.execPath, [join(target, "dist", "bundle", "cli.js"), ...args], {
       cwd,
-      env: testEnvironment({
-        ...(home === undefined ? {} : { HOME: home }),
-        PI_CODING_AGENT_DIR: agentDir,
-        PI_OFFLINE: "1",
-        PI_SKIP_VERSION_CHECK: "1",
+      env: {
+        ...testEnvironment({
+          ...(home === undefined ? {} : { HOME: home }),
+          PI_CODING_AGENT_DIR: agentDir,
+          PI_OFFLINE: "1",
+          PI_SKIP_VERSION_CHECK: "1",
+        }),
         ...env,
-      }),
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -559,6 +561,118 @@ test(`pi ${version}: the patched catalog resolves fixed, package, and settings s
       cloneLoader.getSkills().skills.map((skill) => [skill.name, skill.filePath]),
       [["cloned-skill", join(await realpath(secondClone), ".agents", "skills", "cloned", "SKILL.md")]],
     );
+
+    // A directory entry is keyed by the worktree root rather than the remote, so a second worktree of the same
+    // repository does not see it, and outside a repository the working directory itself is the key.
+    const worktreeRoot = join(fixtureRoot, "worktrees");
+    const [mainCheckout, featureWorktree] = [join(worktreeRoot, "main"), join(worktreeRoot, "feature")];
+    const worktreeAgentDir = join(worktreeRoot, "agent");
+    await mkdir(mainCheckout, { recursive: true });
+    await runGit(mainCheckout, ["init", "--quiet"]);
+    await runGit(mainCheckout, ["remote", "add", "origin", "https://example.com/org/worktrees.git"]);
+    await runGit(mainCheckout, [
+      "-c",
+      "user.name=fixture",
+      "-c",
+      "user.email=fixture@example.com",
+      "commit",
+      "--quiet",
+      "--no-gpg-sign",
+      "--allow-empty",
+      "-m",
+      "init",
+    ]);
+    await runGit(mainCheckout, ["worktree", "add", "--quiet", "--detach", featureWorktree, "HEAD"]);
+    const plainDirectory = join(worktreeRoot, "plain");
+    for (const base of [mainCheckout, featureWorktree, plainDirectory]) {
+      await writeSkill(join(base, ".agents", "skills", "local"), "directory-skill", "directory fixture");
+    }
+    const directoryLoad = async (base, extraOptions = {}) => {
+      const directoryLoader = new DefaultResourceLoader({
+        cwd: base,
+        agentDir: worktreeAgentDir,
+        settingsManager: SettingsManager.create(base, worktreeAgentDir, { projectTrusted: false }),
+        ...extraOptions,
+      });
+      await directoryLoader.reload();
+      return directoryLoader.getSkills();
+    };
+    const directoryPaths = async (base, options) =>
+      (await directoryLoad(base, options)).skills.map((skill) => skill.filePath);
+    for (const base of [mainCheckout, plainDirectory]) {
+      const directoryAdd = await runPatchedCli(
+        patchedPackage,
+        ["skills", "add", "./.agents/skills/local", "--directory"],
+        { agentDir: worktreeAgentDir, cwd: base },
+      );
+      assert.equal(directoryAdd.code, 0, directoryAdd.stderr);
+    }
+    const directoryConfig = JSON.parse(await readFile(join(worktreeAgentDir, "directory-skills.json"), "utf8"));
+    assert.deepEqual(directoryConfig, {
+      [await realpath(mainCheckout)]: { enabled: [".agents/skills/local"] },
+      [await realpath(plainDirectory)]: { enabled: [".agents/skills/local"] },
+    });
+    const mainSkill = join(await realpath(mainCheckout), ".agents", "skills", "local", "SKILL.md");
+    const plainSkill = join(await realpath(plainDirectory), ".agents", "skills", "local", "SKILL.md");
+    assert.deepEqual(await directoryPaths(mainCheckout), [mainSkill]);
+    assert.deepEqual(await directoryPaths(featureWorktree), [], "another worktree of the same remote is unaffected");
+    const inheritedGit = await runPatchedCli(patchedPackage, ["skills", "active"], {
+      agentDir: worktreeAgentDir,
+      cwd: featureWorktree,
+      env: { GIT_DIR: join(mainCheckout, ".git"), GIT_WORK_TREE: mainCheckout },
+    });
+    assert.equal(inheritedGit.code, 0, inheritedGit.stderr);
+    assert.equal(inheritedGit.stdout.trim(), "Skills: none", "inherited Git settings must not select another checkout");
+    assert.deepEqual(await directoryPaths(plainDirectory), [plainSkill]);
+
+    // Git exits 128 both outside a repository and for a malformed config, but only the former may use cwd.
+    const brokenCheckout = join(worktreeRoot, "broken");
+    const brokenSubdirectory = join(brokenCheckout, "sub");
+    await writeSkill(join(brokenSubdirectory, "local"), "broken-config-skill", "broken config fixture");
+    await runGit(brokenCheckout, ["init", "--quiet"]);
+    await writeFile(join(brokenCheckout, ".git", "config"), "[invalid\n");
+    const directoryConfigPath = join(worktreeAgentDir, "directory-skills.json");
+    const beforeBrokenAdd = await readFile(directoryConfigPath, "utf8");
+    const brokenAdd = await runPatchedCli(patchedPackage, ["skills", "add", "./local", "--directory"], {
+      agentDir: worktreeAgentDir,
+      cwd: brokenSubdirectory,
+    });
+    assert.equal(brokenAdd.code, 1);
+    assert.match(brokenAdd.stderr, /Git checkout discovery failed/);
+    assert.equal(await readFile(directoryConfigPath, "utf8"), beforeBrokenAdd);
+    assert.deepEqual(
+      await directoryPaths(mainCheckout, { noSkills: true }),
+      [],
+      "--no-skills suppresses directory scope",
+    );
+    // Pi's main() passes explicit `--skill` files as additionalSkillPaths, not cliEnabledSkills.
+    assert.deepEqual(
+      await directoryPaths(mainCheckout, { additionalSkillPaths: [plainSkill] }),
+      [mainSkill],
+      "a persisted skill wins over an explicit --skill file on a name collision",
+    );
+    assert.deepEqual(
+      await directoryPaths(mainCheckout, { additionalSkillPaths: [plainSkill], noSkills: true }),
+      [plainSkill],
+      "an explicit --skill file remains active when --no-skills suppresses persisted activation",
+    );
+
+    const worktreeGlobalConfig = join(worktreeAgentDir, "skills.json");
+    await writeFile(worktreeGlobalConfig, JSON.stringify({ enabled: [plainSkill] }));
+    assert.deepEqual(
+      await directoryPaths(mainCheckout),
+      [plainSkill],
+      "global wins over directory on a name collision",
+    );
+    const alias = join(worktreeRoot, "main-alias");
+    await symlink(await realpath(mainCheckout), alias, "dir");
+    await writeFile(
+      worktreeGlobalConfig,
+      JSON.stringify({ enabled: [join(alias, ".agents", "skills", "local", "SKILL.md")] }),
+    );
+    const deduplicated = await directoryLoad(mainCheckout);
+    assert.equal(deduplicated.skills.length, 1, "the same file enabled in two scopes loads only once");
+    assert.ok(!deduplicated.diagnostics.some((diagnostic) => diagnostic.type === "collision"));
 
     // Entry resolution lives in the skill-management module, so DefaultResourceLoader keeps no skill API.
     const entryContext = { cwd, agentDir, settingsManager, resolveResourcePath: (path) => path };

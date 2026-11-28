@@ -68,10 +68,10 @@ index 563d7d5..786a237 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..0b4ae56
+index 0000000..f84cac1
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,719 @@
+@@ -0,0 +1,962 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -141,19 +141,57 @@ index 0000000..0b4ae56
 +        }
 +    }
 +}
-+function git(env, cwd, args) {
++// `git rev-parse --local-env-vars` lists settings tied to a repository. These can override `git -C`.
++const repositoryGitVariables = new Set([
++    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
++    "GIT_CONFIG",
++    "GIT_CONFIG_PARAMETERS",
++    "GIT_CONFIG_COUNT",
++    "GIT_OBJECT_DIRECTORY",
++    "GIT_DIR",
++    "GIT_WORK_TREE",
++    "GIT_IMPLICIT_WORK_TREE",
++    "GIT_GRAFT_FILE",
++    "GIT_INDEX_FILE",
++    "GIT_NO_REPLACE_OBJECTS",
++    "GIT_REPLACE_REF_BASE",
++    "GIT_PREFIX",
++    "GIT_SHALLOW_FILE",
++    "GIT_COMMON_DIR",
++]);
++/** Filter actual keys because Windows child processes look up environment variables case-insensitively. */
++export function withoutRepositoryGitEnvironment(environment, caseInsensitive) {
++    return Object.fromEntries(Object.entries(environment).filter(([name]) => !repositoryGitVariables.has(caseInsensitive ? name.toUpperCase() : name)));
++}
++function git(env, cwd, args, strictDiscovery = false) {
 +    try {
-+        return env
-+            .execFileSync("git", ["-C", cwd, ...args], {
++        return env.execFileSync("git", ["-C", cwd, ...args], {
 +            encoding: "utf-8",
-+            stdio: ["ignore", "pipe", "ignore"],
++            stdio: ["ignore", "pipe", strictDiscovery ? "pipe" : "ignore"],
 +            timeout: 2000,
-+        })
-+            .trim();
++            // Match only Git's C-locale non-repository diagnostic, not arbitrary failures with exit status 128.
++            ...(strictDiscovery ? { env: { LC_ALL: "C" } } : {}),
++        });
 +    }
-+    catch {
++    catch (error) {
++        if (strictDiscovery && !gitReportedNoRepository(error)) {
++            const timedOut = error instanceof Error && "code" in error && error.code === "ETIMEDOUT";
++            const reason = timedOut ? "timed out" : "failed";
++            throw new Error(`Git checkout discovery ${reason}; check Git and retry the directory-scoped command.`, {
++                cause: error,
++            });
++        }
 +        return undefined;
 +    }
++}
++function gitReportedNoRepository(error) {
++    if (!(error instanceof Error) || !("status" in error) || error.status !== 128 || !("stderr" in error))
++        return false;
++    if (typeof error.stderr !== "string")
++        return false;
++    const firstLine = error.stderr.split(/\r?\n/, 1)[0];
++    return (firstLine === "fatal: not a git repository (or any of the parent directories): .git" ||
++        /^fatal: not a git repository \(or any parent up to mount point .+\)$/.test(firstLine ?? ""));
 +}
 +export function normalizeGitRemoteUrl(rawUrl) {
 +    if (!rawUrl)
@@ -179,24 +217,90 @@ index 0000000..0b4ae56
 +        return undefined;
 +    }
 +}
-+export function resolveRepoKey(env, cwd) {
++/** Use the same checkout for repository identity and relative entries, even when its metadata lives elsewhere. */
++export function resolveRepoKey(env, cwd, checkout = findCheckout(env, cwd)) {
++    // Pin remote probes to the captured metadata, never falling back to ancestor discovery if it disappears.
++    // A lookup outside a worktree still supports bare repositories for repo scope.
++    const gitDir = checkout.value === undefined ? [] : [`--git-dir=${checkout.gitDir}`];
++    const remoteCwd = checkout.value ?? cwd;
++    const remoteUrl = (name) => normalizeGitRemoteUrl(git(env, remoteCwd, [...gitDir, "remote", "get-url", name]));
 +    for (const remote of ["upstream", "origin"]) {
-+        const key = normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", remote]));
++        const key = remoteUrl(remote);
 +        if (key)
 +            return key;
 +    }
-+    const firstRemote = git(env, cwd, ["remote"])
++    const firstRemote = git(env, remoteCwd, [...gitDir, "remote"])
 +        ?.split(/\r?\n/)
 +        .map((name) => name.trim())
 +        .find(Boolean);
-+    const firstKey = firstRemote && normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", firstRemote]));
++    const firstKey = firstRemote && remoteUrl(firstRemote);
 +    if (firstKey)
 +        return firstKey;
-+    const root = git(env, cwd, ["rev-parse", "--show-toplevel"]);
++    // Keep the legacy on-disk key for repositories without a remote. Only the directory identity and
++    // path resolution need the untrimmed checkout root; do not look up a second repo bucket.
++    const root = checkout.value?.trim();
 +    if (!root)
 +        return undefined;
 +    const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
 +    return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
++}
++function stripGitTerminator(env, output) {
++    if (env.path.sep === "\\" && output.endsWith("\r\n"))
++        return output.slice(0, -2);
++    return output.endsWith("\n") ? output.slice(0, -1) : output;
++}
++/** The checkout root for directory writes and project catalog boundaries. */
++function findRepoRoot(env, cwd, strictDiscovery = false) {
++    const output = git(env, cwd, ["rev-parse", "--show-toplevel"], strictDiscovery);
++    const root = output === undefined ? undefined : stripGitTerminator(env, output);
++    if (root === "" && strictDiscovery)
++        throw new Error("Git checkout discovery failed: Git returned no checkout root.");
++    return root === "" ? undefined : root;
++}
++/** Capture both paths in one Git discovery; `core.worktree` can put the worktree outside the Git directory. */
++function findCheckout(env, cwd, strictDiscovery = false) {
++    const output = git(env, cwd, ["rev-parse", "--show-toplevel", "--is-inside-work-tree", "--absolute-git-dir"], strictDiscovery);
++    if (output === undefined)
++        return { value: undefined };
++    // The boolean record separates the paths without trimming them or splitting embedded newlines.
++    const separator = env.path.sep === "\\" ? /\r?\n(?:true|false)\r?\n/ : /\n(?:true|false)\n/;
++    const parts = stripGitTerminator(env, output).split(separator);
++    const [root, gitDir] = parts;
++    if (parts.length !== 2 || !root || !gitDir || !env.path.isAbsolute(root) || !env.path.isAbsolute(gitDir)) {
++        throw new Error("Git checkout discovery failed: Git returned ambiguous checkout metadata.");
++    }
++    return { value: root, gitDir };
++}
++/**
++ * The directory base that keys directory-scope entries: the root of the current checkout or worktree inside a git
++ * repository, otherwise the working directory itself.
++ *
++ * Unlike {@link resolveRepoKey}, this is a path rather than a remote, so every clone and every git worktree of the
++ * same repository gets its own key. It is a real path, so a base reached through a symlink shares its key with the
++ * base it points to.
++ */
++export function resolveDirectoryKey(env, cwd, checkoutRoot = { value: findRepoRoot(env, cwd, true) }) {
++    const base = env.path.resolve(checkoutRoot.value ?? cwd);
++    if (!env.fs.existsSync(base))
++        return base;
++    // The base can disappear between the two calls; its unresolved path keeps global and repository skills
++    // loading, and the next reload looks it up again.
++    try {
++        return env.fs.realpathSync(base);
++    }
++    catch {
++        return base;
++    }
++}
++function isCanonicalDirectoryKey(env, key) {
++    if (!env.fs.isDirectory(key))
++        return false;
++    try {
++        return env.fs.realpathSync(key) === key;
++    }
++    catch {
++        return false;
++    }
 +}
 +export function sourceOf(entry) {
 +    if (typeof entry === "string")
@@ -213,23 +317,35 @@ index 0000000..0b4ae56
 +    const enabled = value.enabled;
 +    return Array.isArray(enabled) ? enabled : [];
 +}
++/** The scope flags a command surface accepts, in the order usage text lists them. */
++function scopeFlags(allowSession) {
++    return ["--global", "--repo", "--directory", ...(allowSession ? ["--session"] : [])];
++}
++/** The scope flags joined for a usage line, such as `--global|--repo|--directory`. */
++function scopeList(allowSession) {
++    return scopeFlags(allowSession).join("|");
++}
 +export function scopeFromArgs(args, allowSession = false) {
-+    const allowed = allowSession ? ["--global", "--repo", "--session"] : ["--global", "--repo"];
++    const allowed = scopeFlags(allowSession);
 +    const scopes = args.filter((arg) => allowed.includes(arg));
 +    const scope = scopes[0];
 +    if (scopes.length !== 1 || scope === undefined) {
-+        throw new Error(`Specify exactly one scope: ${allowSession ? "--global, --repo, or --session" : "--global or --repo"}.`);
++        const last = allowed.at(-1);
++        throw new Error(`Specify exactly one scope: ${allowed.slice(0, -1).join(", ")}, or ${String(last)}.`);
 +    }
 +    return scope.slice(2);
 +}
-+export function configLocation(env, scope, cwd, agentDir) {
++export function configLocation(env, scope, cwd, agentDir, checkout) {
 +    if (scope === "global")
 +        return { path: env.path.join(agentDir, "skills.json") };
 +    if (scope === "repo") {
-+        const key = resolveRepoKey(env, cwd);
++        const key = resolveRepoKey(env, cwd, checkout);
 +        if (!key)
 +            throw new Error("Repository scope requires a git repository.");
 +        return { path: env.path.join(agentDir, "repo-skills.json"), key };
++    }
++    if (scope === "directory") {
++        return { path: env.path.join(agentDir, "directory-skills.json"), key: resolveDirectoryKey(env, cwd) };
 +    }
 +    return {};
 +}
@@ -265,13 +381,20 @@ index 0000000..0b4ae56
 +function resolveSkillPath(env, source, cwd) {
 +    return env.resolvePath(expandEnvironmentVariables(env, source).value, cwd, { trim: true });
 +}
++/**
++ * True for a path-like source that expands to nothing, such as `$SKILL_DIR` with the variable set to an empty
++ * string. Resolving it would name the base directory itself, so it is treated as unresolved; `.` still selects
++ * the base explicitly.
++ */
++function expandsToEmptyPath(env, source) {
++    return expandEnvironmentVariables(env, source).value.trim() === "";
++}
 +/** True for a path that does not depend on the directory it is read from: absolute, `~`, or a `file:` URL. */
 +function isAnchoredPath(env, value) {
-+    return env.path.isAbsolute(value) || value === "~" || value.startsWith("~/") || value.startsWith("file:");
++    return env.path.isAbsolute(value) || isHomeRelativePath(env, value) || value.startsWith("file:");
 +}
-+/** The checkout root for `cwd`; relative repository entries resolve against it. */
-+function findRepoRoot(env, cwd) {
-+    return git(env, cwd, ["rev-parse", "--show-toplevel"]);
++function isHomeRelativePath(env, value) {
++    return value === "~" || value.startsWith("~/") || (env.path.sep === "\\" && value.startsWith("~\\"));
 +}
 +/** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
 +function pathInside(env, root, path) {
@@ -285,22 +408,38 @@ index 0000000..0b4ae56
 + * Chooses how an added path is written to configuration.
 + *
 + * Repository entries are shared by every checkout with the same remote, so a path inside the current checkout
-+ * is stored relative to its root. Otherwise a `~` or `$NAME` spelling that resolves now is kept as typed, so it
++ * is stored relative to its root; a directory entry likewise stores a path inside its base relative to that base,
++ * so it resolves the same way from any subdirectory. Otherwise a `~` or `$NAME` spelling that resolves now is kept as typed, so it
 + * is expanded each time skills load rather than frozen at add time, and any other path is stored absolute,
 + * under `~` when it is in the home directory.
 + */
 +function persistedForm(env, source, resolvedPath, context) {
-+    const repoRelative = context.scope === "repo" && context.repoRoot !== undefined
-+        ? pathInside(env, context.repoRoot, resolvedPath)
-+        : undefined;
-+    if (repoRelative !== undefined) {
-+        return repoRelative === "" ? "." : looksLikePath(repoRelative) ? repoRelative : `./${repoRelative}`;
++    const rootRelative = context.root === undefined ? undefined : pathInside(env, context.root, resolvedPath);
++    if (rootRelative === "")
++        return ".";
++    // A literal ~/ or file: prefix inside the root must not become an anchored path, and leading whitespace must
++    // survive the trim applied when skills load. A generated path containing any variable reference, set or not,
++    // could expand differently in a later process, so the original portable spelling is preferred over it.
++    if (rootRelative?.search(environmentVariableReference) === -1 && rootRelative.trimEnd() === rootRelative) {
++        const needsPrefix = !looksLikePath(rootRelative) || isAnchoredPath(env, rootRelative) || /^\s/.test(rootRelative);
++        return needsPrefix ? `./${rootRelative}` : rootRelative;
 +    }
 +    const typed = source.trim();
 +    if (isPortableSpelling(env, typed))
 +        return typed;
 +    const home = pathInside(env, env.homedir(), resolvedPath);
-+    return home === undefined ? resolvedPath : home === "" ? "~" : `~/${home}`;
++    // A resolved alias can still name its target even when the canonical spelling ends in whitespace.
++    // Keep the alias rather than storing a generated spelling that the loader would trim.
++    const hasPortableHomePath = home !== undefined && !/\s$/.test(home);
++    const fallback = hasPortableHomePath ? (home === "" ? "~" : `~/${home}`) : resolvedPath;
++    if (fallback.trimEnd() !== fallback) {
++        throw new Error(`Cannot persist ${resolvedPath}: trailing whitespace would be trimmed when skills load.`);
++    }
++    // A literal `$NAME` in the path that is set now would expand on the next load and name a different path.
++    if (expandEnvironmentVariables(env, fallback).value !== fallback) {
++        throw new Error(`Cannot persist ${resolvedPath}: it contains an environment variable reference that would expand when skills load.`);
++    }
++    return fallback;
 +}
 +/** Variables naming a working directory: a path spelled with them means the directory it named at add time. */
 +const directoryVariables = new Set(["PWD", "OLDPWD"]);
@@ -309,7 +448,7 @@ index 0000000..0b4ae56
 +}
 +/** True for a `~` or `$NAME` path that resolves the same way from any directory in the current environment. */
 +function isPortableSpelling(env, typed) {
-+    const spelled = typed === "~" || typed.startsWith("~/") || typed.search(environmentVariableReference) !== -1;
++    const spelled = isHomeRelativePath(env, typed) || typed.search(environmentVariableReference) !== -1;
 +    if (!spelled || !looksLikePath(typed) || referencesDirectoryVariable(typed))
 +        return false;
 +    const { value, unset } = expandEnvironmentVariables(env, typed);
@@ -335,9 +474,12 @@ index 0000000..0b4ae56
 +        return unset;
 +    if (isAnchoredPath(env, expandEnvironmentVariables(env, source).value.trim()))
 +        return undefined;
-+    return scope === "repo"
-+        ? "relative repository paths resolve against the root of the current checkout"
-+        : "relative paths resolve against the working directory; remove it, then add it again to store its absolute path";
++    if (scope === "repo")
++        return "relative repository paths resolve against the root of the current checkout";
++    if (scope === "directory") {
++        return "relative directory paths resolve against the root of the current checkout, or the working directory outside one";
++    }
++    return "relative paths resolve against the working directory; remove it, then add it again to store its absolute path";
 +}
 +function unresolvedSkillDiagnostic(env, entry) {
 +    const hint = unresolvedEntryHint(env, entry.source, entry.scope);
@@ -365,62 +507,109 @@ index 0000000..0b4ae56
 + * User input is normalized before it is stored, so a stored bare value is a catalog name and is compared
 + * literally. Resolving it against whatever happens to exist in the current directory would let an unrelated
 + * local folder make a catalog-name entry match, or block, a path entry. A path entry compares by the real path
-+ * it names, so `~/x`, `$HOME/x`, and a repository-relative `x` all match the same absolute path.
++ * it names, so `~/x`, `$HOME/x`, and a repository- or directory-relative `x` all match the same absolute path.
 + */
-+function normalizePersistedSource(env, source, context) {
++function normalizePersistedSource(env, source, context, kind) {
 +    if (!source)
 +        return undefined;
 +    if (!looksLikePath(source))
 +        return source;
 +    const value = expandEnvironmentVariables(env, source).value.trim();
-+    const path = context.scope === "repo" && context.repoRoot !== undefined && !isAnchoredPath(env, value)
-+        ? env.path.resolve(context.repoRoot, value)
++    if (value === "")
++        return source;
++    const anchored = isAnchoredPath(env, value);
++    // Stored relative repo paths name a checkout, not the cwd of a bare repo or other rootless caller.
++    if (!anchored && kind === "stored" && context.scope === "repo" && context.root === undefined)
++        return undefined;
++    const path = context.root !== undefined && !anchored
++        ? env.path.resolve(context.root, value)
 +        : env.resolvePath(value, context.cwd, { trim: true });
++    return canonicalSkillPath(env, path);
++}
++function canonicalSkillPath(env, path) {
 +    return env.fs.existsSync(path) ? env.fs.realpathSync(path) : path;
 +}
-+export function updatePersistedSkill(env, action, source, scope, options) {
-+    const location = configLocation(env, scope, options.cwd, options.agentDir);
++/**
++ * Resolves the configuration location and entry context for one mutation.
++ *
++ * Formatting the path, matching existing entries, and selecting the bucket must all use the same base: if a
++ * checkout were created or removed between separate lookups, a path could be written relative to one base
++ * under the key of another. A directory key is its base, so it is looked up only once.
++ */
++function mutationTarget(env, scope, cwd, agentDir) {
++    if (scope === "repo") {
++        // One checkout lookup selects the bucket and is the base its relative entries are written against.
++        const checkout = findCheckout(env, cwd);
++        const location = configLocation(env, scope, cwd, agentDir, checkout);
++        return { location, context: { cwd, scope, root: checkout.value } };
++    }
++    const location = configLocation(env, scope, cwd, agentDir);
++    return { location, context: { cwd, scope, root: scope === "directory" ? location.key : undefined } };
++}
++export function updatePersistedSkill(env, action, source, scope, options, resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir)) {
++    const key = normalizePersistedSource(env, source, resolvedTarget.context, "candidate");
++    return updatePersistedSkillByKey(env, action, source, scope, resolvedTarget, key);
++}
++function updatePersistedSkillByKey(env, action, source, scope, { location, context }, key) {
 +    const path = location.path;
 +    if (path === undefined)
 +        throw new Error(`Scope ${scope} has no persisted configuration.`);
-+    const context = {
-+        cwd: options.cwd,
-+        scope,
-+        repoRoot: scope === "repo" ? findRepoRoot(env, options.cwd) : undefined,
-+    };
-+    const key = normalizePersistedSource(env, source, context);
-+    const matches = (entry) => normalizePersistedSource(env, sourceOf(entry), context) === key;
++    const matches = (entry) => key !== undefined && normalizePersistedSource(env, sourceOf(entry), context, "stored") === key;
 +    return withSkillConfigLock(env, path, () => {
 +        const config = readJson(env, path);
 +        const existing = location.key === undefined ? config : config[location.key];
 +        const target = location.key === undefined ? config : isObjectRecord(existing) ? existing : {};
 +        const enabled = enabledEntries(target);
-+        const matched = enabled.some(matches);
-+        if (action === "remove" && !matched)
-+            return false;
-+        target.enabled =
-+            action === "add" ? (matched ? enabled : [...enabled, source]) : enabled.filter((entry) => !matches(entry));
-+        if (location.key !== undefined)
++        if (action === "add") {
++            target.enabled = enabled.some(matches) ? enabled : [...enabled, source];
++        }
++        else {
++            // The lock protects the JSON, not symlink targets. Decide whether anything was removed from this pass only.
++            const retained = enabled.filter((entry) => !matches(entry));
++            if (retained.length === enabled.length)
++                return false;
++            target.enabled = retained;
++        }
++        // Directory keys are paths, one per checkout, worktree, or plain directory ever used, so a key is dropped
++        // once nothing is enabled under it. Keys are never pruned for a directory that no longer exists: such a key
++        // is inert, and the directory may only be temporarily unavailable, such as on an unmounted volume.
++        if (location.key !== undefined && scope === "directory" && enabledEntries(target).length === 0) {
++            // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the key is a path, so a Map-shaped object is the stored format
++            delete config[location.key];
++        }
++        else if (location.key !== undefined)
 +            config[location.key] = target;
++        // The captured directory may disappear or redirect while a command waits for the lock. Do not switch buckets.
++        if (action === "add" &&
++            scope === "directory" &&
++            location.key !== undefined &&
++            !isCanonicalDirectoryKey(env, location.key)) {
++            throw new Error(`Directory scope base is unavailable: ${location.key} (missing or no longer canonical; retry the command).`);
++        }
 +        writeJson(env, path, config);
 +        return true;
 +    });
 +}
 +/**
-+ * Removes a persisted entry by its normalized form first, then by each other reading of a bare name.
-+ *
-+ * A bare name is stored as the catalog name, or as the path it named when that path existed at add time.
-+ * Whether the path exists now says nothing about which form was stored: the path may have been deleted, or an
-+ * unrelated folder with the same name may sit in the current directory. So after the normalized form, a bare
-+ * name also tries its literal catalog name and its resolved path, without requiring that path to exist.
++ * Compares remove operands relative to cwd, while stored entries resolve against their scope's base.
++ * A path operand is expanded once; its resolved path may itself contain literal variable syntax.
++ * A bare name tries the catalog name first, then the cwd-relative path, even if that path was deleted.
 + */
-+function removePersistedSkill(env, source, target, scope, options) {
-+    const candidates = looksLikePath(source)
-+        ? [target]
-+        : [target, source, env.resolvePath(source, options.cwd, { trim: true })];
-+    return [...new Set(candidates)].some((candidate) => updatePersistedSkill(env, "remove", candidate, scope, options));
++function removePersistedSkill(env, source, scope, resolvedTarget) {
++    const { context } = resolvedTarget;
++    const operand = normalizePersistedSource(env, source, { ...context, root: undefined }, "candidate");
++    const remove = (key) => updatePersistedSkillByKey(env, "remove", source, scope, resolvedTarget, key);
++    return (remove(operand) ||
++        (!looksLikePath(source) && remove(canonicalSkillPath(env, env.resolvePath(source, context.cwd, { trim: true })))));
 +}
-+export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }) {
++export function getActiveSkillEntries(env, options) {
++    return readActiveSkillEntries(env, options).entries;
++}
++/**
++ * `strictDirectory` defaults to `strict`. Listing passes `false` so a Git discovery failure is reported through
++ * `onWarn` while the other scopes still list; only mutations need strict discovery to avoid a fallback bucket.
++ */
++function readActiveSkillEntries(env, { cwd, agentDir, strict = false, onWarn }, strictDirectory = strict) {
 +    const entries = [];
 +    const safeRead = (path) => {
 +        try {
@@ -433,30 +622,65 @@ index 0000000..0b4ae56
 +            return {};
 +        }
 +    };
-+    for (const source of enabledEntries(safeRead(env.path.join(agentDir, "skills.json")))) {
-+        const value = sourceOf(source);
-+        if (value)
-+            entries.push({ scope: "global", source: value });
-+    }
-+    const key = resolveRepoKey(env, cwd);
-+    if (key) {
-+        const config = safeRead(env.path.join(agentDir, "repo-skills.json"));
-+        for (const source of enabledEntries(config[key])) {
-+            const value = sourceOf(source);
-+            if (value)
-+                entries.push({ scope: "repo", source: value });
++    const append = (scope, config) => {
++        for (const entry of enabledEntries(config)) {
++            const source = sourceOf(entry);
++            if (source)
++                entries.push({ scope, source });
 +        }
++    };
++    append("global", safeRead(env.path.join(agentDir, "skills.json")));
++    const directoryConfig = safeRead(env.path.join(agentDir, "directory-skills.json"));
++    const needsDirectoryKey = Object.keys(directoryConfig).length > 0;
++    // One checkout lookup selects the repository bucket, keys the directory bucket and supplies the base for
++    // relative repository entries, so a checkout that appears or changes in between cannot pair one checkout's
++    // entries with another's root. Discovery is strict only when a directory key depends on it.
++    let discovery;
++    try {
++        discovery = findCheckout(env, cwd, needsDirectoryKey);
 +    }
-+    return entries;
++    catch (error) {
++        discovery = { error };
++    }
++    const repoRoot = "value" in discovery ? discovery.value : undefined;
++    const key = resolveRepoKey(env, cwd, "value" in discovery ? discovery : { value: undefined });
++    if (key)
++        append("repo", safeRead(env.path.join(agentDir, "repo-skills.json"))[key]);
++    // Directory entries come last, so on a name collision between different files the broader scope's skill
++    // loads first and wins, as global already does over repository.
++    const directoryKey = needsDirectoryKey ? readDirectoryKey(env, cwd, discovery, strictDirectory, onWarn) : undefined;
++    // A running loader can retain a cwd that no longer exists. Leave its saved entries alone, but do not
++    // activate them even if the entries themselves point to paths that still exist outside the base.
++    if (directoryKey !== undefined && env.fs.isDirectory(directoryKey))
++        append("directory", directoryConfig[directoryKey]);
++    return { entries, directoryKey, repoRoot };
++}
++function readDirectoryKey(env, cwd, discovery, strict, onWarn) {
++    // A lookup that found no checkout is still an answer: key by cwd rather than asking Git again.
++    if ("value" in discovery)
++        return resolveDirectoryKey(env, cwd, discovery);
++    if (strict)
++        throw discovery.error;
++    const { error } = discovery;
++    onWarn?.(`Ignoring directory skills: ${error instanceof Error ? error.message : String(error)}`);
++    return undefined;
 +}
 +function getProjectAgentSkillDirs(env, cwd) {
 +    const dirs = [];
-+    const repoRoot = git(env, cwd, ["rev-parse", "--show-toplevel"]);
-+    const stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
++    const repoRoot = findRepoRoot(env, cwd);
 +    const resolvedCwd = env.path.resolve(cwd);
 +    if (!env.fs.existsSync(resolvedCwd))
 +        return dirs;
-+    let current = env.fs.realpathSync(resolvedCwd);
++    let stopAt;
++    let current;
++    try {
++        stopAt = repoRoot ? env.fs.realpathSync(env.path.resolve(repoRoot)) : undefined;
++        current = env.fs.realpathSync(resolvedCwd);
++    }
++    catch {
++        // A checkout or cwd may disappear after discovery. Skip ancestor search rather than guessing its boundary.
++        return dirs;
++    }
 +    for (;;) {
 +        if (stopAt !== undefined) {
 +            const fromRoot = env.path.relative(stopAt, current);
@@ -504,7 +728,8 @@ index 0000000..0b4ae56
 +async function resolveSkillSource(env, source, options) {
 +    if (looksLikePath(source)) {
 +        const resolvedPath = resolveSkillPath(env, source, options.cwd);
-+        return { normalized: resolvedPath, resolved: env.fs.existsSync(resolvedPath) ? resolvedPath : undefined };
++        const exists = !expandsToEmptyPath(env, source) && env.fs.existsSync(resolvedPath);
++        return { normalized: resolvedPath, resolved: exists ? resolvedPath : undefined };
 +    }
 +    const resolvedPath = env.resolvePath(source, options.cwd, { trim: true });
 +    // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
@@ -519,7 +744,7 @@ index 0000000..0b4ae56
 +}
 +export function usage(allowSession = false) {
 +    const command = commandName(allowSession);
-+    const scopes = `--global|--repo${allowSession ? "|--session" : ""}`;
++    const scopes = scopeList(allowSession);
 +    return [
 +        `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
 +        `  ${command} active`,
@@ -533,12 +758,31 @@ index 0000000..0b4ae56
 +function runActiveCommand(env, rest, surface, options) {
 +    if (rest.length !== 0)
 +        throw new Error(`Usage: ${surface} active`);
-+    const entries = getActiveSkillEntries(env, { ...options, strict: true });
++    const warnings = [];
++    const { entries, directoryKey, repoRoot } = readActiveSkillEntries(env, { ...options, strict: true, onWarn: (message) => warnings.push(message) }, false);
++    const operand = ({ source, scope }) => {
++        if (scope === "global" || !looksLikePath(source))
++            return source;
++        const value = expandEnvironmentVariables(env, source).value.trim();
++        if (value === "" || isAnchoredPath(env, value))
++            return source;
++        const root = scope === "directory" ? directoryKey : repoRoot;
++        if (root === undefined)
++            return source;
++        // `remove` resolves an operand against cwd, not the base of a stored entry. Show a path that names
++        // the same target from this cwd, or label the stored spelling with its base if it cannot round-trip.
++        const absolute = env.path.resolve(root, value);
++        const usable = (path) => !(options.allowSession && /\s/.test(path)) && resolveSkillPath(env, path, options.cwd) === absolute;
++        if (usable(absolute))
++            return absolute;
++        const relative = `./${env.path.relative(options.cwd, absolute)}`;
++        return usable(relative) ? relative : `${source} (relative to ${root})`;
++    };
 +    return {
 +        exitCode: 0,
 +        lines: entries.length
-+            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
-+            : ["Skills: none"],
++            ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${operand(entry)}`), ...warnings]
++            : ["Skills: none", ...warnings],
 +        activeEntries: entries,
 +    };
 +}
@@ -557,42 +801,35 @@ index 0000000..0b4ae56
 +    };
 +}
 +/** What `add` writes for a resolved source: a catalog name as is, a path in its {@link persistedForm}. */
-+function persistedAddForm(env, source, target, scope, cwd) {
++function persistedAddForm(env, source, target, context) {
 +    if (!looksLikePath(source) && target === source)
 +        return source;
-+    return persistedForm(env, source, target, {
-+        cwd,
-+        scope,
-+        repoRoot: scope === "repo" ? findRepoRoot(env, cwd) : undefined,
-+    });
++    return persistedForm(env, source, target, context);
 +}
 +async function runMutationCommand(env, command, rest, surface, options) {
-+    const scopeList = `--global|--repo${options.allowSession ? "|--session" : ""}`;
++    const scopes = scopeList(options.allowSession ?? false);
 +    const source = rest.find((arg) => !arg.startsWith("--"));
 +    if (!source)
-+        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
++        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopes}`);
 +    const scope = scopeFromArgs(rest, options.allowSession);
 +    if (rest.length !== 2 || rest.some((arg) => ![source, `--${scope}`].includes(arg))) {
-+        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopeList}`);
++        throw new Error(`Usage: ${surface} ${command} <skill-or-path> ${scopes}`);
 +    }
 +    // Removal never consults the catalog, whose package resolution can install missing packages. A stored bare
 +    // value is a catalog name, so removing a bare name tries that literal name first and its resolved path after.
 +    const resolution = command === "add" ? await resolveSkillSource(env, source, options) : undefined;
-+    const target = command === "remove"
-+        ? looksLikePath(source)
-+            ? resolveSkillPath(env, source, options.cwd)
-+            : source
-+        : resolution?.normalized;
-+    if (!target)
-+        throw new Error(`Skill source is invalid: ${source}`);
-+    if (command === "add" && !resolution?.resolved) {
++    if (resolution && !resolution.resolved)
 +        throw new Error(skillNotFoundMessage(env, source));
++    if (scope === "session") {
++        // Add already resolved the path or catalog name. Do not interpret the resolved path as another operand.
++        const path = resolution?.resolved;
++        const session = path === undefined ? { action: "remove", source } : { action: "add", path };
++        return { exitCode: 0, lines: [], session };
 +    }
-+    if (scope === "session")
-+        return { exitCode: 0, lines: [], session: { action: command, source: target } };
-+    const updated = command === "add"
-+        ? updatePersistedSkill(env, command, persistedAddForm(env, source, target, scope, options.cwd), scope, options)
-+        : removePersistedSkill(env, source, target, scope, options);
++    const resolvedTarget = mutationTarget(env, scope, options.cwd, options.agentDir);
++    const updated = resolution
++        ? updatePersistedSkill(env, "add", persistedAddForm(env, source, resolution.normalized, resolvedTarget.context), scope, options, resolvedTarget)
++        : removePersistedSkill(env, source, scope, resolvedTarget);
 +    if (!updated)
 +        throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
 +    return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
@@ -620,70 +857,75 @@ index 0000000..0b4ae56
 + *
 + * Entries are either paths, which must exist, or catalog names, which are looked up by name. Path entries
 + * are expanded here, each time skills load, rather than when they are added: `~` and `$NAME` take the current
-+ * environment, and a relative repository entry resolves against the root of the current checkout. The loader
++ * environment, a relative repository entry resolves against the root of the current checkout, and a relative
++ * directory entry resolves against its directory base. The loader
 + * keeps the result until its next reload (`/reload`, `/skills reload`, or the reload `/skills add` and
 + * `/skills remove` trigger), which is what makes this a once-per-session expansion. The catalog is built at
 + * most once per call: every caller resolves a whole entry list in one pass, so a longer-lived cache would only
 + * need invalidating without ever being reused.
 + */
 +export async function resolveActiveSkillPaths(env, context) {
-+    const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
++    const { cwd, agentDir } = context;
 +    const paths = [];
 +    const diagnostics = [];
-+    const entries = getActiveSkillEntries(env, {
++    // The checkout root comes from the same lookup that selected the repository bucket, before the catalog wait
++    // below, so a checkout that changes afterwards cannot supply the base for that bucket's entries.
++    const { entries, directoryKey, repoRoot } = readActiveSkillEntries(env, {
 +        cwd,
 +        agentDir,
 +        onWarn: (message) => diagnostics.push({ type: "warning", message }),
 +    });
 +    let catalogPathsByName;
-+    const findCatalogSkillPath = async (name) => {
-+        catalogPathsByName ??= new Map((await getSkillCatalog(env, {
-+            cwd,
-+            agentDir,
-+            ...(settingsManager ? { settingsManager } : {}),
-+            ...(resolvedSkillResources ? { resolvedSkillResources } : {}),
-+        })).map((skill) => [skill.name, skill.filePath]));
-+        return catalogPathsByName.get(name);
-+    };
-+    let repoRoot;
-+    const entryPath = (entry) => {
-+        const value = expandEnvironmentVariables(env, entry.source).value.trim();
-+        if (entry.scope === "repo" && !isAnchoredPath(env, value)) {
-+            repoRoot ??= { value: findRepoRoot(env, cwd) };
-+            if (repoRoot.value !== undefined)
-+                return env.path.resolve(repoRoot.value, value);
-+        }
-+        return resolveResourcePath(value);
-+    };
++    if (entries.some((entry) => !looksLikePath(entry.source))) {
++        const catalog = await getSkillCatalog(env, context);
++        catalogPathsByName = new Map(catalog.map((skill) => [skill.name, skill.filePath]));
++    }
++    // Catalog lookup can yield while the base disappears. Validate the captured key, not another checkout lookup.
++    const directoryUnavailable = catalogPathsByName !== undefined && directoryKey !== undefined && !env.fs.isDirectory(directoryKey);
++    const resolveEntryPath = activeEntryPathResolver(env, context, directoryKey, repoRoot);
 +    for (const entry of entries) {
-+        if (!looksLikePath(entry.source)) {
-+            const resolved = await findCatalogSkillPath(entry.source);
-+            if (resolved)
-+                paths.push(resolved);
-+            else
-+                diagnostics.push(unresolvedSkillDiagnostic(env, entry));
++        if (entry.scope === "directory" && directoryUnavailable)
 +            continue;
-+        }
-+        const path = entryPath(entry);
-+        if (env.fs.existsSync(path))
++        const path = looksLikePath(entry.source) ? resolveEntryPath(entry) : catalogPathsByName?.get(entry.source);
++        if (path !== undefined)
 +            paths.push(path);
 +        else
 +            diagnostics.push(unresolvedSkillDiagnostic(env, entry));
 +    }
 +    return { paths, diagnostics };
 +}
++function activeEntryPathResolver(env, { resolveResourcePath }, directoryKey, repoRoot) {
++    return ({ source, scope }) => {
++        const value = expandEnvironmentVariables(env, source).value.trim();
++        if (value === "")
++            return undefined;
++        let base;
++        if (!isAnchoredPath(env, value)) {
++            if (scope === "directory")
++                base = directoryKey;
++            // A relative repository entry names a path inside its checkout. Without an observed root (a bare
++            // repository, or a checkout that appeared after the lookup) there is nothing to resolve it against.
++            if (scope === "repo" && repoRoot === undefined)
++                return undefined;
++            if (scope === "repo")
++                base = repoRoot;
++        }
++        const path = base === undefined ? resolveResourcePath(value) : env.path.resolve(base, value);
++        return env.fs.existsSync(path) ? path : undefined;
++    };
++}
 +/**
-+ * Resolves a single skill entry for session scope.
++ * Resolves a single skill entry against the loader's path and catalog context.
 + *
 + * Returns both the normalized form (an expanded path, or the catalog name unchanged) and the concrete file
-+ * path when one exists. Session activation needs both: the normalized form to match entries already in the
-+ * session list, and the resolved path to add.
++ * path when one exists.
 + */
 +export async function resolveSkillEntryPath(env, context, source) {
 +    const { cwd, agentDir, settingsManager, resolvedSkillResources, resolveResourcePath } = context;
 +    if (looksLikePath(source)) {
 +        const normalized = resolveResourcePath(expandEnvironmentVariables(env, source).value);
-+        return { normalized, resolved: env.fs.existsSync(normalized) ? normalized : undefined };
++        const exists = !expandsToEmptyPath(env, source) && env.fs.existsSync(normalized);
++        return { normalized, resolved: exists ? normalized : undefined };
 +    }
 +    const catalog = await getSkillCatalog(env, {
 +        cwd,
@@ -699,38 +941,36 @@ index 0000000..0b4ae56
 + * Returns the line to show, or `undefined` when it has already reported an error. The list is mutated in
 + * place because the loader holds the same array.
 + */
-+async function applySessionSkillChange(env, session, context) {
-+    const { cwd, agentDir, settingsManager, additionalSkillPaths, resolveResourcePath } = context;
++function applySessionSkillChange(env, session, context) {
++    const { cwd, agentDir, additionalSkillPaths, resolveResourcePath } = context;
 +    if (!additionalSkillPaths) {
 +        context.showError("Session skill activation is unavailable for this resource loader.");
 +        return undefined;
 +    }
 +    if (session.action === "add") {
-+        const pathContext = { cwd, agentDir, settingsManager, resolveResourcePath };
-+        const { resolved } = await resolveSkillEntryPath(env, pathContext, session.source);
-+        if (!resolved) {
-+            context.showError(`Skill not found in the catalog: ${session.source}`);
-+            return undefined;
-+        }
-+        if (!additionalSkillPaths.includes(resolved))
-+            additionalSkillPaths.push(resolved);
-+        return `Enabled ${resolved} for this session.`;
++        if (!additionalSkillPaths.includes(session.path))
++            additionalSkillPaths.push(session.path);
++        return `Enabled ${session.path} for this session.`;
 +    }
 +    // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
-+    // paths after applying the same resolution used by the resource loader.
-+    const normalized = looksLikePath(session.source)
-+        ? resolveResourcePath(expandEnvironmentVariables(env, session.source).value)
-+        : session.source;
-+    const skillPaths = looksLikePath(session.source)
++    // paths after expanding once and trimming, just as session add does.
++    const pathSource = looksLikePath(session.source);
++    const value = pathSource ? expandEnvironmentVariables(env, session.source).value.trim() : session.source;
++    if (pathSource && value === "") {
++        context.showError(`Skill is not enabled for this session: ${session.source}`);
++        return undefined;
++    }
++    const normalized = pathSource ? resolveResourcePath(value) : value;
++    const skillPaths = pathSource
 +        ? []
 +        : env
 +            .loadSkills({ cwd, agentDir, skillPaths: additionalSkillPaths, includeDefaults: false })
 +            .skills.filter((skill) => skill.name === session.source)
 +            .map((skill) => skill.filePath);
-+    const direct = (path) => path === session.source || path === normalized || skillPaths.includes(path);
++    const direct = (path) => path === normalized || skillPaths.includes(path);
 +    // A bare name added as a local path stays removable by that name after the path is deleted, but only when
 +    // nothing matches it directly.
-+    const localPath = looksLikePath(session.source) ? undefined : env.resolvePath(session.source, cwd, { trim: true });
++    const localPath = pathSource ? undefined : env.resolvePath(session.source, cwd, { trim: true });
 +    const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
 +    if (!additionalSkillPaths.some(matches)) {
 +        context.showError(`Skill is not enabled for this session: ${session.source}`);
@@ -738,17 +978,20 @@ index 0000000..0b4ae56
 +    }
 +    const retained = additionalSkillPaths.filter((path) => !matches(path));
 +    additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
-+    return `Disabled ${session.source} for this session.`;
++    return `Disabled ${normalized} for this session.`;
 +}
 +/** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */
-+function formatActiveSkillLines(activeEntries, additionalSkillPaths) {
-+    const entries = [
-+        ...(activeEntries ?? []),
-+        ...(additionalSkillPaths ?? []).map((source) => ({ scope: "session", source })),
-+    ];
-+    return entries.length
-+        ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
-+        : ["Skills: none"];
++function formatActiveSkillLines(env, lines, additionalSkillPaths) {
++    if (!additionalSkillPaths?.length)
++        return lines;
++    const sessionLines = additionalSkillPaths.map((path) => {
++        // The slash command splits on whitespace and expands variables before Pi decodes file URLs.
++        const operand = env.path.isAbsolute(path) && (/\s/.test(path) || path.search(environmentVariableReference) !== -1)
++            ? env.toFileUrl(path).replaceAll("$", "%24")
++            : path;
++        return `  session: ${operand}`;
++    });
++    return ["Active skills:", ...lines.slice(1), ...sessionLines];
 +}
 +/**
 + * Runs the interactive `/skills` command.
@@ -771,13 +1014,13 @@ index 0000000..0b4ae56
 +    }
 +    let lines = result.lines;
 +    if (result.session) {
-+        const line = await applySessionSkillChange(env, result.session, context);
++        const line = applySessionSkillChange(env, result.session, context);
 +        if (line === undefined)
 +            return;
 +        lines = [line];
 +    }
 +    if (args[0] === "active") {
-+        lines = formatActiveSkillLines(result.activeEntries, context.additionalSkillPaths);
++        lines = formatActiveSkillLines(env, lines, context.additionalSkillPaths);
 +    }
 +    if (args[0] === "add" || args[0] === "remove") {
 +        if (context.isBusy()) {
@@ -794,10 +1037,10 @@ index 0000000..0b4ae56
 \ No newline at end of file
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
 new file mode 100644
-index 0000000..8b712ef
+index 0000000..89f45a7
 --- /dev/null
 +++ b/dist/core/skill-management.js
-@@ -0,0 +1,132 @@
+@@ -0,0 +1,161 @@
 +/**
 + * Pi-facing entry point for opt-in skill management.
 + *
@@ -810,9 +1053,10 @@ index 0000000..8b712ef
 + */
 +import { execFileSync } from "node:child_process";
 +import chalk from "chalk";
-+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
++import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 +import { homedir } from "node:os";
 +import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
++import { pathToFileURL } from "node:url";
 +import lockfile from "proper-lockfile";
 +import { createProjectTrustContext } from "../cli/project-trust.js";
 +import { CONFIG_DIR_NAME } from "../config.js";
@@ -825,11 +1069,39 @@ index 0000000..8b712ef
 +import * as core from "./skill-management-core.js";
 +const lockWait = new Int32Array(new SharedArrayBuffer(4));
 +const env = {
-+    fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
++    fs: {
++        existsSync,
++        isDirectory: (path) => {
++            try {
++                return statSync(path).isDirectory();
++            }
++            catch {
++                return false;
++            }
++        },
++        mkdirSync,
++        readFileSync,
++        // The native call returns the filesystem's own spelling on macOS and Windows, so casing aliases on a
++        // case-insensitive volume share one directory key. Some Windows volumes reject it; use the JS fallback there.
++        realpathSync: (path) => {
++            try {
++                return realpathSync.native(path);
++            }
++            catch {
++                return realpathSync(path);
++            }
++        },
++        renameSync,
++        writeFileSync,
++    },
 +    path: { dirname, isAbsolute, join, relative, resolve, sep },
 +    homedir,
++    toFileUrl: (path) => pathToFileURL(path).href,
 +    environmentVariable: (name) => process.env[name],
-+    execFileSync,
++    execFileSync: (file, args, { env: overrides, ...options }) => execFileSync(file, args, {
++        ...options,
++        env: { ...core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"), ...overrides },
++    }),
 +    processId: () => process.pid,
 +    lockSync: (directory, options) => lockfile.lockSync(directory, options),
 +    sleepSync: (milliseconds) => {
@@ -1026,7 +1298,7 @@ index d2343a5..111ee06 100644
          if (this.session.isStreaming) {
              this.showWarning("Wait for the current response to finish before reloading.");
 diff --git a/docs/skills.md b/docs/skills.md
-index 19d2bf2..2a17b24 100644
+index 19d2bf2..4dcf117 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -40,9 +40,11 @@ Use relative paths from the skill directory when referring to bundled files. Pi
@@ -1043,7 +1315,7 @@ index 19d2bf2..2a17b24 100644
  
  Arguments after `/skill:name` are appended to the loaded instructions as a user request:
  
-@@ -56,14 +58,82 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
+@@ -56,14 +58,102 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
  
  ## Add it to Pi
  
@@ -1070,8 +1342,11 @@ index 19d2bf2..2a17b24 100644
 +- Session/CLI: `--skill <path>` (repeatable, additive even with `--no-skills`) or `/skills add <name> --session`
 +- Global: `~/.pi/agent/skills.json`
 +- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
++- Directory: `~/.pi/agent/directory-skills.json`, keyed by the current checkout or worktree root, or by the working directory outside a git repository
 +
-+Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
++On a name collision, the first skill wins. Persisted scopes load in global, repository, then directory order. Explicit `--skill` files and interactive session paths are passed to the loader as additional paths, so they do not override a same-name persisted skill. The same skill file enabled in several scopes loads once.
++
++Use `pi skills list` to find package- and settings-provided skills that no longer load automatically. In interactive mode, `/skills add <name> --session` enables a catalog skill until the session ends without writing a JSON entry. To keep it enabled across sessions, add it with `--global`, `--repo`, or `--directory`.
 +
 +Enable global skills with `~/.pi/agent/skills.json`:
 +
@@ -1099,6 +1374,21 @@ index 19d2bf2..2a17b24 100644
 +
 +Repository keys are resolved from git remotes in this order: `upstream`, then `origin`, then the first configured remote. Remote URLs are normalized so `git@github.com:earendil-works/pi.git`, `https://github.com/earendil-works/pi`, and `ssh://git@github.com/earendil-works/pi.git` all become `github.com:earendil-works/pi`. Non-default ports stay part of the key. If no remote exists, Pi falls back to `local:<repo-root-relative-to-$HOME>`, such as `local:~/Documents/repos/private-tool`.
 +
++Enable skills for one directory with `~/.pi/agent/directory-skills.json`:
++
++```json
++{
++  "/Users/me/Documents/repos/pi-worktrees/feature": {
++    "enabled": ["./.agents/skills/feature-notes"]
++  },
++  "/Users/me/scratch": {
++    "enabled": ["~/.agents/skills/scratchpad"]
++  }
++}
++```
++
++Clones and worktrees share repository-scoped entries only if they resolve to the same repository key. For example, a fork that selects its own `origin` instead of the original repository's remote gets a different key. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. A bare repository has no checkout: directory-scoped `add` and `remove` report a Git checkout discovery error rather than falling back to the working directory. Keys are real paths, so a directory reached through a symlink shares the entries of its target. On macOS and Windows a key uses the spelling stored on disk, so a differently cased path to the same directory on a case-insensitive volume shares its entries too. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
++
 +Manage activation with either the interactive `/skills` command or the one-shot CLI:
 +
 +```text
@@ -1107,6 +1397,7 @@ index 19d2bf2..2a17b24 100644
 +/skills search browser
 +/skills add browser-testing-with-devtools --session
 +/skills add browser-testing-with-devtools --repo
++/skills add browser-testing-with-devtools --directory
 +/skills remove browser-testing-with-devtools --global
 +/skills reload
 +
@@ -1115,19 +1406,20 @@ index 19d2bf2..2a17b24 100644
 +pi skills search browser
 +pi skills add browser-testing-with-devtools --global
 +pi skills add browser-testing-with-devtools --repo
++pi skills add browser-testing-with-devtools --directory
 +pi skills remove browser-testing-with-devtools --repo
 +```
 +
-+`--session` is interactive-only and lasts until the session ends. `--global` and `--repo` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global and repository entries; `/skills active` also shows session entries.
++`--session` is interactive-only and lasts until the session ends. `--global`, `--repo`, and `--directory` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global, repository, and directory entries; `/skills active` also shows session entries.
 +
-+Path arguments may use `~`, `$NAME`, or `${NAME}`; `/skills` expands them itself because its arguments never pass through a shell. With `--repo`, a path inside the current checkout is stored relative to the repository root, so the entry works in every clone and worktree with the same remote. Otherwise `add` keeps a `~` or `$NAME` spelling as typed and stores any other path as an absolute path, under `~` when it is in your home directory. Stored paths are expanded whenever Pi loads skills: at startup, after `/skills add` or `/skills remove`, and on `/reload` or `/skills reload`. Other relative entries resolve against the repository root in `repo-skills.json` and against the working directory in `skills.json`, so prefer absolute, `~`, or `$NAME` paths in `skills.json`.
++Path arguments may use `~`, `$NAME`, or `${NAME}`; `/skills` expands them itself because its arguments never pass through a shell. With `--repo`, a path inside the current checkout is stored relative to the repository root, so the entry works in every clone and worktree with the same remote. With `--directory`, a path inside the directory base is stored relative to that base. Otherwise `add` keeps a `~` or `$NAME` spelling as typed and stores any other path as an absolute path, under `~` when it is in your home directory. Stored paths are expanded whenever Pi loads skills: at startup, after `/skills add` or `/skills remove`, and on `/reload` or `/skills reload`. Other relative entries resolve against the repository root in `repo-skills.json`, against the directory base in `directory-skills.json`, and against the working directory in `skills.json`, so prefer absolute, `~`, or `$NAME` paths in `skills.json`.
 +
-+Use `--no-skills` to suppress global and repository active skills; explicit `--skill` paths still load.
++Use `--no-skills` to suppress global, repository, and directory active skills; explicit `--skill` paths still load.
 +
  ## Write portable frontmatter
  
  The Agent Skills specification defines these fields:
-@@ -86,7 +156,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
+@@ -86,7 +176,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
  
  ## Validate and share a skill
  

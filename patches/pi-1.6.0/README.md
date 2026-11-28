@@ -8,7 +8,9 @@ are unchanged from 1.5.2.
 The [upstream manifest](../../pi-overlay/versions/1.6.0/upstream.json) pins the source release and npm package.
 The builder compares the unmodified source build with the published runtime, enforces the 48-line integration budget,
 and verifies the patched files against `patched.sha256`. The installer checks `baseline.sha256` and `baseline.absent`
-before applying the patch. Do not apply it to another Pi version.
+before applying the patch to a clean package. It can also migrate the original 1.6.0 patch from repository commit
+`18417b6`, before `--directory` support, using the `pre-directory-scope` checksum and upgrade patch. Do not apply these
+artifacts to another Pi version.
 
 ```bash
 npm run patches:build -- --version 1.6.0

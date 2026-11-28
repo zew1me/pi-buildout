@@ -1,5 +1,5 @@
 diff --git a/docs/skills.md b/docs/skills.md
-index 19d2bf2..a6adcc6 100644
+index 19d2bf2..4dcf117 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -40,9 +40,11 @@ Use relative paths from the skill directory when referring to bundled files. Pi
@@ -16,7 +16,7 @@ index 19d2bf2..a6adcc6 100644
  
  Arguments after `/skill:name` are appended to the loaded instructions as a user request:
  
-@@ -56,14 +58,82 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
+@@ -56,14 +58,102 @@ Set `disable-model-invocation: true` in frontmatter when a skill should be avail
  
  ## Add it to Pi
  
@@ -43,8 +43,11 @@ index 19d2bf2..a6adcc6 100644
 +- Session/CLI: `--skill <path>` (repeatable, additive even with `--no-skills`) or `/skills add <name> --session`
 +- Global: `~/.pi/agent/skills.json`
 +- Repository: `~/.pi/agent/repo-skills.json`, keyed by git repository identity
++- Directory: `~/.pi/agent/directory-skills.json`, keyed by the current checkout or worktree root, or by the working directory outside a git repository
 +
-+Package- and settings-provided skills that previously loaded automatically must now be enabled in `~/.pi/agent/skills.json` or the applicable entry in `~/.pi/agent/repo-skills.json`. Use `pi skills list` to find catalog skill names.
++On a name collision, the first skill wins. Persisted scopes load in global, repository, then directory order. Explicit `--skill` files and interactive session paths are passed to the loader as additional paths, so they do not override a same-name persisted skill. The same skill file enabled in several scopes loads once.
++
++Use `pi skills list` to find package- and settings-provided skills that no longer load automatically. In interactive mode, `/skills add <name> --session` enables a catalog skill until the session ends without writing a JSON entry. To keep it enabled across sessions, add it with `--global`, `--repo`, or `--directory`.
 +
 +Enable global skills with `~/.pi/agent/skills.json`:
 +
@@ -72,6 +75,21 @@ index 19d2bf2..a6adcc6 100644
 +
 +Repository keys are resolved from git remotes in this order: `upstream`, then `origin`, then the first configured remote. Remote URLs are normalized so `git@github.com:earendil-works/pi.git`, `https://github.com/earendil-works/pi`, and `ssh://git@github.com/earendil-works/pi.git` all become `github.com:earendil-works/pi`. Non-default ports stay part of the key. If no remote exists, Pi falls back to `local:<repo-root-relative-to-$HOME>`, such as `local:~/Documents/repos/private-tool`.
 +
++Enable skills for one directory with `~/.pi/agent/directory-skills.json`:
++
++```json
++{
++  "/Users/me/Documents/repos/pi-worktrees/feature": {
++    "enabled": ["./.agents/skills/feature-notes"]
++  },
++  "/Users/me/scratch": {
++    "enabled": ["~/.agents/skills/scratchpad"]
++  }
++}
++```
++
++Clones and worktrees share repository-scoped entries only if they resolve to the same repository key. For example, a fork that selects its own `origin` instead of the original repository's remote gets a different key. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. A bare repository has no checkout: directory-scoped `add` and `remove` report a Git checkout discovery error rather than falling back to the working directory. Keys are real paths, so a directory reached through a symlink shares the entries of its target. On macOS and Windows a key uses the spelling stored on disk, so a differently cased path to the same directory on a case-insensitive volume shares its entries too. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
++
 +Manage activation with either the interactive `/skills` command or the one-shot CLI:
 +
 +```text
@@ -80,6 +98,7 @@ index 19d2bf2..a6adcc6 100644
 +/skills search browser
 +/skills add browser-testing-with-devtools --session
 +/skills add browser-testing-with-devtools --repo
++/skills add browser-testing-with-devtools --directory
 +/skills remove browser-testing-with-devtools --global
 +/skills reload
 +
@@ -88,19 +107,20 @@ index 19d2bf2..a6adcc6 100644
 +pi skills search browser
 +pi skills add browser-testing-with-devtools --global
 +pi skills add browser-testing-with-devtools --repo
++pi skills add browser-testing-with-devtools --directory
 +pi skills remove browser-testing-with-devtools --repo
 +```
 +
-+`--session` is interactive-only and lasts until the session ends. `--global` and `--repo` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global and repository entries; `/skills active` also shows session entries.
++`--session` is interactive-only and lasts until the session ends. `--global`, `--repo`, and `--directory` persist to their respective JSON configuration. `list` and `search` show catalog skills. `pi skills active` shows the configured global, repository, and directory entries; `/skills active` also shows session entries.
 +
-+Path arguments may use `~`, `$NAME`, or `${NAME}`; `/skills` expands them itself because its arguments never pass through a shell. With `--repo`, a path inside the current checkout is stored relative to the repository root, so the entry works in every clone and worktree with the same remote. Otherwise `add` keeps a `~` or `$NAME` spelling as typed and stores any other path as an absolute path, under `~` when it is in your home directory. Stored paths are expanded whenever Pi loads skills: at startup, after `/skills add` or `/skills remove`, and on `/reload` or `/skills reload`. Other relative entries resolve against the repository root in `repo-skills.json` and against the working directory in `skills.json`, so prefer absolute, `~`, or `$NAME` paths in `skills.json`.
++Path arguments may use `~`, `$NAME`, or `${NAME}`; `/skills` expands them itself because its arguments never pass through a shell. With `--repo`, a path inside the current checkout is stored relative to the repository root, so the entry works in every clone and worktree with the same remote. With `--directory`, a path inside the directory base is stored relative to that base. Otherwise `add` keeps a `~` or `$NAME` spelling as typed and stores any other path as an absolute path, under `~` when it is in your home directory. Stored paths are expanded whenever Pi loads skills: at startup, after `/skills add` or `/skills remove`, and on `/reload` or `/skills reload`. Other relative entries resolve against the repository root in `repo-skills.json`, against the directory base in `directory-skills.json`, and against the working directory in `skills.json`, so prefer absolute, `~`, or `$NAME` paths in `skills.json`.
 +
-+Use `--no-skills` to suppress global and repository active skills; explicit `--skill` paths still load.
++Use `--no-skills` to suppress global, repository, and directory active skills; explicit `--skill` paths still load.
 +
  ## Write portable frontmatter
  
  The Agent Skills specification defines these fields:
-@@ -86,7 +156,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
+@@ -86,7 +176,7 @@ Malformed `SKILL.md` files and declared skills without descriptions are not load
  
  ## Validate and share a skill
  

@@ -11,9 +11,10 @@
 
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
-import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import lockfile from "proper-lockfile";
 import { createProjectTrustContext } from "../cli/project-trust.ts";
 import { CONFIG_DIR_NAME } from "../config.ts";
@@ -51,11 +52,38 @@ export type {
 const lockWait = new Int32Array(new SharedArrayBuffer(4));
 
 const env: SkillEnvironment = {
-  fs: { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, writeFileSync },
+  fs: {
+    existsSync,
+    isDirectory: (path) => {
+      try {
+        return statSync(path).isDirectory();
+      } catch {
+        return false;
+      }
+    },
+    mkdirSync,
+    readFileSync,
+    // The native call returns the filesystem's own spelling on macOS and Windows, so casing aliases on a
+    // case-insensitive volume share one directory key. Some Windows volumes reject it; use the JS fallback there.
+    realpathSync: (path) => {
+      try {
+        return realpathSync.native(path);
+      } catch {
+        return realpathSync(path);
+      }
+    },
+    renameSync,
+    writeFileSync,
+  },
   path: { dirname, isAbsolute, join, relative, resolve, sep },
   homedir,
+  toFileUrl: (path) => pathToFileURL(path).href,
   environmentVariable: (name) => process.env[name],
-  execFileSync,
+  execFileSync: (file, args, { env: overrides, ...options }) =>
+    execFileSync(file, args, {
+      ...options,
+      env: { ...core.withoutRepositoryGitEnvironment(process.env, process.platform === "win32"), ...overrides },
+    }),
   processId: () => process.pid,
   lockSync: (directory, options) => lockfile.lockSync(directory, options),
   sleepSync: (milliseconds) => {
