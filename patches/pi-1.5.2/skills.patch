@@ -68,10 +68,10 @@ index 120a7c7..36cb5f5 100644
                  const resolved = this.resolveResourcePath(p);
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
 new file mode 100644
-index 0000000..90d0516
+index 0000000..8a4842b
 --- /dev/null
 +++ b/dist/core/skill-management-core.js
-@@ -0,0 +1,928 @@
+@@ -0,0 +1,941 @@
 +/**
 + * Opt-in skill management for the patched Pi runtime.
 + *
@@ -279,6 +279,16 @@ index 0000000..90d0516
 +    }
 +    catch {
 +        return base;
++    }
++}
++function isCanonicalDirectoryKey(env, key) {
++    if (!env.fs.isDirectory(key))
++        return false;
++    try {
++        return env.fs.realpathSync(key) === key;
++    }
++    catch {
++        return false;
 +    }
 +}
 +export function sourceOf(entry) {
@@ -555,9 +565,12 @@ index 0000000..90d0516
 +        }
 +        else if (location.key !== undefined)
 +            config[location.key] = target;
-+        // The captured directory may disappear while a command waits for the lock. Do not rediscover a new key.
-+        if (action === "add" && scope === "directory" && location.key !== undefined && !env.fs.isDirectory(location.key)) {
-+            throw new Error(`Directory scope base is unavailable: ${location.key}`);
++        // The captured directory may disappear or redirect while a command waits for the lock. Do not switch buckets.
++        if (action === "add" &&
++            scope === "directory" &&
++            location.key !== undefined &&
++            !isCanonicalDirectoryKey(env, location.key)) {
++            throw new Error(`Directory scope base is unavailable: ${location.key} (missing or no longer canonical; retry the command).`);
 +        }
 +        writeJson(env, path, config);
 +        return true;

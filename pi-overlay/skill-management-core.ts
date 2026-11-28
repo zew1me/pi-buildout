@@ -356,6 +356,15 @@ export function resolveDirectoryKey(
   }
 }
 
+function isCanonicalDirectoryKey(env: SkillEnvironment, key: string): boolean {
+  if (!env.fs.isDirectory(key)) return false;
+  try {
+    return env.fs.realpathSync(key) === key;
+  } catch {
+    return false;
+  }
+}
+
 export function sourceOf(entry: unknown): string | undefined {
   if (typeof entry === "string") return entry;
   if (!entry || typeof entry !== "object") return undefined;
@@ -683,9 +692,16 @@ function updatePersistedSkillByKey(
       // eslint-disable-next-line @typescript-eslint/no-dynamic-delete -- the key is a path, so a Map-shaped object is the stored format
       delete config[location.key];
     } else if (location.key !== undefined) config[location.key] = target;
-    // The captured directory may disappear while a command waits for the lock. Do not rediscover a new key.
-    if (action === "add" && scope === "directory" && location.key !== undefined && !env.fs.isDirectory(location.key)) {
-      throw new Error(`Directory scope base is unavailable: ${location.key}`);
+    // The captured directory may disappear or redirect while a command waits for the lock. Do not switch buckets.
+    if (
+      action === "add" &&
+      scope === "directory" &&
+      location.key !== undefined &&
+      !isCanonicalDirectoryKey(env, location.key)
+    ) {
+      throw new Error(
+        `Directory scope base is unavailable: ${location.key} (missing or no longer canonical; retry the command).`,
+      );
     }
     writeJson(env, path, config);
     return true;

@@ -571,6 +571,33 @@ test("directory add does not write if its base disappears while waiting for the 
   assert.deepEqual(readStored(store, config), { "/other": { enabled: ["untouched"] } });
 });
 
+test("directory add does not write if its captured key becomes a symlink while waiting for the lock", async () => {
+  const config = "/agent/directory-skills.json";
+  const before = JSON.stringify({ "/work/a": { enabled: ["old"] } });
+  const { env, store, locks, writes } = createEnvironment({
+    files: { [config]: before, "/work/a": "", "/work/b": "", "/skills/new": "" },
+  });
+  const lockSync = env.lockSync;
+  let redirected = false;
+  env.lockSync = (directory, options) => {
+    if (!redirected) throw lockError("ELOCKED");
+    return lockSync(directory, options);
+  };
+  env.sleepSync = () => {
+    redirected = true;
+  };
+  env.fs.realpathSync = (path) => (redirected && path === "/work/a" ? "/work/b" : path);
+  const result = await runSkillsCommand(env, ["add", "/skills/new", "--directory"], {
+    cwd: "/work/a",
+    agentDir: "/agent",
+  });
+  assert.equal(result.exitCode, 1);
+  assert.match(result.lines[0] ?? "", /Directory scope base is unavailable: \/work\/a/);
+  assert.equal(locks[0]?.held, false);
+  assert.equal(store.get(config), before);
+  assert.deepEqual(writes, []);
+});
+
 test("updatePersistedSkill gives up on a lock that stays held, and never retries other lock errors", () => {
   const options = { cwd: "/work", agentDir: "/agent" };
 
