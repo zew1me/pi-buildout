@@ -284,19 +284,18 @@ export function normalizeGitRemoteUrl(rawUrl: string | undefined): string | unde
   }
 }
 
-/**
- * `checkoutRoot` lets a caller that already looked up the checkout root key that same checkout: remotes are
- * then read from the root, and the no-remote fallback uses it rather than a second lookup.
- */
+type Checkout = { value: undefined } | { value: string; gitDir: string };
+
+/** Use the same checkout for repository identity and relative entries, even when its metadata lives elsewhere. */
 export function resolveRepoKey(
   env: SkillEnvironment,
   cwd: string,
-  checkoutRoot: { value: string | undefined } = { value: findRepoRoot(env, cwd) },
+  checkout: Checkout = findCheckout(env, cwd),
 ): string | undefined {
-  // A captured checkout has a .git directory or gitfile. Open it directly, without ancestor discovery or
-  // a path-list ceiling that cannot represent every checkout path. Without a root, still support bare repos.
-  const gitDir = checkoutRoot.value === undefined ? [] : ["--git-dir=.git"];
-  const remoteCwd = checkoutRoot.value ?? cwd;
+  // Pin remote probes to the captured metadata, never falling back to ancestor discovery if it disappears.
+  // A lookup outside a worktree still supports bare repositories for repo scope.
+  const gitDir = checkout.value === undefined ? [] : [`--git-dir=${checkout.gitDir}`];
+  const remoteCwd = checkout.value ?? cwd;
   const remoteUrl = (name: string): string | undefined =>
     normalizeGitRemoteUrl(git(env, remoteCwd, [...gitDir, "remote", "get-url", name]));
   for (const remote of ["upstream", "origin"]) {
@@ -313,24 +312,42 @@ export function resolveRepoKey(
 
   // Keep the legacy on-disk key for repositories without a remote. Only the directory identity and
   // path resolution need the untrimmed checkout root; do not look up a second repo bucket.
-  const root = checkoutRoot.value?.trim();
+  const root = checkout.value?.trim();
   if (!root) return undefined;
   const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
   return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
 }
 
-/** The checkout root for `cwd`; relative repository entries resolve against it. */
+function stripGitTerminator(env: SkillEnvironment, output: string): string {
+  if (env.path.sep === "\\" && output.endsWith("\r\n")) return output.slice(0, -2);
+  return output.endsWith("\n") ? output.slice(0, -1) : output;
+}
+
+/** The checkout root for directory writes and project catalog boundaries. */
 function findRepoRoot(env: SkillEnvironment, cwd: string, strictDiscovery = false): string | undefined {
   const output = git(env, cwd, ["rev-parse", "--show-toplevel"], strictDiscovery);
-  // The output is a path, not a remote name. Remove only Git's record terminator.
-  const root =
-    env.path.sep === "\\" && output?.endsWith("\r\n")
-      ? output.slice(0, -2)
-      : output?.endsWith("\n")
-        ? output.slice(0, -1)
-        : output;
+  const root = output === undefined ? undefined : stripGitTerminator(env, output);
   if (root === "" && strictDiscovery) throw new Error("Git checkout discovery failed: Git returned no checkout root.");
   return root === "" ? undefined : root;
+}
+
+/** Capture both paths in one Git discovery; `core.worktree` can put the worktree outside the Git directory. */
+function findCheckout(env: SkillEnvironment, cwd: string, strictDiscovery = false): Checkout {
+  const output = git(
+    env,
+    cwd,
+    ["rev-parse", "--show-toplevel", "--is-inside-work-tree", "--absolute-git-dir"],
+    strictDiscovery,
+  );
+  if (output === undefined) return { value: undefined };
+  // The boolean record separates the paths without trimming them or splitting embedded newlines.
+  const separator = env.path.sep === "\\" ? /\r?\n(?:true|false)\r?\n/ : /\n(?:true|false)\n/;
+  const parts = stripGitTerminator(env, output).split(separator);
+  const [root, gitDir] = parts;
+  if (parts.length !== 2 || !root || !gitDir || !env.path.isAbsolute(root) || !env.path.isAbsolute(gitDir)) {
+    throw new Error("Git checkout discovery failed: Git returned ambiguous checkout metadata.");
+  }
+  return { value: root, gitDir };
 }
 
 /**
@@ -406,11 +423,11 @@ export function configLocation(
   scope: SkillScope,
   cwd: string,
   agentDir: string,
-  checkoutRoot?: { value: string | undefined },
+  checkout?: Checkout,
 ): { path?: string; key?: string } {
   if (scope === "global") return { path: env.path.join(agentDir, "skills.json") };
   if (scope === "repo") {
-    const key = resolveRepoKey(env, cwd, checkoutRoot);
+    const key = resolveRepoKey(env, cwd, checkout);
     if (!key) throw new Error("Repository scope requires a git repository.");
     return { path: env.path.join(agentDir, "repo-skills.json"), key };
   }
@@ -637,9 +654,9 @@ type MutationTarget = { location: { path?: string; key?: string }; context: Entr
 function mutationTarget(env: SkillEnvironment, scope: SkillScope, cwd: string, agentDir: string): MutationTarget {
   if (scope === "repo") {
     // One checkout lookup selects the bucket and is the base its relative entries are written against.
-    const checkoutRoot = { value: findRepoRoot(env, cwd) };
-    const location = configLocation(env, scope, cwd, agentDir, checkoutRoot);
-    return { location, context: { cwd, scope, root: checkoutRoot.value } };
+    const checkout = findCheckout(env, cwd);
+    const location = configLocation(env, scope, cwd, agentDir, checkout);
+    return { location, context: { cwd, scope, root: checkout.value } };
   }
   const location = configLocation(env, scope, cwd, agentDir);
   return { location, context: { cwd, scope, root: scope === "directory" ? location.key : undefined } };
@@ -769,12 +786,12 @@ function readActiveSkillEntries(
   // entries with another's root. Discovery is strict only when a directory key depends on it.
   let discovery: CheckoutDiscovery;
   try {
-    discovery = { value: findRepoRoot(env, cwd, needsDirectoryKey) };
+    discovery = findCheckout(env, cwd, needsDirectoryKey);
   } catch (error) {
     discovery = { error };
   }
   const repoRoot = "value" in discovery ? discovery.value : undefined;
-  const key = resolveRepoKey(env, cwd, { value: repoRoot });
+  const key = resolveRepoKey(env, cwd, "value" in discovery ? discovery : { value: undefined });
   if (key) append("repo", safeRead(env.path.join(agentDir, "repo-skills.json"))[key]);
 
   // Directory entries come last, so on a name collision between different files the broader scope's skill
@@ -788,7 +805,7 @@ function readActiveSkillEntries(
 }
 
 /** The result of one checkout-root lookup: the root (undefined outside a checkout), or why discovery failed. */
-type CheckoutDiscovery = { value: string | undefined } | { error: unknown };
+type CheckoutDiscovery = Checkout | { error: unknown };
 
 function readDirectoryKey(
   env: SkillEnvironment,

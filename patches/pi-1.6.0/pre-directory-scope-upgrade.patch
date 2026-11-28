@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..4a7b643 100644
+index 0b4ae56..7c7a63a 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -67,20 +67,58 @@ function withSkillConfigLock(env, path, fn) {
@@ -68,20 +68,17 @@ index 0b4ae56..4a7b643 100644
  export function normalizeGitRemoteUrl(rawUrl) {
      if (!rawUrl)
          return undefined;
-@@ -105,25 +143,80 @@ export function normalizeGitRemoteUrl(rawUrl) {
+@@ -105,25 +143,91 @@ export function normalizeGitRemoteUrl(rawUrl) {
          return undefined;
      }
  }
 -export function resolveRepoKey(env, cwd) {
-+/**
-+ * `checkoutRoot` lets a caller that already looked up the checkout root key that same checkout: remotes are
-+ * then read from the root, and the no-remote fallback uses it rather than a second lookup.
-+ */
-+export function resolveRepoKey(env, cwd, checkoutRoot = { value: findRepoRoot(env, cwd) }) {
-+    // A captured checkout has a .git directory or gitfile. Open it directly, without ancestor discovery or
-+    // a path-list ceiling that cannot represent every checkout path. Without a root, still support bare repos.
-+    const gitDir = checkoutRoot.value === undefined ? [] : ["--git-dir=.git"];
-+    const remoteCwd = checkoutRoot.value ?? cwd;
++/** Use the same checkout for repository identity and relative entries, even when its metadata lives elsewhere. */
++export function resolveRepoKey(env, cwd, checkout = findCheckout(env, cwd)) {
++    // Pin remote probes to the captured metadata, never falling back to ancestor discovery if it disappears.
++    // A lookup outside a worktree still supports bare repositories for repo scope.
++    const gitDir = checkout.value === undefined ? [] : [`--git-dir=${checkout.gitDir}`];
++    const remoteCwd = checkout.value ?? cwd;
 +    const remoteUrl = (name) => normalizeGitRemoteUrl(git(env, remoteCwd, [...gitDir, "remote", "get-url", name]));
      for (const remote of ["upstream", "origin"]) {
 -        const key = normalizeGitRemoteUrl(git(env, cwd, ["remote", "get-url", remote]));
@@ -101,24 +98,38 @@ index 0b4ae56..4a7b643 100644
 -    const root = git(env, cwd, ["rev-parse", "--show-toplevel"]);
 +    // Keep the legacy on-disk key for repositories without a remote. Only the directory identity and
 +    // path resolution need the untrimmed checkout root; do not look up a second repo bucket.
-+    const root = checkoutRoot.value?.trim();
++    const root = checkout.value?.trim();
      if (!root)
          return undefined;
      const rel = env.path.relative(env.homedir(), root).split(env.path.sep).join("/");
      return rel && !rel.startsWith("..") && rel !== "." ? `local:~/${rel}` : `local:${root}`;
  }
-+/** The checkout root for `cwd`; relative repository entries resolve against it. */
++function stripGitTerminator(env, output) {
++    if (env.path.sep === "\\" && output.endsWith("\r\n"))
++        return output.slice(0, -2);
++    return output.endsWith("\n") ? output.slice(0, -1) : output;
++}
++/** The checkout root for directory writes and project catalog boundaries. */
 +function findRepoRoot(env, cwd, strictDiscovery = false) {
 +    const output = git(env, cwd, ["rev-parse", "--show-toplevel"], strictDiscovery);
-+    // The output is a path, not a remote name. Remove only Git's record terminator.
-+    const root = env.path.sep === "\\" && output?.endsWith("\r\n")
-+        ? output.slice(0, -2)
-+        : output?.endsWith("\n")
-+            ? output.slice(0, -1)
-+            : output;
++    const root = output === undefined ? undefined : stripGitTerminator(env, output);
 +    if (root === "" && strictDiscovery)
 +        throw new Error("Git checkout discovery failed: Git returned no checkout root.");
 +    return root === "" ? undefined : root;
++}
++/** Capture both paths in one Git discovery; `core.worktree` can put the worktree outside the Git directory. */
++function findCheckout(env, cwd, strictDiscovery = false) {
++    const output = git(env, cwd, ["rev-parse", "--show-toplevel", "--is-inside-work-tree", "--absolute-git-dir"], strictDiscovery);
++    if (output === undefined)
++        return { value: undefined };
++    // The boolean record separates the paths without trimming them or splitting embedded newlines.
++    const separator = env.path.sep === "\\" ? /\r?\n(?:true|false)\r?\n/ : /\n(?:true|false)\n/;
++    const parts = stripGitTerminator(env, output).split(separator);
++    const [root, gitDir] = parts;
++    if (parts.length !== 2 || !root || !gitDir || !env.path.isAbsolute(root) || !env.path.isAbsolute(gitDir)) {
++        throw new Error("Git checkout discovery failed: Git returned ambiguous checkout metadata.");
++    }
++    return { value: root, gitDir };
 +}
 +/**
 + * The directory base that keys directory-scope entries: the root of the current checkout or worktree inside a git
@@ -154,7 +165,7 @@ index 0b4ae56..4a7b643 100644
  export function sourceOf(entry) {
      if (typeof entry === "string")
          return entry;
-@@ -139,24 +232,36 @@ export function enabledEntries(value) {
+@@ -139,24 +243,36 @@ export function enabledEntries(value) {
      const enabled = value.enabled;
      return Array.isArray(enabled) ? enabled : [];
  }
@@ -179,12 +190,12 @@ index 0b4ae56..4a7b643 100644
      return scope.slice(2);
  }
 -export function configLocation(env, scope, cwd, agentDir) {
-+export function configLocation(env, scope, cwd, agentDir, checkoutRoot) {
++export function configLocation(env, scope, cwd, agentDir, checkout) {
      if (scope === "global")
          return { path: env.path.join(agentDir, "skills.json") };
      if (scope === "repo") {
 -        const key = resolveRepoKey(env, cwd);
-+        const key = resolveRepoKey(env, cwd, checkoutRoot);
++        const key = resolveRepoKey(env, cwd, checkout);
          if (!key)
              throw new Error("Repository scope requires a git repository.");
          return { path: env.path.join(agentDir, "repo-skills.json"), key };
@@ -195,7 +206,7 @@ index 0b4ae56..4a7b643 100644
      return {};
  }
  export function looksLikePath(value) {
-@@ -191,14 +296,18 @@ export function expandEnvironmentVariables(env, input) {
+@@ -191,14 +307,18 @@ export function expandEnvironmentVariables(env, input) {
  function resolveSkillPath(env, source, cwd) {
      return env.resolvePath(expandEnvironmentVariables(env, source).value, cwd, { trim: true });
  }
@@ -218,7 +229,7 @@ index 0b4ae56..4a7b643 100644
  /** `path` relative to `root` with `/` separators, comparing real paths, or undefined when it lies outside. */
  function pathInside(env, root, path) {
      const real = (value) => (env.fs.existsSync(value) ? env.fs.realpathSync(value) : value);
-@@ -211,22 +320,38 @@ function pathInside(env, root, path) {
+@@ -211,22 +331,38 @@ function pathInside(env, root, path) {
   * Chooses how an added path is written to configuration.
   *
   * Repository entries are shared by every checkout with the same remote, so a path inside the current checkout
@@ -264,7 +275,7 @@ index 0b4ae56..4a7b643 100644
  }
  /** Variables naming a working directory: a path spelled with them means the directory it named at add time. */
  const directoryVariables = new Set(["PWD", "OLDPWD"]);
-@@ -261,9 +386,12 @@ function unresolvedEntryHint(env, source, scope) {
+@@ -261,9 +397,12 @@ function unresolvedEntryHint(env, source, scope) {
          return unset;
      if (isAnchoredPath(env, expandEnvironmentVariables(env, source).value.trim()))
          return undefined;
@@ -280,7 +291,7 @@ index 0b4ae56..4a7b643 100644
  }
  function unresolvedSkillDiagnostic(env, entry) {
      const hint = unresolvedEntryHint(env, entry.source, entry.scope);
-@@ -291,62 +419,109 @@ function containsSkills(env, path, options) {
+@@ -291,62 +430,109 @@ function containsSkills(env, path, options) {
   * User input is normalized before it is stored, so a stored bare value is a catalog name and is compared
   * literally. Resolving it against whatever happens to exist in the current directory would let an unrelated
   * local folder make a catalog-name entry match, or block, a path entry. A path entry compares by the real path
@@ -322,9 +333,9 @@ index 0b4ae56..4a7b643 100644
 +function mutationTarget(env, scope, cwd, agentDir) {
 +    if (scope === "repo") {
 +        // One checkout lookup selects the bucket and is the base its relative entries are written against.
-+        const checkoutRoot = { value: findRepoRoot(env, cwd) };
-+        const location = configLocation(env, scope, cwd, agentDir, checkoutRoot);
-+        return { location, context: { cwd, scope, root: checkoutRoot.value } };
++        const checkout = findCheckout(env, cwd);
++        const location = configLocation(env, scope, cwd, agentDir, checkout);
++        return { location, context: { cwd, scope, root: checkout.value } };
 +    }
 +    const location = configLocation(env, scope, cwd, agentDir);
 +    return { location, context: { cwd, scope, root: scope === "directory" ? location.key : undefined } };
@@ -421,7 +432,7 @@ index 0b4ae56..4a7b643 100644
      const entries = [];
      const safeRead = (path) => {
          try {
-@@ -359,30 +534,65 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
+@@ -359,30 +545,65 @@ export function getActiveSkillEntries(env, { cwd, agentDir, strict = false, onWa
              return {};
          }
      };
@@ -452,14 +463,14 @@ index 0b4ae56..4a7b643 100644
 +    // entries with another's root. Discovery is strict only when a directory key depends on it.
 +    let discovery;
 +    try {
-+        discovery = { value: findRepoRoot(env, cwd, needsDirectoryKey) };
++        discovery = findCheckout(env, cwd, needsDirectoryKey);
      }
 -    return entries;
 +    catch (error) {
 +        discovery = { error };
 +    }
 +    const repoRoot = "value" in discovery ? discovery.value : undefined;
-+    const key = resolveRepoKey(env, cwd, { value: repoRoot });
++    const key = resolveRepoKey(env, cwd, "value" in discovery ? discovery : { value: undefined });
 +    if (key)
 +        append("repo", safeRead(env.path.join(agentDir, "repo-skills.json"))[key]);
 +    // Directory entries come last, so on a name collision between different files the broader scope's skill
@@ -503,7 +514,7 @@ index 0b4ae56..4a7b643 100644
      for (;;) {
          if (stopAt !== undefined) {
              const fromRoot = env.path.relative(stopAt, current);
-@@ -430,7 +640,8 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
+@@ -430,7 +651,8 @@ export async function getSkillCatalog(env, { cwd, agentDir, settingsManager, res
  async function resolveSkillSource(env, source, options) {
      if (looksLikePath(source)) {
          const resolvedPath = resolveSkillPath(env, source, options.cwd);
@@ -513,7 +524,7 @@ index 0b4ae56..4a7b643 100644
      }
      const resolvedPath = env.resolvePath(source, options.cwd, { trim: true });
      // Build the catalog once, then use it both to prefer catalog names over same-named local folders and to
-@@ -445,7 +656,7 @@ function commandName(allowSession = false) {
+@@ -445,7 +667,7 @@ function commandName(allowSession = false) {
  }
  export function usage(allowSession = false) {
      const command = commandName(allowSession);
@@ -522,7 +533,7 @@ index 0b4ae56..4a7b643 100644
      return [
          `Usage: ${command} <active|list|search|add|remove${allowSession ? "|reload" : ""}>`,
          `  ${command} active`,
-@@ -459,12 +670,31 @@ export function usage(allowSession = false) {
+@@ -459,12 +681,31 @@ export function usage(allowSession = false) {
  function runActiveCommand(env, rest, surface, options) {
      if (rest.length !== 0)
          throw new Error(`Usage: ${surface} active`);
@@ -557,7 +568,7 @@ index 0b4ae56..4a7b643 100644
          activeEntries: entries,
      };
  }
-@@ -483,42 +713,35 @@ async function runCatalogCommand(env, command, rest, surface, options) {
+@@ -483,42 +724,35 @@ async function runCatalogCommand(env, command, rest, surface, options) {
      };
  }
  /** What `add` writes for a resolved source: a catalog name as is, a path in its {@link persistedForm}. */
@@ -616,7 +627,7 @@ index 0b4ae56..4a7b643 100644
      if (!updated)
          throw new Error(`Skill is not enabled for ${scope} scope: ${source}`);
      return { exitCode: 0, lines: [`${command === "add" ? "Enabled" : "Disabled"} ${source} for ${scope} scope.`] };
-@@ -546,70 +769,75 @@ export async function runSkillsCommand(env, args, options) {
+@@ -546,70 +780,75 @@ export async function runSkillsCommand(env, args, options) {
   *
   * Entries are either paths, which must exist, or catalog names, which are looked up by name. Path entries
   * are expanded here, each time skills load, rather than when they are added: `~` and `$NAME` take the current
@@ -727,7 +738,7 @@ index 0b4ae56..4a7b643 100644
      }
      const catalog = await getSkillCatalog(env, {
          cwd,
-@@ -625,38 +853,36 @@ export async function resolveSkillEntryPath(env, context, source) {
+@@ -625,38 +864,36 @@ export async function resolveSkillEntryPath(env, context, source) {
   * Returns the line to show, or `undefined` when it has already reported an error. The list is mutated in
   * place because the loader holds the same array.
   */
@@ -782,7 +793,7 @@ index 0b4ae56..4a7b643 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -664,17 +890,20 @@ async function applySessionSkillChange(env, session, context) {
+@@ -664,17 +901,20 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -812,7 +823,7 @@ index 0b4ae56..4a7b643 100644
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -697,13 +926,13 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -697,13 +937,13 @@ export async function handleSkillsInteractive(env, text, context) {
      }
      let lines = result.lines;
      if (result.session) {

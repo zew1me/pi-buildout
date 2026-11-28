@@ -316,7 +316,9 @@ resolver or add a new escape syntax.
 - The output of `git rev-parse --local-env-vars` identified repository-local environment variable names to exclude from
   the overlay's checkout discovery subprocess. Git's `setup.c` identifies the two C-locale non-repository diagnostics
   used to distinguish them from other `rev-parse` failures with the same status. The overlay matches those diagnostic
-  strings but does not copy Git's repository discovery implementation.
+  strings but does not copy Git's repository discovery implementation. For repository keys, it uses Git's documented
+  `rev-parse` options (`--show-toplevel`, `--is-inside-work-tree`, `--absolute-git-dir`) to capture the worktree and
+  metadata together, then uses `--git-dir` to pin remote lookups. The overlay does not infer Git metadata locations.
 - Git's documented `--git-dir` option lets remote lookup open the captured checkout's `.git` directly, including a
   linked worktree's gitfile. The overlay uses that CLI contract instead of a path-list ceiling; no Git code was copied.
 
