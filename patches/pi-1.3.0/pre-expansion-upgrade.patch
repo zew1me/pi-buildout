@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 2fd4257..b169ad6 100644
+index 2fd4257..90d0516 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -67,20 +67,58 @@ function withSkillConfigLock(env, path, fn) {
@@ -798,12 +798,13 @@ index 2fd4257..b169ad6 100644
 +        return `Enabled ${session.path} for this session.`;
      }
      // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
-     // paths after applying the same resolution used by the resource loader.
+-    // paths after applying the same resolution used by the resource loader.
 -    const normalized = looksLikePath(session.source) ? resolveResourcePath(session.source) : session.source;
 -    const skillPaths = looksLikePath(session.source)
++    // paths after expanding once and trimming, just as session add does.
 +    const pathSource = looksLikePath(session.source);
-+    const value = pathSource ? expandEnvironmentVariables(env, session.source).value : session.source;
-+    if (pathSource && value.trim() === "") {
++    const value = pathSource ? expandEnvironmentVariables(env, session.source).value.trim() : session.source;
++    if (pathSource && value === "") {
 +        context.showError(`Skill is not enabled for this session: ${session.source}`);
 +        return undefined;
 +    }
@@ -917,7 +918,7 @@ index 3d18e7d..4a2a414 100644
      lockSync: (directory, options) => lockfile.lockSync(directory, options),
      sleepSync: (milliseconds) => {
 diff --git a/docs/skills.md b/docs/skills.md
-index a6adcc6..f32a19e 100644
+index a6adcc6..cc1fbf4 100644
 --- a/docs/skills.md
 +++ b/docs/skills.md
 @@ -80,8 +80,11 @@ A catalog skill enters the system prompt only when it is active. Active skills c
@@ -950,7 +951,7 @@ index a6adcc6..f32a19e 100644
 +}
 +```
 +
-+Clones and worktrees share repository-scoped entries only if they resolve to the same repository key. For example, a fork that selects its own `origin` instead of the original repository's remote gets a different key. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. Keys are real paths, so a directory reached through a symlink shares the entries of its target. On macOS and Windows a key uses the spelling stored on disk, so a differently cased path to the same directory on a case-insensitive volume shares its entries too. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
++Clones and worktrees share repository-scoped entries only if they resolve to the same repository key. For example, a fork that selects its own `origin` instead of the original repository's remote gets a different key. Directory scope follows the path instead: inside a git repository the key is the root of the current checkout or worktree, as `git rev-parse --show-toplevel` reports it, so each worktree has its own entries; outside a repository the key is the working directory itself. Keys are real paths, so a directory reached through a symlink shares the entries of its target. Removing a directory's last entry removes its key; entries for directories that no longer exist are left in place and have no effect.
 +
  Manage activation with either the interactive `/skills` command or the one-shot CLI:
  

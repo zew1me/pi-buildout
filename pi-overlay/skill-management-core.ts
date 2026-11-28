@@ -1185,10 +1185,10 @@ function applySessionSkillChange(
   }
 
   // Removal must not resolve packages. Recover bare names from the already-enabled paths, and compare explicit
-  // paths after applying the same resolution used by the resource loader.
+  // paths after expanding once and trimming, just as session add does.
   const pathSource = looksLikePath(session.source);
-  const value = pathSource ? expandEnvironmentVariables(env, session.source).value : session.source;
-  if (pathSource && value.trim() === "") {
+  const value = pathSource ? expandEnvironmentVariables(env, session.source).value.trim() : session.source;
+  if (pathSource && value === "") {
     context.showError(`Skill is not enabled for this session: ${session.source}`);
     return undefined;
   }

@@ -2150,6 +2150,21 @@ test("session add and remove agree when an expanded value contains a literal var
   assert.equal(calls.reloads, 2);
 });
 
+test("session removal trims the expansion just like session add", async () => {
+  const path = "/opt/review";
+  const withSpace = `${path} `;
+  const { env } = createEnvironment({ variables: { SKILL_DIR: withSpace }, files: { [path]: "" } });
+  env.resolvePath = (input, cwd, options) => posix.resolve(cwd, options.trim ? input.trim() : input);
+  const paths = [withSpace];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+
+  await handleSkillsInteractive(env, "/skills add $SKILL_DIR --session", context);
+  assert.deepEqual(paths, [withSpace, path]);
+  await handleSkillsInteractive(env, "/skills remove $SKILL_DIR --session", context);
+  assert.deepEqual(paths, [withSpace]);
+  assert.deepEqual(calls.errors, []);
+});
+
 test("/skills remove --session does not treat an empty expanded path as the working directory", async () => {
   const { env } = createEnvironment({ variables: { SKILL_DIR: "" } });
   const paths = ["/work"];
