@@ -305,6 +305,11 @@ pinned, checksum-verified inputs, and is not committed here.
 - The downstream Git builder hardening and Pi 1.6.0 overlay were inspected for overlap. No downstream code, artifacts,
   fork-specific trust rules, release policy, or retained-version choices were imported in this comparison.
 
+The session skill listing uses Pi's existing `file://` operand support in `packages/coding-agent/src/utils/paths.ts`
+(verified across the pinned releases, including 1.6.0 at `faac585884ae2c013a6b1400f3e9e77f10b34bac`) so displayed paths
+with spaces or literal variable syntax can be removed. The overlay delegates decoding to Pi and does not copy its path
+resolver or add a new escape syntax.
+
 ## Git checkout discovery
 
 - Source: [Git](https://git-scm.com/), [canonical source repository](https://github.com/git/git), `v2.55.0`, GPL-2.0.

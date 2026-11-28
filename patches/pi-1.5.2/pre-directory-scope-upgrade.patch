@@ -1,5 +1,5 @@
 diff --git a/dist/core/skill-management-core.js b/dist/core/skill-management-core.js
-index 0b4ae56..8a4842b 100644
+index 0b4ae56..4a7b643 100644
 --- a/dist/core/skill-management-core.js
 +++ b/dist/core/skill-management-core.js
 @@ -67,20 +67,58 @@ function withSkillConfigLock(env, path, fn) {
@@ -782,7 +782,7 @@ index 0b4ae56..8a4842b 100644
      const matches = additionalSkillPaths.some(direct) ? direct : (path) => path === localPath;
      if (!additionalSkillPaths.some(matches)) {
          context.showError(`Skill is not enabled for this session: ${session.source}`);
-@@ -664,17 +890,13 @@ async function applySessionSkillChange(env, session, context) {
+@@ -664,17 +890,20 @@ async function applySessionSkillChange(env, session, context) {
      }
      const retained = additionalSkillPaths.filter((path) => !matches(path));
      additionalSkillPaths.splice(0, additionalSkillPaths.length, ...retained);
@@ -798,14 +798,21 @@ index 0b4ae56..8a4842b 100644
 -    return entries.length
 -        ? ["Active skills:", ...entries.map((entry) => `  ${entry.scope}: ${entry.source}`)]
 -        : ["Skills: none"];
-+function formatActiveSkillLines(lines, additionalSkillPaths) {
++function formatActiveSkillLines(env, lines, additionalSkillPaths) {
 +    if (!additionalSkillPaths?.length)
 +        return lines;
-+    return ["Active skills:", ...lines.slice(1), ...additionalSkillPaths.map((source) => `  session: ${source}`)];
++    const sessionLines = additionalSkillPaths.map((path) => {
++        // The slash command splits on whitespace and expands variables before Pi decodes file URLs.
++        const operand = env.path.isAbsolute(path) && (/\s/.test(path) || path.search(environmentVariableReference) !== -1)
++            ? env.toFileUrl(path).replaceAll("$", "%24")
++            : path;
++        return `  session: ${operand}`;
++    });
++    return ["Active skills:", ...lines.slice(1), ...sessionLines];
  }
  /**
   * Runs the interactive `/skills` command.
-@@ -697,13 +919,13 @@ export async function handleSkillsInteractive(env, text, context) {
+@@ -697,13 +926,13 @@ export async function handleSkillsInteractive(env, text, context) {
      }
      let lines = result.lines;
      if (result.session) {
@@ -817,15 +824,15 @@ index 0b4ae56..8a4842b 100644
      }
      if (args[0] === "active") {
 -        lines = formatActiveSkillLines(result.activeEntries, context.additionalSkillPaths);
-+        lines = formatActiveSkillLines(lines, context.additionalSkillPaths);
++        lines = formatActiveSkillLines(env, lines, context.additionalSkillPaths);
      }
      if (args[0] === "add" || args[0] === "remove") {
          if (context.isBusy()) {
 diff --git a/dist/core/skill-management.js b/dist/core/skill-management.js
-index 8b712ef..4a2a414 100644
+index 8b712ef..89f45a7 100644
 --- a/dist/core/skill-management.js
 +++ b/dist/core/skill-management.js
-@@ -10,7 +10,7 @@
+@@ -10,9 +10,10 @@
   */
  import { execFileSync } from "node:child_process";
  import chalk from "chalk";
@@ -833,8 +840,11 @@ index 8b712ef..4a2a414 100644
 +import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
  import { homedir } from "node:os";
  import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
++import { pathToFileURL } from "node:url";
  import lockfile from "proper-lockfile";
-@@ -25,11 +25,38 @@ import { loadSkills, loadSkillsFromDir } from "./skills.js";
+ import { createProjectTrustContext } from "../cli/project-trust.js";
+ import { CONFIG_DIR_NAME } from "../config.js";
+@@ -25,11 +26,39 @@ import { loadSkills, loadSkillsFromDir } from "./skills.js";
  import * as core from "./skill-management-core.js";
  const lockWait = new Int32Array(new SharedArrayBuffer(4));
  const env = {
@@ -866,6 +876,7 @@ index 8b712ef..4a2a414 100644
 +    },
      path: { dirname, isAbsolute, join, relative, resolve, sep },
      homedir,
++    toFileUrl: (path) => pathToFileURL(path).href,
      environmentVariable: (name) => process.env[name],
 -    execFileSync,
 +    execFileSync: (file, args, { env: overrides, ...options }) => execFileSync(file, args, {

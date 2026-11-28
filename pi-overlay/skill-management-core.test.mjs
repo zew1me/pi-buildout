@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, renameSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { delimiter, join, posix } from "node:path";
 import { test } from "node:test";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 import {
   configLocation,
@@ -88,6 +89,7 @@ function createEnvironment({ files = {}, git = {}, catalog = [], variables = {} 
       sep: "/",
     },
     homedir: () => "/home/dev",
+    toFileUrl: (path) => pathToFileURL(path).href,
     environmentVariable: (name) => (Object.hasOwn(variables, name) ? variables[name] : undefined),
     execFileSync: (_file, args) => {
       const key = gitCommand(args);
@@ -2100,6 +2102,21 @@ test("/skills active includes session paths alongside persisted scopes", async (
   assert.deepEqual(calls.output, [
     ["Active skills:", "  global: global-skill", "  session: /tmp/session-skill"].join("\n"),
   ]);
+});
+
+test("session paths listed by active can be pasted into remove without expansion or word splitting", async () => {
+  const literal = "/opt/$PROFILE/review notes";
+  const { env } = createEnvironment({ variables: { PROFILE: "prod" } });
+  const paths = [literal, "/opt/prod/review notes"];
+  const { context, calls } = createInteractiveContext(env, { additionalSkillPaths: paths });
+  context.resolveResourcePath = (path) => (path.startsWith("file://") ? fileURLToPath(path) : path);
+
+  await handleSkillsInteractive(env, "/skills active", context);
+  const operand = calls.output[0]?.split("\n")[1]?.replace("  session: ", "");
+  assert.equal(operand, "file:///opt/%24PROFILE/review%20notes");
+  await handleSkillsInteractive(env, `/skills remove ${operand} --session`, context);
+  assert.deepEqual(paths, ["/opt/prod/review notes"]);
+  assert.deepEqual(calls.errors, []);
 });
 
 test("/skills add --session activates for the session and reloads", async () => {

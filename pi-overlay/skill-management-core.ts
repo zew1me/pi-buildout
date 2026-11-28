@@ -57,6 +57,7 @@ export type SkillEnvironment = {
   fs: FileSystemSeam;
   path: PathSeam;
   homedir: () => string;
+  toFileUrl: (path: string) => string;
   /** Reads one environment variable, mirroring `process.env[name]`. */
   environmentVariable: (name: string) => string | undefined;
   /** Runs a subprocess and returns stdout, mirroring `child_process.execFileSync`. */
@@ -1230,9 +1231,21 @@ function applySessionSkillChange(
 }
 
 /** Renders `/skills active`, which adds session paths to the persisted scopes the shared command reports. */
-function formatActiveSkillLines(lines: string[], additionalSkillPaths: string[] | undefined): string[] {
+function formatActiveSkillLines(
+  env: SkillEnvironment,
+  lines: string[],
+  additionalSkillPaths: string[] | undefined,
+): string[] {
   if (!additionalSkillPaths?.length) return lines;
-  return ["Active skills:", ...lines.slice(1), ...additionalSkillPaths.map((source) => `  session: ${source}`)];
+  const sessionLines = additionalSkillPaths.map((path) => {
+    // The slash command splits on whitespace and expands variables before Pi decodes file URLs.
+    const operand =
+      env.path.isAbsolute(path) && (/\s/.test(path) || path.search(environmentVariableReference) !== -1)
+        ? env.toFileUrl(path).replaceAll("$", "%24")
+        : path;
+    return `  session: ${operand}`;
+  });
+  return ["Active skills:", ...lines.slice(1), ...sessionLines];
 }
 
 /**
@@ -1268,7 +1281,7 @@ export async function handleSkillsInteractive(
   }
 
   if (args[0] === "active") {
-    lines = formatActiveSkillLines(lines, context.additionalSkillPaths);
+    lines = formatActiveSkillLines(env, lines, context.additionalSkillPaths);
   }
 
   if (args[0] === "add" || args[0] === "remove") {

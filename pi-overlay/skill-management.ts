@@ -14,6 +14,7 @@ import chalk from "chalk";
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 import lockfile from "proper-lockfile";
 import { createProjectTrustContext } from "../cli/project-trust.ts";
 import { CONFIG_DIR_NAME } from "../config.ts";
@@ -76,6 +77,7 @@ const env: SkillEnvironment = {
   },
   path: { dirname, isAbsolute, join, relative, resolve, sep },
   homedir,
+  toFileUrl: (path) => pathToFileURL(path).href,
   environmentVariable: (name) => process.env[name],
   execFileSync: (file, args, { env: overrides, ...options }) =>
     execFileSync(file, args, {
